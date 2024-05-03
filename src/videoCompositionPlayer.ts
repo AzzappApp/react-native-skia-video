@@ -24,7 +24,7 @@ export const useVideoCompositionPlayer = ({
   width,
   height,
   autoPlay = true,
-  isLooping = false,
+  isLooping = true,
   onReadyToPlay,
   onComplete,
   onError,

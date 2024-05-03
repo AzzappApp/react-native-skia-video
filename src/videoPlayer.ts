@@ -4,7 +4,7 @@ import useEventListener from './utils/useEventListener';
 import type { VideoDimensions, VideoFrame, VideoPlayer } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
 
-type UseVideoPlayerOptions = {
+export type UseVideoPlayerOptions = {
   uri: string | null;
   autoPlay?: boolean;
   isLooping?: boolean;
@@ -41,12 +41,13 @@ export const useVideoPlayer = ({
   }, [isErrored, uri]);
 
   const currentFrame = useSharedValue<null | VideoFrame>(null);
-  useEffect(() => {
-    return () => {
-      player?.dispose();
+  useEffect(
+    () => () => {
       currentFrame.value = null;
-    };
-  }, [player, currentFrame]);
+      player?.dispose();
+    },
+    [player, currentFrame]
+  );
 
   const retry = useCallback(() => {
     setIsErrored(false);
@@ -86,11 +87,10 @@ export const useVideoPlayer = ({
   }, [player, autoPlay]);
 
   const frameCallback = useFrameCallback(() => {
-    if (!player) {
+    if (!player || (!player.isPlaying && currentFrame.value)) {
       return;
     }
     let nextFrame = player.decodeNextFrame();
-
     if (nextFrame) {
       currentFrame.value = nextFrame;
     }
