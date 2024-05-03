@@ -1,12 +1,25 @@
-import * as React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet, Button } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import {
+  createNativeStackNavigator,
+  type NativeStackScreenProps,
+} from '@react-navigation/native-stack';
+import VideoPlayerExample from './VideoPlayerExample';
 
-function HomeScreen() {
+type RootStackParamList = {
+  Home: undefined;
+  VideoPlayer: undefined;
+};
+
+function HomeScreen({
+  navigation,
+}: NativeStackScreenProps<RootStackParamList>) {
   return (
     <View style={styles.container}>
-      <Text>Home Screen</Text>
+      <Button
+        title="VideoPlayer Example"
+        onPress={() => navigation.push('VideoPlayer')}
+      />
     </View>
   );
 }
@@ -18,6 +31,7 @@ function App() {
     <NavigationContainer>
       <Stack.Navigator>
         <Stack.Screen name="Home" component={HomeScreen} />
+        <Stack.Screen name="VideoPlayer" component={VideoPlayerExample} />
       </Stack.Navigator>
     </NavigationContainer>
   );

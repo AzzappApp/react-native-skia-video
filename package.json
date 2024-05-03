@@ -129,6 +129,9 @@
       "prettier"
     ],
     "rules": {
+      "react/react-in-jsx-scope": "off",
+      "@typescript-eslint/no-shadow": "off",
+      "react-native/no-inline-styles": "off",
       "prettier/prettier": [
         "error",
         {

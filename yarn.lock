@@ -22,6 +22,7 @@ __metadata:
     "@babel/core": ^7.20.0
     "@babel/preset-env": ^7.20.0
     "@babel/runtime": ^7.20.0
+    "@react-native-community/slider": ^4.5.2
     "@react-native/babel-preset": 0.74.81
     "@react-native/metro-config": 0.74.81
     "@react-native/typescript-config": 0.74.81
@@ -29,6 +30,7 @@ __metadata:
     "@react-navigation/native-stack": ^6.9.26
     "@shopify/react-native-skia": ^1.2.3
     babel-plugin-module-resolver: ^5.0.0
+    pexels: ^1.4.0
     react: 18.2.0
     react-native: 0.74.0
     react-native-reanimated: 3.10.0
@@ -2839,6 +2841,13 @@ __metadata:
   bin:
     react-native: build/bin.js
   checksum: fd450d26be7de6950d25112184e645e0e5eacee2883869c2521f8dfe5be3225dfa5753531f847c5d2d489b55993b048338fbce0a6da99784e269d6283d695cc2
+  languageName: node
+  linkType: hard
+
+"@react-native-community/slider@npm:^4.5.2":
+  version: 4.5.2
+  resolution: "@react-native-community/slider@npm:4.5.2"
+  checksum: 99023660756a1a876fc3d9c1a7cec13f7e414abee3452e1e03d2794bc7f46a9d689740bed5c3889914adf6ed85a55c6017e2f0d73b5de353025ba52bba6e79e1
   languageName: node
   linkType: hard
 
@@ -8151,6 +8160,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"isomorphic-fetch@npm:^3.0.0":
+  version: 3.0.0
+  resolution: "isomorphic-fetch@npm:3.0.0"
+  dependencies:
+    node-fetch: ^2.6.1
+    whatwg-fetch: ^3.4.1
+  checksum: e5ab79a56ce5af6ddd21265f59312ad9a4bc5a72cebc98b54797b42cb30441d5c5f8d17c5cd84a99e18101c8af6f90c081ecb8d12fd79e332be1778d58486d75
+  languageName: node
+  linkType: hard
+
 "issue-parser@npm:6.0.0":
   version: 6.0.0
   resolution: "issue-parser@npm:6.0.0"
@@ -10013,7 +10032,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"node-fetch@npm:^2.2.0, node-fetch@npm:^2.6.0, node-fetch@npm:^2.6.7":
+"node-fetch@npm:^2.2.0, node-fetch@npm:^2.6.0, node-fetch@npm:^2.6.1, node-fetch@npm:^2.6.7":
   version: 2.7.0
   resolution: "node-fetch@npm:2.7.0"
   dependencies:
@@ -10657,6 +10676,15 @@ __metadata:
   version: 4.0.0
   resolution: "path-type@npm:4.0.0"
   checksum: 5b1e2daa247062061325b8fdbfd1fb56dde0a448fb1455453276ea18c60685bdad23a445dc148cf87bc216be1573357509b7d4060494a6fd768c7efad833ee45
+  languageName: node
+  linkType: hard
+
+"pexels@npm:^1.4.0":
+  version: 1.4.0
+  resolution: "pexels@npm:1.4.0"
+  dependencies:
+    isomorphic-fetch: ^3.0.0
+  checksum: 7345486ae818c1110118922af9d604bd0738452bef9cf0282be7894c6d2a2b52f860f5570932340dad7c7ef0f9a2519919187e441574c2f90c5311692250a6c2
   languageName: node
   linkType: hard
 
@@ -13313,7 +13341,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"whatwg-fetch@npm:^3.0.0":
+"whatwg-fetch@npm:^3.0.0, whatwg-fetch@npm:^3.4.1":
   version: 3.6.20
   resolution: "whatwg-fetch@npm:3.6.20"
   checksum: c58851ea2c4efe5c2235f13450f426824cf0253c1d45da28f45900290ae602a20aff2ab43346f16ec58917d5562e159cd691efa368354b2e82918c2146a519c5

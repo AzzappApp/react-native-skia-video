@@ -1,37 +1,53 @@
-import React, { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { Blur, Canvas, Image, Rect, Skia } from '@shopify/react-native-skia';
 import {
-  Canvas,
-  Circle,
-  DisplacementMap,
-  Image,
-  Skia,
-  Turbulence,
-} from '@shopify/react-native-skia';
-import { Button, View } from 'react-native';
+  ActivityIndicator,
+  Button,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { useVideoPlayer } from '@azzapp/react-native-skia-video';
-import { useDerivedValue } from 'react-native-reanimated';
+import Slider from '@react-native-community/slider';
+import Animated, {
+  useDerivedValue,
+  useFrameCallback,
+  useSharedValue,
+} from 'react-native-reanimated';
+import type { Video } from 'pexels';
+import pexelsClient from './helpers/pexelsClient';
 
 const VideoPlayerExample = () => {
-  const [uri, setUri] = useState<string | null>(
-    'https://res.cloudinary.com/azzapp/video/upload/a0x4zbyyoyqrny9dlne4lt4z.mp4'
-  );
-  const width = 256;
-  const height = 256;
+  const [video, setVideo] = useState<Video | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [blur, setBlur] = useState(false);
+
+  const loadRandomVideo = useCallback(() => {
+    setLoading(true);
+    setVideo(null);
+    pexelsClient.videos
+      .popular({ per_page: 1, page: Math.round(Math.random() * 1000) })
+      .then((response) => {
+        if ('error' in response) {
+          console.error(response.error);
+          return;
+        }
+        setVideo(response.videos[0] ?? null);
+      }, console.error);
+  }, []);
+
+  useEffect(() => {
+    loadRandomVideo();
+  }, [loadRandomVideo]);
 
   const { currentFrame, player } = useVideoPlayer({
-    uri,
+    uri: video?.video_files.find((file) => file.quality === 'hd')?.link ?? null,
     isLooping: true,
     onReadyToPlay() {
-      console.log('on ready to play');
+      setLoading(false);
     },
-    onBufferingEnd() {
-      console.log('on bufffering end');
-    },
-    onPlayingStatusChange(playing) {
-      console.log('on playing status change', playing);
-    },
-    onComplete() {
-      console.log('on complete');
+    onPlayingStatusChange(isPlaying) {
+      setIsPlaying(isPlaying);
     },
   });
 
@@ -43,34 +59,89 @@ const VideoPlayerExample = () => {
     return Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
   });
 
+  const currentTime = useSharedValue(0);
+  useFrameCallback(() => {
+    currentTime.value = player?.currentTime ?? 0;
+  }, true);
+
+  const { width: windowWidth } = useWindowDimensions();
+  const aspectRatio = video ? video.width / video.height : 16 / 9;
+  const videoDimensions =
+    aspectRatio >= 1
+      ? {
+          width: windowWidth,
+          height: windowWidth / aspectRatio,
+        }
+      : {
+          width: windowWidth * aspectRatio,
+          height: windowWidth,
+        };
+
+  const canvasDimensions = {
+    width: windowWidth,
+    height: videoDimensions.height,
+  };
+
   return (
-    <View
-      // eslint-disable-next-line react-native/no-inline-styles
-      style={{ flex: 1, justifyContent: 'space-around', alignItems: 'center' }}
-    >
-      <Canvas style={{ width, height }}>
+    <View style={{ flex: 1 }}>
+      <Canvas style={canvasDimensions}>
+        <Rect
+          x={0}
+          y={0}
+          width={canvasDimensions.width}
+          height={canvasDimensions.height}
+          color="black"
+        />
         <Image
-          rect={{
-            x: 0,
-            y: 0,
-            width: width,
-            height: height,
-          }}
+          x={canvasDimensions.width / 2 - videoDimensions.width / 2}
+          y={0}
+          width={videoDimensions.width}
+          height={videoDimensions.height}
           image={videoImage}
         >
-          <DisplacementMap channelX="g" channelY="a" scale={20}>
-            <Turbulence freqX={0.01} freqY={0.05} octaves={2} seed={2} />
-          </DisplacementMap>
+          <Blur blur={blur ? 5 : 0} />
         </Image>
-        <Circle c={{ x: width / 2, y: height / 2 }} r={50} color="#FF000055" />
       </Canvas>
-      {/* <Button title="Load" onPress={pickImage} /> */}
-      <Button title="Delete" onPress={() => setUri(null)} />
-      <Button title="Seek" onPress={() => player?.seekTo(0)} />
-      <Button title="Play" onPress={() => player?.play()} />
-      <Button title="Pause" onPress={() => player?.pause()} />
+      {loading && (
+        <ActivityIndicator
+          size="large"
+          color="white"
+          style={{
+            position: 'absolute',
+            top: canvasDimensions.height / 2 - 18,
+            left: canvasDimensions.width / 2 - 18,
+          }}
+        />
+      )}
+      <View style={{ flex: 1, gap: 20, alignItems: 'center' }}>
+        <AnimatedSlider
+          value={currentTime}
+          minimumValue={0}
+          maximumValue={video?.duration ?? 0}
+          onValueChange={(value) => {
+            player?.seekTo(value * 1000);
+          }}
+          style={{ alignSelf: 'stretch' }}
+        />
+        <Button
+          title={isPlaying ? 'Pause' : 'Play'}
+          onPress={() => (isPlaying ? player?.pause() : player?.play())}
+          disabled={loading}
+        />
+        <Button
+          title={'Load Random Video'}
+          onPress={loadRandomVideo}
+          disabled={loading}
+        />
+        <Button
+          title={blur ? 'Unblur' : 'Blur'}
+          onPress={() => setBlur((blur) => !blur)}
+        />
+      </View>
     </View>
   );
 };
 
 export default VideoPlayerExample;
+
+const AnimatedSlider = Animated.createAnimatedComponent(Slider);
