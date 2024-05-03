@@ -5,7 +5,8 @@ buildscript {
   }
 
   dependencies {
-    classpath "com.android.tools.build:gradle:7.2.1"
+    classpath("com.android.tools.build:gradle")
+    classpath("com.facebook.react:react-native-gradle-plugin")
   }
 }
 
@@ -18,6 +19,34 @@ apply plugin: "com.android.library"
 if (isNewArchitectureEnabled()) {
   apply plugin: "com.facebook.react"
 }
+
+
+import java.nio.file.Paths
+
+static def findNodeModules(baseDir) {
+  def basePath = baseDir.toPath().normalize()
+  // Node's module resolution algorithm searches up to the root directory,
+  // after which the base path will be null
+  while (basePath) {
+    def nodeModulesPath = Paths.get(basePath.toString(), "node_modules")
+    def reactNativePath = Paths.get(nodeModulesPath.toString(), "react-native")
+    if (nodeModulesPath.toFile().exists() && reactNativePath.toFile().exists()) {
+      return nodeModulesPath.toString()
+    }
+    basePath = basePath.getParent()
+  }
+  throw new GradleException("React-Native-Skia-Video: Failed to find node_modules/ path!")
+}
+
+def nodeModules = findNodeModules(projectDir)
+logger.warn("react-native-skia-video: node_modules/ found at: ${nodeModules}")
+
+def buildType = "debug"
+tasks.all({ task ->
+  if (task.name == "buildCMakeRelease") {
+    buildType = "release"
+  }
+})
 
 def getExtOrDefault(name) {
   return rootProject.ext.has(name) ? rootProject.ext.get(name) : project.properties["ReactNativeSkiaVideo_" + name]
@@ -36,9 +65,14 @@ def supportsNamespace() {
   return (major == 7 && minor >= 3) || major >= 8
 }
 
+def reactNativeArchitectures() {
+  def value = project.getProperties().get("reactNativeArchitectures")
+  return value ? value.split(",") : ["armeabi-v7a", "x86", "x86_64", "arm64-v8a"]
+}
+
 android {
   if (supportsNamespace()) {
-    namespace "com.azzapp.reactnativeskiavideo"
+    namespace "com.azzapp.rnskv"
 
     sourceSets {
       main {
@@ -58,6 +92,10 @@ android {
     externalNativeBuild {
       cmake {
         cppFlags "-O2 -frtti -fexceptions -Wall -fstack-protector-all"
+        arguments "-DANDROID_STL=c++_shared",
+          "-DNODE_MODULES_DIR=${nodeModules}",
+          "-DBUILD_TYPE=${buildType}"
+        abiFilters (*reactNativeArchitectures())
       }
     }
   }
@@ -68,8 +106,22 @@ android {
     }
   }
 
+  packagingOptions {
+    doNotStrip buildType == 'debug' ? "**/**/*.so" : ''
+    excludes = [
+      "META-INF",
+      "META-INF/**",
+      "**/librnskia.so",
+      "**/libjsi.so",
+      "**/libreact_nativemodule_core.so",
+      "**/libturbomodulejsijni.so",
+      "**/libc++_shared.so",
+      "**/libfbjni.so"
+    ]
+  }
+
   buildFeatures {
-    buildConfig true
+    prefab true
   }
 
   buildTypes {
@@ -107,18 +159,26 @@ repositories {
   google()
 }
 
-
+def MEDIA3_VERSION = "1.2.1"
 dependencies {
   // For < 0.71, this will be from the local maven repo
   // For > 0.71, this will be replaced by `com.facebook.react:react-android:$version` by react gradle plugin
   //noinspection GradleDynamicVersion
   implementation "com.facebook.react:react-native:+"
+  implementation(project(":shopify_react-native-skia")) {
+    exclude group: "com.facebook.react", module: "react-native"
+  }
+  implementation project(":react-native-reanimated")
+
+  implementation "androidx.media3:media3-exoplayer:${MEDIA3_VERSION}"
+  implementation "androidx.media3:media3-datasource:${MEDIA3_VERSION}"
+  implementation "androidx.media3:media3-exoplayer-hls:${MEDIA3_VERSION}"
 }
 
 if (isNewArchitectureEnabled()) {
   react {
     jsRootDir = file("../src/")
     libraryName = "ReactNativeSkiaVideo"
-    codegenJavaPackageName = "com.azzapp.reactnativeskiavideo"
+    codegenJavaPackageName = "com.azzapp.rnskv"
   }
 }

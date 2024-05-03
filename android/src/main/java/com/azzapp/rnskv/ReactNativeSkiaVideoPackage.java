@@ -1,4 +1,4 @@
-package com.azzapp.reactnativeskiavideo;
+package com.azzapp.rnskv;
 
 import androidx.annotation.Nullable;
 

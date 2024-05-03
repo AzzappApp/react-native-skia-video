@@ -1,4 +1,4 @@
-package com.azzapp.reactnativeskiavideo;
+package com.azzapp.rnskv;
 
 import com.facebook.react.bridge.ReactApplicationContext;
 

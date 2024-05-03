@@ -29,6 +29,7 @@
     "example": "yarn workspace @azzapp/react-native-skia-video-example",
     "test": "jest",
     "typecheck": "tsc --noEmit",
+    "format-cxx": "./scripts/clang-format.sh",
     "lint": "eslint \"**/*.{js,ts,tsx}\"",
     "clean": "del-cli android/build example/android/build example/android/app/build example/ios/build lib",
     "prepare": "bob build",
@@ -37,11 +38,15 @@
   "keywords": [
     "react-native",
     "ios",
-    "android"
+    "android",
+    "skia",
+    "video",
+    "react-native-skia",
+    "video-composition"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AzzappApp/react-native-skia-video.git.git"
+    "url": "git+https://github.com/AzzappApp/react-native-skia-video.git"
   },
   "author": "Azzapp <contact@azzapp.com> (http://www.azzapp.com)",
   "license": "MIT",
@@ -57,6 +62,7 @@
     "@evilmartians/lefthook": "^1.5.0",
     "@react-native/eslint-config": "^0.73.1",
     "@release-it/conventional-changelog": "^5.0.0",
+    "@shopify/react-native-skia": "^1.2.3",
     "@types/jest": "^29.5.5",
     "@types/react": "^18.2.44",
     "commitlint": "^17.0.2",
@@ -69,6 +75,7 @@
     "react": "18.2.0",
     "react-native": "0.74.0",
     "react-native-builder-bob": "^0.20.0",
+    "react-native-reanimated": "^3.10.0",
     "release-it": "^15.0.0",
     "turbo": "^1.10.7",
     "typescript": "^5.2.2"
@@ -77,8 +84,10 @@
     "@types/react": "^18.2.44"
   },
   "peerDependencies": {
+    "@shopify/react-native-skia": ">= 1.2.3",
     "react": "*",
-    "react-native": "*"
+    "react-native": "*",
+    "react-native-reanimated": ">= 3.10.0"
   },
   "workspaces": [
     "example"
