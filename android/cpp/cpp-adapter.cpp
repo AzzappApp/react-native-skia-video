@@ -28,13 +28,15 @@ void install(jsi::Runtime& jsiRuntime) {
 
         return jsi::Object::createFromHostObject(runtime, instance);
       });
+
   RNSVModule.setProperty(jsiRuntime, "createVideoPlayer",
                          std::move(createVideoPlayer));
 
   auto createVideoCompositionFramesExtractor =
       jsi::Function::createFromHostFunction(
           jsiRuntime,
-          jsi::PropNameID::forAscii(jsiRuntime, "createRNSVCompositionPlayer"),
+          jsi::PropNameID::forAscii(jsiRuntime,
+                                    "createVideoCompositionFramesExtractor"),
           1,
           [](jsi::Runtime& runtime, const jsi::Value& thisValue,
              const jsi::Value* arguments, size_t count) -> jsi::Value {
@@ -81,8 +83,9 @@ void install(jsi::Runtime& jsiRuntime) {
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_azzapp_rnskv_ReactNativeSkiaVideoModule_nativeInstall(JNIEnv* env, jobject clazz,
-                                                 jlong jsiPtr) {
+Java_com_azzapp_rnskv_ReactNativeSkiaVideoModule_nativeInstall(JNIEnv* env,
+                                                               jobject clazz,
+                                                               jlong jsiPtr) {
   auto runtime = reinterpret_cast<jsi::Runtime*>(jsiPtr);
   if (runtime) {
     install(*runtime);

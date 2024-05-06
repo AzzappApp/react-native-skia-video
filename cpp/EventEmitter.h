@@ -15,6 +15,7 @@ public:
   jsi::Function on(std::string eventName, jsi::Function listener);
   void emit(std::string eventName, jsi::Value data);
   void removeAllListeners();
+  jsi::Runtime* getRuntime();
 
 protected:
   jsi::Runtime* runtime;

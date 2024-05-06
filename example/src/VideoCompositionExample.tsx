@@ -167,13 +167,13 @@ const drawFrame: FrameDrawer = ({
   'worklet';
   const items = videoComposition.items.filter(
     (item) =>
-      item.compositionStartTime * 1000 <= currentTime &&
-      item.compositionEndTime * 1000 >= currentTime
+      item.compositionStartTime <= currentTime &&
+      item.compositionStartTime + item.duration >= currentTime
   );
 
   const paint = Skia.Paint();
 
-  const durationMS = videoComposition.duration * 1000;
+  const durationMS = videoComposition.duration;
 
   for (const item of items) {
     const frame = frames[item.id];
@@ -181,20 +181,21 @@ const drawFrame: FrameDrawer = ({
       return;
     }
 
-    const itemStartTimeMS = item.compositionStartTime * 1000;
-    const itemEndTimeMS = item.compositionEndTime * 1000;
+    const itemStartTime = item.compositionStartTime;
+    const itemEndTime = item.compositionStartTime + item.duration;
 
     paint.setAlphaf(
-      itemStartTimeMS === 0 || currentTime > itemStartTimeMS + 1000
-        ? currentTime < itemEndTimeMS - 1000 || itemEndTimeMS === durationMS
+      itemStartTime === 0 || currentTime > itemStartTime + 1
+        ? currentTime < itemEndTime - 1 || itemEndTime === durationMS
           ? 1
-          : 1 - (currentTime - itemEndTimeMS) / 1000
-        : (currentTime - itemStartTimeMS) / 1000
+          : 1 - (currentTime - itemEndTime)
+        : currentTime - itemStartTime
     );
     let image: SkImage;
     try {
       image = Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
     } catch (error) {
+      console.log('error', error);
       continue;
     }
     const frameAspectRatio = frame.width / frame.height;
@@ -241,10 +242,10 @@ const VideoCompositionPreview = ({
           null;
 
         if (uri != null) {
-          const promise = ReactNativeBlobUtil.config({ fileCache: true }).fetch(
-            'GET',
-            uri
-          );
+          const promise = ReactNativeBlobUtil.config({
+            fileCache: true,
+            appendExt: uri.split('.').pop() ?? 'mp4',
+          }).fetch('GET', uri);
           promises.push(promise);
           videoUrls[video.id] = promise;
         }
@@ -274,17 +275,19 @@ const VideoCompositionPreview = ({
       let currentTime = 0;
       const composition: VideoComposition = {
         duration: videoWithFiles.reduce(
-          (acc, video) => acc + Math.max(0, video.duration - 1),
+          (acc, video) => acc + Math.min(Math.max(2, video.duration), 5) - 1,
           0
         ),
         items: videoWithFiles.map((video) => {
+          const duration = Math.min(Math.max(2, video.duration - 1), 5);
           const item = {
             id: video.id.toString(),
             path: video.path!,
+            startTime: 0,
             compositionStartTime: currentTime,
-            compositionEndTime: currentTime + video.duration,
+            duration,
           };
-          currentTime += Math.max(0, video.duration - 1);
+          currentTime += duration - 1;
           return item;
         }),
       };
@@ -308,6 +311,7 @@ const VideoCompositionPreview = ({
       return;
     }
 
+    console.log('exporting');
     setExporting(true);
     const outPath =
       ReactNativeBlobUtil.fs.dirs.CacheDir + '/' + createId() + '.mp4';

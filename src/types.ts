@@ -48,7 +48,8 @@ export type VideoCompositionItem = {
   id: string;
   path: string;
   compositionStartTime: number;
-  compositionEndTime: number;
+  startTime: number;
+  duration: number;
 };
 
 export type VideoComposition = {

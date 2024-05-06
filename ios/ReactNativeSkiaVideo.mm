@@ -1,20 +1,158 @@
 #import "ReactNativeSkiaVideo.h"
 
+#import <RNskiaModule.h>
+#import <React/RCTBridge+Private.h>
+#import <React/RCTBridge.h>
+#import <React/RCTUtils.h>
+#import <ReactCommon/RCTTurboModule.h>
+#import <WorkletRuntime.h>
+#import <jsi/jsi.h>
+
+#import "VideoComposition.h"
+#import "VideoCompositionExporter.h"
+#import "VideoCompositionFramesExtractorHostObject.h"
+#import "VideoPlayerHostObject.h"
+
 @implementation ReactNativeSkiaVideo
 RCT_EXPORT_MODULE()
+RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
+  NSLog(@"Installing global.createFrameExtractor...");
+  RCTBridge* bridge = [RCTBridge currentBridge];
+  RCTCxxBridge* cxxBridge = (RCTCxxBridge*)bridge;
+  if (cxxBridge == nil) {
+    return @false;
+  }
 
-// Example method
-// See // https://reactnative.dev/docs/native-modules-ios
-RCT_EXPORT_METHOD(multiply
-                  : (double)a b
-                  : (double)b resolve
-                  : (RCTPromiseResolveBlock)resolve reject
-                  : (RCTPromiseRejectBlock)reject) {
-  NSNumber* result = @(azzapp_rnskv::multiply(a, b));
+  using namespace facebook;
 
-  resolve(result);
+  auto jsiRuntime = (jsi::Runtime*)cxxBridge.runtime;
+  if (jsiRuntime == nil) {
+    return @false;
+  }
+  auto& runtime = *jsiRuntime;
+  auto RNSVModule = jsi::Object(runtime);
+
+  auto createVideoPlayer = jsi::Function::createFromHostFunction(
+      runtime, jsi::PropNameID::forAscii(runtime, "createVideoPlayer"), 1,
+      [bridge](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+        if (count != 1 || !arguments[0].isString()) {
+          throw jsi::JSError(runtime, "ReactNativeSkiaVideo.createVideoPlayer(."
+                                      ".) expects one arguments (string)!");
+        }
+
+        NSString* urlStr;
+        try {
+          urlStr = [NSString stringWithUTF8String:arguments[0]
+                                                      .asString(runtime)
+                                                      .utf8(runtime)
+                                                      .c_str()];
+        } catch (NSError* error) {
+          throw jsi::JSError(
+              runtime, "SkiaVideo.createRNSVPlayer(..) could not parse url");
+        }
+
+        NSURL* url = [NSURL URLWithString:urlStr];
+
+        auto instance = std::make_shared<RNSkiaVideo::VideoPlayerHostObject>(
+            runtime, bridge.jsCallInvoker, url);
+        return jsi::Object::createFromHostObject(runtime, instance);
+      });
+  RNSVModule.setProperty(runtime, "createVideoPlayer",
+                         std::move(createVideoPlayer));
+
+  runtime.global().setProperty(runtime, "RNSkiaVideo", RNSVModule);
+
+  auto createVideoCompositionFramesExtractor =
+      jsi::Function::createFromHostFunction(
+          runtime,
+          jsi::PropNameID::forAscii(runtime,
+                                    "createVideoCompositionFramesExtractor"),
+          1,
+          [bridge](jsi::Runtime& runtime, const jsi::Value& thisValue,
+                   const jsi::Value* arguments, size_t count) -> jsi::Value {
+            if (count != 1 || !arguments[0].isObject()) {
+              throw jsi::JSError(runtime,
+                                 "ReactNativeSkiaVideo."
+                                 "createVideoCompositionFramesExtractor(.."
+                                 ") expects one arguments (object)!");
+            }
+
+            auto instance = std::make_shared<
+                RNSkiaVideo::VideoCompositionFramesExtractorHostObject>(
+                runtime, bridge.jsCallInvoker, arguments[0].asObject(runtime));
+            return jsi::Object::createFromHostObject(runtime, instance);
+          });
+  RNSVModule.setProperty(runtime, "createVideoCompositionFramesExtractor",
+                         std::move(createVideoCompositionFramesExtractor));
+
+  auto exportVideoComposition = jsi::Function::createFromHostFunction(
+      runtime, jsi::PropNameID::forAscii(runtime, "exportVideoComposition"), 6,
+      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+         const jsi::Value* arguments, size_t count) -> jsi::Value {
+        if (count != 6) {
+          throw jsi::JSError(runtime,
+                             "SkiaVideo.exportVideoComposition(..) expects 4"
+                             "arguments (composition, options, workletRuntime, "
+                             "drawFrame, onSuccess, onError)!");
+        }
+        auto bridge = [RCTBridge currentBridge];
+        RNSkiaModule* skiaModule = [bridge moduleForName:@"RNSkiaModule"];
+        auto rnskPlatformContext =
+            skiaModule.manager.skManager->getPlatformContext();
+        auto callInvoker = bridge.jsCallInvoker;
+
+        auto jsCompositon = arguments[0].asObject(runtime);
+        auto composition =
+            RNSkiaVideo::VideoComposition::fromJS(runtime, jsCompositon);
+
+        auto options = arguments[1].asObject(runtime);
+        auto outPath = options.getProperty(runtime, "outPath")
+                           .asString(runtime)
+                           .utf8(runtime);
+        int width = options.getProperty(runtime, "width").asNumber();
+        int height = options.getProperty(runtime, "height").asNumber();
+        int frameRate = options.getProperty(runtime, "frameRate").asNumber();
+        int bitRate = options.getProperty(runtime, "bitRate").asNumber();
+        auto workletRuntime =
+            reanimated::extractWorkletRuntime(runtime, arguments[2]);
+        auto drawFrame =
+            reanimated::extractShareableOrThrow<reanimated::ShareableWorklet>(
+                runtime, arguments[3]);
+
+        auto sharedSuccessCallback = std::make_shared<jsi::Function>(
+            arguments[4].asObject(runtime).asFunction(runtime));
+        auto sharedErrorCallback = std::make_shared<jsi::Function>(
+            arguments[5].asObject(runtime).asFunction(runtime));
+
+        auto queue =
+            dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
+        dispatch_async(queue, ^{
+          RNSkiaVideo::exportVideoComposition(
+              composition, outPath, width, height, frameRate, bitRate,
+              workletRuntime, drawFrame, rnskPlatformContext,
+              [callInvoker, &runtime, sharedSuccessCallback]() {
+                callInvoker->invokeAsync(
+                    [&runtime, sharedSuccessCallback]() -> void {
+                      sharedSuccessCallback->call(runtime);
+                    });
+              },
+              [callInvoker, &runtime, sharedErrorCallback]() {
+                callInvoker->invokeAsync(
+                    [&runtime, sharedErrorCallback]() -> void {
+                      sharedErrorCallback->call(runtime);
+                    });
+              });
+        });
+
+        return jsi::Value::undefined();
+      });
+  RNSVModule.setProperty(runtime, "exportVideoComposition",
+                         std::move(exportVideoComposition));
+
+  runtime.global().setProperty(runtime, "RNSkiaVideo", RNSVModule);
+  return @true;
 }
-
 // Don't compile this code when we build for the old architecture.
 #ifdef RCT_NEW_ARCH_ENABLED
 - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:

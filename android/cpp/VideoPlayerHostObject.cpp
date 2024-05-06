@@ -25,7 +25,6 @@ VideoPlayerHostObject::getPropertyNames(jsi::Runtime& rt) {
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("play")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("pause")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("seekTo")));
-  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("seekTo")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("currentTime")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("duration")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("volume")));

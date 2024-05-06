@@ -1,0 +1,256 @@
+//
+//  VideoPlayerHostObject.m
+//  azzapp-react-native-skia-video
+//
+//  Created by François de Campredon on 03/05/2024.
+//
+
+#import "VideoPlayerHostObject.h"
+#import "JSIUtils.h"
+
+namespace RNSkiaVideo {
+using namespace facebook;
+
+VideoPlayerHostObject::VideoPlayerHostObject(
+    jsi::Runtime& runtime, std::shared_ptr<react::CallInvoker> callInvoker,
+    NSURL* url)
+    : EventEmitter(runtime, callInvoker) {
+  playerDelegate =
+      [[RNSVSkiaVideoPlayerDelegateImpl alloc] initWithHost:this
+                                                    runtime:&runtime];
+  player = [[RNSVVideoPlayer alloc] initWithURL:url delegate:playerDelegate];
+}
+
+VideoPlayerHostObject::~VideoPlayerHostObject() {
+  this->release();
+}
+
+std::vector<jsi::PropNameID>
+VideoPlayerHostObject::getPropertyNames(jsi::Runtime& rt) {
+  std::vector<jsi::PropNameID> result;
+  result.push_back(
+      jsi::PropNameID::forUtf8(rt, std::string("decodeNextFrame")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("play")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("pause")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("seekTo")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("currentTime")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("duration")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("volume")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("isLooping")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("isPlaying")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("dispose")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("on")));
+  return result;
+}
+
+jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
+                                      const jsi::PropNameID& propNameId) {
+  auto propName = propNameId.utf8(runtime);
+  if (propName == "decodeNextFrame") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "decodeNextFrame"), 0,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          if (!CMTIME_IS_VALID(lastFrameAvailable) &&
+              lastFrameDrawn.value == lastFrameAvailable.value) {
+            return jsi::Value::null();
+          }
+          auto buffer = [player copyPixelBufferForTime:lastFrameAvailable];
+          if (buffer == nil) {
+            return jsi::Value::null();
+          }
+          lastFrameDrawn = lastFrameAvailable;
+          if (currentBuffer != nullptr) {
+            CVBufferRelease(currentBuffer);
+          }
+          currentBuffer = buffer;
+
+          auto frame = jsi::Object(runtime);
+          frame.setProperty(runtime, "width", jsi::Value(this->width));
+          frame.setProperty(runtime, "height", jsi::Value(this->height));
+          frame.setProperty(runtime, "rotation", jsi::Value(this->rotation));
+          frame.setProperty(
+              runtime, "buffer",
+              jsi::BigInt::fromUint64(
+                  runtime, reinterpret_cast<uintptr_t>(currentBuffer)));
+
+          return frame;
+        });
+  } else if (propName == "play") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "play"), 0,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          [player play];
+          return jsi::Value::undefined();
+        });
+  } else if (propName == "pause") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "pause"), 0,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          [player pause];
+          return jsi::Value::undefined();
+        });
+  } else if (propName == "seekTo") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "seekTo"), 1,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          auto time = arguments[0].asNumber();
+          [player seekTo:CMTimeMakeWithSeconds(time, 600)
+              completionHandler:^(BOOL) {
+                this->emit("seekComplete", jsi::Value::null());
+              }];
+          return jsi::Value::undefined();
+        });
+  } else if (propName == "on") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          auto name = arguments[0].asString(runtime).utf8(runtime);
+          auto handler = arguments[1].asObject(runtime).asFunction(runtime);
+          return this->on(name, std::move(handler));
+        });
+  } else if (propName == "dispose") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "dispose"), 0,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          this->release();
+          return jsi::Value::undefined();
+        });
+  } else if (propName == "currentTime") {
+    double seconds = CMTimeGetSeconds(player.currentTime);
+    return jsi::Value(isnan(seconds) ? -1 : seconds);
+  } else if (propName == "duration") {
+    double seconds = CMTimeGetSeconds(player.duration);
+    return jsi::Value(isnan(seconds) ? -1 : seconds);
+  } else if (propName == "volume") {
+    float volume = player.volume;
+    return jsi::Value(volume);
+  } else if (propName == "isLooping") {
+    return jsi::Value(player.isLooping);
+  } else if (propName == "isPlaying") {
+    return jsi::Value(player.isPlaying);
+  }
+
+  return jsi::Value::undefined();
+}
+
+void VideoPlayerHostObject::set(jsi::Runtime& runtime,
+                                const jsi::PropNameID& propNameId,
+                                const jsi::Value& value) {
+  auto propName = propNameId.utf8(runtime);
+  if (propName == "volume") {
+    player.volume = value.asNumber();
+  } else if (propName == "isLooping") {
+    player.isLooping = value.asBool();
+  }
+}
+
+void VideoPlayerHostObject::frameAvailableEventHandler(CMTime time) {
+  lastFrameAvailable = time;
+}
+
+void VideoPlayerHostObject::readyToPlay(float width, float height,
+                                        int rotation) {
+  this->width = width;
+  this->height = height;
+  this->rotation = rotation;
+}
+
+void VideoPlayerHostObject::release() {
+  if (!this->released) {
+    this->released = true;
+    if (currentBuffer != nullptr) {
+      try {
+        CVBufferRelease(currentBuffer);
+      } catch (...) {
+      }
+    }
+    [playerDelegate dispose];
+    [player dispose];
+    removeAllListeners();
+  }
+}
+
+} // namespace RNSkiaVideo
+
+using namespace facebook;
+
+@implementation RNSVSkiaVideoPlayerDelegateImpl {
+  RNSkiaVideo::EventEmitter* _host;
+  const jsi::Runtime* _runtime;
+}
+
+- (instancetype)initWithHost:(RNSkiaVideo::EventEmitter*)host
+                     runtime:(jsi::Runtime*)runtime {
+  self = [super init];
+  _host = host;
+  _runtime = runtime;
+  return self;
+}
+
+- (void)readyToPlay:(NSDictionary*)assetInfos {
+  float width = [(NSNumber*)assetInfos[@"width"] floatValue];
+  float height = [(NSNumber*)assetInfos[@"height"] floatValue];
+  int rotation = [(NSNumber*)assetInfos[@"width"] intValue];
+  ((RNSkiaVideo::VideoPlayerHostObject*)_host)
+      ->readyToPlay(width, height, rotation);
+  auto runtime = _host->getRuntime();
+  _host->emit("ready",
+              RNSkiaVideo::convertObjCObjectToJSIValue(*runtime, assetInfos));
+}
+
+- (void)frameAvailable:(CMTime)time {
+  ((RNSkiaVideo::VideoPlayerHostObject*)_host)
+      ->frameAvailableEventHandler(time);
+}
+
+- (void)bufferingStart {
+  _host->emit("bufferingStart", jsi::Value::null());
+}
+
+- (void)bufferingEnd {
+  _host->emit("bufferingEnd", jsi::Value::null());
+}
+
+- (void)bufferingUpdate:(NSArray<NSValue*>*)loadedTimeRanges {
+  NSMutableArray<NSDictionary<NSString*, NSNumber*>*>* timeRanges =
+      [NSMutableArray array];
+  for (NSValue* value in loadedTimeRanges) {
+    CMTimeRange timeRange = [value CMTimeRangeValue];
+    [timeRanges addObject:@{
+      @"start" : @(CMTimeGetSeconds(timeRange.start)),
+      @"duration" : @(CMTimeGetSeconds(timeRange.duration)),
+    }];
+  }
+  auto runtime = _host->getRuntime();
+  _host->emit("bufferingEnd",
+              RNSkiaVideo::convertObjCObjectToJSIValue(*runtime, timeRanges));
+}
+
+- (void)videoError:(nullable NSError*)error {
+  auto runtime = _host->getRuntime();
+  _host->emit(
+      "error", RNSkiaVideo::convertObjCObjectToJSIValue(*runtime, @{
+        @"message" : error == nil ? @"Unknown error" : [error description],
+        @"code" : error == nil ? nil : @([error code])
+      }));
+}
+
+- (void)complete {
+  _host->emit("complete", jsi::Value::null());
+}
+
+- (void)isPlaying:(Boolean)playing {
+  _host->emit("playingStatusChange", jsi::Value(playing));
+}
+
+- (void)dispose {
+  _host = nil;
+}
+
+@end

@@ -38,6 +38,13 @@ export const useVideoCompositionPlayer = ({
     return null;
   }, [composition]);
   const currentFrame = useSharedValue<SkPicture>(createPicture(() => {}));
+  useEffect(
+    () => () => {
+      currentFrame.value = createPicture(() => {});
+      framesExtractor?.dispose();
+    },
+    [framesExtractor, currentFrame]
+  );
 
   useEffect(() => {
     if (framesExtractor) {
@@ -72,7 +79,7 @@ export const useVideoCompositionPlayer = ({
         drawFrame({
           canvas,
           videoComposition: composition!,
-          currentTime: framesExtractor.currentTime / 1000,
+          currentTime: framesExtractor.currentTime,
           frames: framesExtractor.decodeCompositionFrames(),
           width: width,
           height: height,
