@@ -22,7 +22,7 @@ VideoPlayerHostObject::VideoPlayerHostObject(
 }
 
 VideoPlayerHostObject::~VideoPlayerHostObject() {
-  this->release();
+  release();
 }
 
 std::vector<jsi::PropNameID>
@@ -51,7 +51,7 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "decodeNextFrame"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!CMTIME_IS_VALID(lastFrameAvailable) &&
+          if (released.test() || !CMTIME_IS_VALID(lastFrameAvailable) ||
               lastFrameDrawn.value == lastFrameAvailable.value) {
             return jsi::Value::null();
           }
@@ -81,7 +81,9 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "play"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          [player play];
+          if (!released.test()) {
+            [player play];
+          }
           return jsi::Value::undefined();
         });
   } else if (propName == "pause") {
@@ -89,7 +91,9 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "pause"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          [player pause];
+          if (!released.test()) {
+            [player pause];
+          }
           return jsi::Value::undefined();
         });
   } else if (propName == "seekTo") {
@@ -97,11 +101,15 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "seekTo"), 1,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          auto time = arguments[0].asNumber();
-          [player seekTo:CMTimeMakeWithSeconds(time, 600)
-              completionHandler:^(BOOL) {
-                this->emit("seekComplete", jsi::Value::null());
-              }];
+          if (!released.test()) {
+            auto time = arguments[0].asNumber();
+            [player seekTo:CMTimeMakeWithSeconds(time, 600)
+                completionHandler:^(BOOL) {
+                  if (!released.test()) {
+                    this->emit("seekComplete", jsi::Value::null());
+                  }
+                }];
+          }
           return jsi::Value::undefined();
         });
   } else if (propName == "on") {
@@ -109,6 +117,15 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          if (released.test()) {
+            return jsi::Function::createFromHostFunction(
+                runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
+                [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+                       const jsi::Value* arguments,
+                       size_t count) -> jsi::Value {
+                  return jsi::Value::undefined();
+                });
+          }
           auto name = arguments[0].asString(runtime).utf8(runtime);
           auto handler = arguments[1].asObject(runtime).asFunction(runtime);
           return this->on(name, std::move(handler));
@@ -122,17 +139,32 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
           return jsi::Value::undefined();
         });
   } else if (propName == "currentTime") {
+    if (released.test()) {
+      return jsi::Value(0);
+    }
     double seconds = CMTimeGetSeconds(player.currentTime);
     return jsi::Value(isnan(seconds) ? -1 : seconds);
   } else if (propName == "duration") {
+    if (released.test()) {
+      return jsi::Value(0);
+    }
     double seconds = CMTimeGetSeconds(player.duration);
     return jsi::Value(isnan(seconds) ? -1 : seconds);
   } else if (propName == "volume") {
+    if (released.test()) {
+      return jsi::Value(0);
+    }
     float volume = player.volume;
     return jsi::Value(volume);
   } else if (propName == "isLooping") {
+    if (released.test()) {
+      return jsi::Value(false);
+    }
     return jsi::Value(player.isLooping);
   } else if (propName == "isPlaying") {
+    if (released.test()) {
+      return jsi::Value(false);
+    }
     return jsi::Value(player.isPlaying);
   }
 
@@ -142,6 +174,9 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
 void VideoPlayerHostObject::set(jsi::Runtime& runtime,
                                 const jsi::PropNameID& propNameId,
                                 const jsi::Value& value) {
+  if (released.test()) {
+    return;
+  }
   auto propName = propNameId.utf8(runtime);
   if (propName == "volume") {
     player.volume = value.asNumber();
@@ -162,9 +197,8 @@ void VideoPlayerHostObject::readyToPlay(float width, float height,
 }
 
 void VideoPlayerHostObject::release() {
-  if (!released) {
+  if (!released.test_and_set()) {
     removeAllListeners();
-    released = true;
     if (currentBuffer != nullptr) {
       try {
         CVBufferRelease(currentBuffer);
