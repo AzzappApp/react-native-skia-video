@@ -200,10 +200,7 @@ void VideoPlayerHostObject::release() {
   if (!released.test_and_set()) {
     removeAllListeners();
     if (currentBuffer != nullptr) {
-      try {
-        CVBufferRelease(currentBuffer);
-      } catch (...) {
-      }
+      CVBufferRelease(currentBuffer);
     }
     currentBuffer = nullptr;
     [playerDelegate dispose];

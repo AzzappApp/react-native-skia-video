@@ -25,7 +25,7 @@ VideoCompositionItemDecoder::VideoCompositionItemDecoder(
 
 void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
   NSError* error = nil;
-  assetReader = [[AVAssetReader alloc] initWithAsset:asset error:&error];
+  assetReader = [AVAssetReader assetReaderWithAsset:asset error:&error];
   if (error) {
     throw error;
   }
@@ -75,6 +75,10 @@ void VideoCompositionItemDecoder::advance(CMTime currentTime) {
     CMSampleBufferRef sampleBuffer = [assetReaderOutput copyNextSampleBuffer];
     if (!sampleBuffer) {
       break;
+    }
+    if (CMSampleBufferGetNumSamples(sampleBuffer) == 0) {
+      CFRelease(sampleBuffer);
+      continue;
     }
     auto timeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
     auto buffer = CMSampleBufferGetImageBuffer(sampleBuffer);

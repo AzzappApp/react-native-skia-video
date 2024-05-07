@@ -16,6 +16,9 @@ VideoCompositionFramesExtractorHostObject::
 
   auto queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
   dispatch_async(queue, ^{
+    if (released.test()) {
+      return;
+    }
     this->init();
   });
 }
@@ -49,8 +52,12 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "play"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released || initialized) {
-            play();
+          if (!released.test()) {
+            if (initialized) {
+              play();
+            } else {
+              playWhenReady = true;
+            }
           }
           return jsi::Value::undefined();
         });
@@ -59,8 +66,12 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "pause"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released || initialized) {
-            pause();
+          if (!released.test()) {
+            if (initialized) {
+              pause();
+            } else {
+              playWhenReady = false;
+            }
           }
           return jsi::Value::undefined();
         });
@@ -69,9 +80,8 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "seekTo"), 1,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released || initialized) {
-            seekTo(
-                CMTimeMakeWithSeconds(arguments[1].asNumber(), NSEC_PER_SEC));
+          if (!released.test()) {
+            seekTo(CMTimeMakeWithSeconds(arguments[1].asNumber(), NSEC_PER_SEC));
           }
           return jsi::Value::undefined();
         });
@@ -81,7 +91,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (released || !initialized) {
+          if (released.test() || !initialized) {
             return jsi::Object(runtime);
           }
           auto frames = jsi::Object(runtime);
@@ -123,11 +133,12 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released || initialized) {
+          if (released.test()) {
             return jsi::Function::createFromHostFunction(
-                runtime, jsi::PropNameID::forAscii(runtime, "dispose"), 2,
-                [](jsi::Runtime& runtime, const jsi::Value& thisValue,
-                   const jsi::Value* arguments, size_t count) -> jsi::Value {
+                runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
+                [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+                       const jsi::Value* arguments,
+                       size_t count) -> jsi::Value {
                   return jsi::Value::undefined();
                 });
           }
@@ -144,11 +155,11 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
           return jsi::Value::undefined();
         });
   } else if (propName == "currentTime") {
-    return jsi::Value(released ? 0 : CMTimeGetSeconds(getCurrentTime()));
+    return jsi::Value(released.test() ? 0 : CMTimeGetSeconds(getCurrentTime()));
   } else if (propName == "isLooping") {
-    return jsi::Value(!released && isLooping);
+    return jsi::Value(!released.test() && isLooping);
   } else if (propName == "isPlaying") {
-    return jsi::Value(!released && isPlaying);
+    return jsi::Value(!released.test() && isPlaying);
   }
   return jsi::Value::undefined();
 }
@@ -156,7 +167,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
 void VideoCompositionFramesExtractorHostObject::set(
     jsi::Runtime& runtime, const jsi::PropNameID& propNameId,
     const jsi::Value& value) {
-  if (released) {
+  if (released.test()) {
     return;
   }
   auto propName = propNameId.utf8(runtime);
@@ -166,9 +177,6 @@ void VideoCompositionFramesExtractorHostObject::set(
 }
 
 void VideoCompositionFramesExtractorHostObject::init() {
-  if (released) {
-    return;
-  }
   try {
     for (const auto item : composition->items) {
       itemDecoders[item->id] = new VideoCompositionItemDecoder(item);
@@ -184,13 +192,13 @@ void VideoCompositionFramesExtractorHostObject::init() {
     return;
   }
   initialized = true;
+  if (playWhenReady) {
+    play();
+  }
   this->emit("ready", jsi::Value::null());
 }
 
 void VideoCompositionFramesExtractorHostObject::play() {
-  if (released) {
-    return;
-  }
   startDate =
       [NSDate dateWithTimeIntervalSinceNow:-CMTimeGetSeconds(pausePosition)];
   pausePosition = kCMTimeZero;
@@ -198,7 +206,7 @@ void VideoCompositionFramesExtractorHostObject::play() {
 }
 
 void VideoCompositionFramesExtractorHostObject::pause() {
-  if (released || !isPlaying) {
+  if (!isPlaying) {
     return;
   }
   pausePosition = getCurrentTime();
@@ -217,9 +225,6 @@ void VideoCompositionFramesExtractorHostObject::seekTo(CMTime time) {
 }
 
 CMTime VideoCompositionFramesExtractorHostObject::getCurrentTime() {
-  if (released) {
-    return kCMTimeZero;
-  }
   if (isPlaying) {
     NSTimeInterval elapsedTime =
         [[NSDate date] timeIntervalSinceDate:startDate];
@@ -230,11 +235,11 @@ CMTime VideoCompositionFramesExtractorHostObject::getCurrentTime() {
 }
 
 void VideoCompositionFramesExtractorHostObject::release() {
-  if (!released) {
-    released = true;
+  if (!released.test_and_set()) {
     for (const auto& entry : itemDecoders) {
       entry.second->release();
     }
+    itemDecoders.clear();
     removeAllListeners();
   }
 }

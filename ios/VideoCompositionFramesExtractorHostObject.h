@@ -28,10 +28,11 @@ private:
   std::map<std::string, VideoCompositionItemDecoder*> itemDecoders;
   NSDate* startDate;
   CMTime pausePosition = kCMTimeZero;
+  bool playWhenReady = false;
   bool isPlaying = false;
   bool isLooping = false;
   bool initialized = false;
-  bool released = false;
+  std::atomic_flag released = false;
 
   void init();
   void play();
