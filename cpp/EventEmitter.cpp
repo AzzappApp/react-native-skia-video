@@ -27,16 +27,27 @@ jsi::Function EventEmitter::on(std::string eventName, jsi::Function listener) {
       });
 }
 
+void EventEmitter::emit(std::string eventName) {
+  emit(eventName, jsi::Value::undefined());
+}
+
 void EventEmitter::emit(std::string eventName, jsi::Value data) {
-  if (jsListeners.count(eventName) != 0) {
-    auto listeners = jsListeners[eventName];
-    auto sharedData = std::make_shared<jsi::Value>(std::move(data));
-    for (const auto& listener : listeners) {
-      callInvoker->invokeAsync([listener, this, sharedData]() {
-        listener->call(*runtime, *sharedData);
-      });
+  auto sharedData = std::make_shared<jsi::Value>(std::move(data));
+  emit(eventName,
+       [=](jsi::Runtime&) -> jsi::Value { return sharedData.get(); });
+}
+
+void EventEmitter::emit(std::string eventName,
+                        std::function<jsi::Value(jsi::Runtime&)> dataFactory) {
+  callInvoker->invokeAsync([=]() {
+    if (jsListeners.count(eventName) != 0) {
+      auto listeners = jsListeners[eventName];
+      auto data = dataFactory(*runtime);
+      for (const auto& listener : listeners) {
+        listener->call(*runtime, data);
+      }
     }
-  }
+  });
 }
 
 jsi::Runtime* EventEmitter::getRuntime() {

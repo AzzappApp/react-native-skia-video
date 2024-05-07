@@ -162,17 +162,20 @@ void VideoPlayerHostObject::readyToPlay(float width, float height,
 }
 
 void VideoPlayerHostObject::release() {
-  if (!this->released) {
-    this->released = true;
+  if (!released) {
+    removeAllListeners();
+    released = true;
     if (currentBuffer != nullptr) {
       try {
         CVBufferRelease(currentBuffer);
       } catch (...) {
       }
     }
+    currentBuffer = nullptr;
     [playerDelegate dispose];
+    playerDelegate = nullptr;
     [player dispose];
-    removeAllListeners();
+    player = nullptr;
   }
 }
 
@@ -199,9 +202,13 @@ using namespace facebook;
   int rotation = [(NSNumber*)assetInfos[@"width"] intValue];
   ((RNSkiaVideo::VideoPlayerHostObject*)_host)
       ->readyToPlay(width, height, rotation);
-  auto runtime = _host->getRuntime();
-  _host->emit("ready",
-              RNSkiaVideo::convertObjCObjectToJSIValue(*runtime, assetInfos));
+  _host->emit("ready", [=](jsi::Runtime& runtime) -> jsi::Value {
+    auto res = jsi::Object(runtime);
+    res.setProperty(runtime, "width", jsi::Value(width));
+    res.setProperty(runtime, "height", jsi::Value(height));
+    res.setProperty(runtime, "rotation", jsi::Value(rotation));
+    return res;
+  });
 }
 
 - (void)frameAvailable:(CMTime)time {
@@ -210,39 +217,44 @@ using namespace facebook;
 }
 
 - (void)bufferingStart {
-  _host->emit("bufferingStart", jsi::Value::null());
+  _host->emit("bufferingStart");
 }
 
 - (void)bufferingEnd {
-  _host->emit("bufferingEnd", jsi::Value::null());
+  _host->emit("bufferingEnd");
 }
 
 - (void)bufferingUpdate:(NSArray<NSValue*>*)loadedTimeRanges {
-  NSMutableArray<NSDictionary<NSString*, NSNumber*>*>* timeRanges =
-      [NSMutableArray array];
-  for (NSValue* value in loadedTimeRanges) {
-    CMTimeRange timeRange = [value CMTimeRangeValue];
-    [timeRanges addObject:@{
-      @"start" : @(CMTimeGetSeconds(timeRange.start)),
-      @"duration" : @(CMTimeGetSeconds(timeRange.duration)),
-    }];
-  }
-  auto runtime = _host->getRuntime();
-  _host->emit("bufferingEnd",
-              RNSkiaVideo::convertObjCObjectToJSIValue(*runtime, timeRanges));
+  _host->emit("bufferingUpdate", [=](jsi::Runtime& runtime) -> jsi::Value {
+    auto ranges = jsi::Array(runtime, loadedTimeRanges.count);
+    for (NSValue* value in loadedTimeRanges) {
+      CMTimeRange timeRange = [value CMTimeRangeValue];
+      auto range = jsi::Object(runtime);
+      range.setProperty(runtime, "start",
+                        jsi::Value(CMTimeGetSeconds(timeRange.start)));
+      range.setProperty(runtime, "duration",
+                        jsi::Value(CMTimeGetSeconds(timeRange.duration)));
+    };
+    return ranges;
+  });
 }
 
 - (void)videoError:(nullable NSError*)error {
-  auto runtime = _host->getRuntime();
-  _host->emit(
-      "error", RNSkiaVideo::convertObjCObjectToJSIValue(*runtime, @{
-        @"message" : error == nil ? @"Unknown error" : [error description],
-        @"code" : error == nil ? nil : @([error code])
-      }));
+  _host->emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {
+    auto jsError = jsi::Object(runtime);
+    auto message = error == nil ? @"Unknown error" : [error description];
+    jsError.setProperty(
+        runtime, "message",
+        jsi::String::createFromUtf8(runtime, [message UTF8String]));
+    jsError.setProperty(runtime, "code",
+                        error != nil ? jsi::Value((double)[error code])
+                                     : jsi::Value::null());
+    return jsError;
+  });
 }
 
 - (void)complete {
-  _host->emit("complete", jsi::Value::null());
+  _host->emit("complete");
 }
 
 - (void)isPlaying:(Boolean)playing {

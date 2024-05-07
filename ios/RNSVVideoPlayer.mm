@@ -1,10 +1,5 @@
 //
-//  RNSVVideoPlayer.m
-//  react-native-skia-video
-//
-//  Created by François de Campredon on 25/02/2024.
-//  port from flutter video player
-// see:
+// Port from flutter video player, see:
 // https://github.com/flutter/packages/blob/41f5a16e13f4c9327e75d431d338c33f2fb35870/packages/video_player/video_player_avfoundation/darwin/Classes/FVPVideoPlayerPlugin.m
 //
 
@@ -23,7 +18,6 @@ static void* rateContext = &rateContext;
   CADisplayLink* _displayLink;
   AVPlayerItemVideoOutput* _videoOutput;
   id<RNSVVideoPlayerDelegate> _delegate;
-  // AVPlayerLayer *_playerLayer;
   Boolean _complete;
   Boolean _waitingForFrame;
 }
@@ -38,16 +32,6 @@ static void* rateContext = &rateContext;
   AVAsset* asset = [AVAsset assetWithURL:url];
 
   _player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
-
-  // This is to fix 2 bugs: 1. blank video for encrypted video streams on iOS 16
-  // (https://github.com/flutter/flutter/issues/111457) and 2. swapped width and
-  // height for some video streams (not just iOS 16).
-  // (https://github.com/flutter/flutter/issues/109116). An invisible
-  // AVPlayerLayer is used to overwrite the protection of pixel buffers in those
-  // streams for issue #1, and restore the correct width and height for issue
-  // #2.
-  //_playerLayer = [AVPlayerLayer playerLayerWithPlayer:_player];
-  // [self.flutterViewLayer addSublayer:_playerLayer];
 
   NSDictionary* pixBuffAttributes = @{
     (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
@@ -120,9 +104,6 @@ static void* rateContext = &rateContext;
     completionHandler:(void (^)(BOOL))completionHandler {
   CMTime previousCMTime = _player.currentTime;
   CMTime duration = _player.currentItem.asset.duration;
-  // Without adding tolerance when seeking to duration,
-  // seekToTime will never complete, and this call will hang.
-  // see issue https://github.com/flutter/flutter/issues/124475.
   CMTime tolerance =
       duration.value == time.value ? CMTimeMake(1, 1000) : kCMTimeZero;
   [_player seekToTime:time
@@ -357,26 +338,19 @@ static void* rateContext = &rateContext;
   [currentItem removeObserver:self forKeyPath:@"duration"];
   [currentItem removeObserver:self forKeyPath:@"playbackLikelyToKeepUp"];
   [_player removeObserver:self forKeyPath:@"rate"];
-}
-
-- (void)dealloc {
-  if (!_disposed) {
-    [self dispose];
-  }
   [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
-// this method is call from JS side, do not remove it.
 - (void)dispose {
   if (_disposed) {
     return;
   }
+  [self removeKeyValueObservers];
   [_displayLink invalidate];
   [_player replaceCurrentItemWithPlayerItem:nil];
   _player = nil;
   _displayLink = nil;
   _disposed = true;
-  [self removeKeyValueObservers];
 }
 
 @end
