@@ -7,7 +7,7 @@
 namespace RNSkiaVideo {
 
 VideoCompositionItemDecoder::VideoCompositionItemDecoder(
-    VideoCompositionItem* item) {
+    std::shared_ptr<VideoCompositionItem> item) {
   this->item = item;
 
   NSString* path =

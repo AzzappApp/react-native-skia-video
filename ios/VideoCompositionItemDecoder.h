@@ -16,7 +16,7 @@ struct VideoDimensions {
 
 class VideoCompositionItemDecoder {
 public:
-  VideoCompositionItemDecoder(VideoCompositionItem* item);
+  VideoCompositionItemDecoder(std::shared_ptr<VideoCompositionItem> item);
   void advance(CMTime currentTime);
   void seekTo(CMTime currentTime);
   CVBufferRef getCurrentBuffer();
@@ -24,7 +24,7 @@ public:
   void release();
 
 private:
-  VideoCompositionItem* item;
+  std::shared_ptr<VideoCompositionItem> item;
   VideoDimensions framesDimensions;
   AVURLAsset* asset;
   AVAssetTrack* videoTrack;

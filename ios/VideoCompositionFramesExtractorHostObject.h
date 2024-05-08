@@ -24,8 +24,8 @@ public:
   std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime& rt) override;
 
 private:
-  VideoComposition* composition;
-  std::map<std::string, VideoCompositionItemDecoder*> itemDecoders;
+  std::shared_ptr<VideoComposition> composition;
+  std::map<std::string, std::shared_ptr<VideoCompositionItemDecoder>> itemDecoders;
   NSDate* startDate;
   CMTime pausePosition = kCMTimeZero;
   bool playWhenReady = false;

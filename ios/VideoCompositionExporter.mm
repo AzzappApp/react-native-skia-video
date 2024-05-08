@@ -21,7 +21,7 @@ NS_INLINE NSError* createErrorWithMessage(NSString *message) {
 }
 
 void RNSkiaVideo::exportVideoComposition(
-    VideoComposition* composition, std::string outPath, int width, int height,
+    std::shared_ptr<VideoComposition> composition, std::string outPath, int width, int height,
     int frameRate, int bitRate,
     std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
     std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
@@ -67,10 +67,10 @@ void RNSkiaVideo::exportVideoComposition(
   [assetWriter startWriting];
   [assetWriter startSessionAtSourceTime:kCMTimeZero];
 
-  std::map<std::string, VideoCompositionItemDecoder*> itemDecoders;
+  std::map<std::string, std::shared_ptr<VideoCompositionItemDecoder>> itemDecoders;
   try {
     for (const auto item : composition->items) {
-      itemDecoders[item->id] = new VideoCompositionItemDecoder(item);
+      itemDecoders[item->id] = std::make_shared<VideoCompositionItemDecoder>(item);
     }
   } catch (NSError* error) {
     onError(error);

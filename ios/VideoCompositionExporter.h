@@ -7,7 +7,7 @@ namespace RNSkiaVideo {
 using namespace facebook;
 
 void exportVideoComposition(
-    VideoComposition* composition, std::string outPath, int width, int height,
+    std::shared_ptr<VideoComposition> composition, std::string outPath, int width, int height,
     int frameRate, int bitRate,
     std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
     std::shared_ptr<reanimated::ShareableWorklet> drawFrame,

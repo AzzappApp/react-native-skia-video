@@ -17,11 +17,11 @@ public:
 class VideoComposition {
 public:
   double duration;
-  std::vector<VideoCompositionItem*> items;
+  std::vector<std::shared_ptr<VideoCompositionItem>> items;
 
-  static VideoComposition* fromJS(jsi::Runtime& runtime,
+  static std::shared_ptr<VideoComposition> fromJS(jsi::Runtime& runtime,
                                   jsi::Object& jsComposition) {
-    auto composition = new VideoComposition();
+    auto composition = std::make_shared<VideoComposition>();
     composition->duration =
         jsComposition.getProperty(runtime, "duration").asNumber();
     auto jsItems = jsComposition.getProperty(runtime, "items")
@@ -30,7 +30,7 @@ public:
     auto size = jsItems.size(runtime);
     for (int i = 0; i < size; i++) {
       auto jsItem = jsItems.getValueAtIndex(runtime, i).asObject(runtime);
-      auto item = new VideoCompositionItem();
+      auto item = std::make_shared<VideoCompositionItem>();
       item->id =
           jsItem.getProperty(runtime, "id").asString(runtime).utf8(runtime);
       item->path =

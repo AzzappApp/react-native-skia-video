@@ -1,6 +1,7 @@
 #include "VideoCompositionFramesExtractorHostObject.h"
 
 #import "AVAssetTrackUtils.h"
+#import "JSIUtils.h"
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
 
@@ -179,16 +180,13 @@ void VideoCompositionFramesExtractorHostObject::set(
 void VideoCompositionFramesExtractorHostObject::init() {
   try {
     for (const auto item : composition->items) {
-      itemDecoders[item->id] = new VideoCompositionItemDecoder(item);
+      itemDecoders[item->id] = std::make_shared<VideoCompositionItemDecoder>(item);
     }
   } catch (NSError* error) {
-    auto runtime = this->getRuntime();
-    auto jsError = jsi::Object(*runtime);
-    jsError.setProperty(*runtime, "message",
-                        jsi::String::createFromUtf8(
-                            *runtime, [[error description] UTF8String] ?: ""));
-    jsError.setProperty(*runtime, "code", jsi::Value((double)[error code]));
-    this->emit("error", jsi::Value(*runtime, jsError));
+    itemDecoders.clear();
+    emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {
+        return RNSkiaVideo::NSErrorToJSI(runtime, error);
+    });
     return;
   }
   initialized = true;
