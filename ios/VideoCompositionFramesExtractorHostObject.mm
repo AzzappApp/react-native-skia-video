@@ -179,7 +179,7 @@ void VideoCompositionFramesExtractorHostObject::set(
 
 void VideoCompositionFramesExtractorHostObject::init() {
   try {
-    for (const auto &item : composition->items) {
+    for (const auto& item : composition->items) {
       itemDecoders[item->id] =
           std::make_shared<VideoCompositionItemDecoder>(item);
     }

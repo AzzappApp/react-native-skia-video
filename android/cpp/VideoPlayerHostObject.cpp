@@ -8,9 +8,8 @@ using namespace RNSkia;
 VideoPlayerHostObject::VideoPlayerHostObject(jsi::Runtime& runtime,
                                              const std::string& uri)
     : EventEmitter(runtime, RNSkiaHelpers::getCallInvoker()) {
-  eventBridge = new JEventBridge(&runtime, this);
-  player =
-      make_global(VideoPlayer::create(uri, eventBridge->getEventDispatcher()));
+  jEventDispatcher = make_global(NativeEventDispatcher::create(this));
+  player = make_global(VideoPlayer::create(uri, jEventDispatcher));
 }
 
 VideoPlayerHostObject::~VideoPlayerHostObject() {
@@ -82,14 +81,15 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
             return jsi::Value::undefined();
           }
           auto time = arguments[0].asNumber();
-          player->seekTo(time);
+          player->seekTo(time * 1000);
           return jsi::Value::undefined();
         });
   } else if (propName == "currentTime") {
     return jsi::Value(
         player == nullptr ? 0 : (double)player->getCurrentPosition() / 1000.0);
   } else if (propName == "duration") {
-    return jsi::Value(player == nullptr ? 0 : (double)player->getDuration());
+    return jsi::Value(
+        player == nullptr ? 0 : (double)player->getDuration() / 1000.0);
   } else if (propName == "volume") {
     return jsi::Value(player == nullptr ? 0 : (double)player->getVolume());
   } else if (propName == "isLooping") {
@@ -107,7 +107,7 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
         });
   } else if (propName == "dispose") {
     return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "seekTo"), 0,
+        runtime, jsi::PropNameID::forAscii(runtime, "dispose"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           this->release();
@@ -131,12 +131,55 @@ void VideoPlayerHostObject::set(facebook::jsi::Runtime& runtime,
   }
 }
 
+void VideoPlayerHostObject::handleEvent(std::string eventName,
+                                        alias_ref<jobject> data) {
+  if (eventName == "ready") {
+    auto dimensions = static_ref_cast<JArrayInt>(data)->getRegion(0, 3);
+    int width = dimensions[0];
+    int height = dimensions[1];
+    int rotation = dimensions[2];
+    emit("ready", [=](jsi::Runtime& runtime) -> jsi::Value {
+      auto dimensions = jsi::Object(runtime);
+      dimensions.setProperty(runtime, "width", jsi::Value(width));
+      dimensions.setProperty(runtime, "height", jsi::Value(height));
+      dimensions.setProperty(runtime, "rotation", jsi::Value(rotation));
+      return dimensions;
+    });
+  } else if (eventName == "error") {
+    auto message = static_ref_cast<JString>(data)->toStdString();
+    emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {
+      auto dimensions = jsi::Object(runtime);
+      dimensions.setProperty(runtime, "message",
+                             jsi::String::createFromUtf8(runtime, message));
+      return dimensions;
+    });
+  } else if (eventName == "bufferingUpdate") {
+    auto bufferedDuration = (double)static_ref_cast<JLong>(data)->value();
+    emit("bufferingUpdate", [=](jsi::Runtime& runtime) -> jsi::Value {
+      auto range = jsi::Object(runtime);
+      range.setProperty(runtime, "start", jsi::Value(0));
+      range.setProperty(runtime, "duration",
+                        jsi::Value(bufferedDuration / 1000));
+      auto ranges = jsi::Array(runtime, 1);
+      ranges.setValueAtIndex(runtime, 0, range);
+      return ranges;
+    });
+  } else if (eventName == "playingStatusChange") {
+    bool playing = static_ref_cast<JBoolean>(data)->value();
+    __android_log_print(ANDROID_LOG_INFO, "VideoPlayer", "playingStatusChange %d", playing);
+    emit("playingStatusChange", [=](jsi::Runtime&) {return jsi::Value(playing); });
+  } else {
+    emit(eventName);
+  }
+}
+
 void VideoPlayerHostObject::release() {
   if (!released) {
     player->release();
+    player = nullptr;
     this->removeAllListeners();
     released = true;
-    eventBridge = nullptr;
+    jEventDispatcher = nullptr;
   }
 }
 } // namespace RNSkiaVideo

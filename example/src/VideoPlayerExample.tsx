@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Blur, Canvas, Image, Rect, Skia } from '@shopify/react-native-skia';
 import {
   ActivityIndicator,
@@ -32,13 +32,18 @@ const VideoPlayerExample = () => {
     setLoadedRanges([]);
     pexelsClient.videos
       .popular({ per_page: 1, page: Math.round(Math.random() * 1000) })
-      .then((response) => {
-        if ('error' in response) {
-          console.error(response.error);
-          return;
+      .then(
+        (response) => {
+          if ('error' in response) {
+            console.error('Pexels API request failed, try again.');
+            return;
+          }
+          setVideo(response.videos[0] ?? null);
+        },
+        () => {
+          console.error('Pexels API request failed, try again.');
         }
-        setVideo(response.videos[0] ?? null);
-      }, console.error);
+      );
   }, []);
 
   useEffect(() => {
@@ -59,7 +64,7 @@ const VideoPlayerExample = () => {
 
   const { currentFrame, player } = useVideoPlayer({
     uri: video?.video_files.find((file) => file.quality === 'hd')?.link ?? null,
-    autoPlay: true,
+    autoPlay: false,
     isLooping: true,
     onReadyToPlay,
     onPlayingStatusChange,
@@ -81,24 +86,32 @@ const VideoPlayerExample = () => {
 
   const { width: windowWidth } = useWindowDimensions();
   const aspectRatio = video ? video.width / video.height : 16 / 9;
-  const videoDimensions =
-    aspectRatio >= 1
-      ? {
-          width: windowWidth,
-          height: windowWidth / aspectRatio,
-        }
-      : {
-          width: windowWidth * aspectRatio,
-          height: windowWidth,
-        };
+  const videoDimensions = useMemo(
+    () =>
+      aspectRatio >= 1
+        ? {
+            width: windowWidth,
+            height: windowWidth / aspectRatio,
+          }
+        : {
+            width: windowWidth * aspectRatio,
+            height: windowWidth,
+          },
+    [aspectRatio, windowWidth]
+  );
 
-  const canvasDimensions = {
-    width: windowWidth,
-    height: videoDimensions.height,
-  };
+  const canvasDimensions = useMemo(
+    () => ({
+      width: windowWidth,
+      height: videoDimensions.height,
+    }),
+    [windowWidth, videoDimensions.height]
+  );
 
-  return (
-    <View style={{ flex: 1 }}>
+  // on android reconciliation of Image component might fails, so we need to avoid rerendering
+  // for things like play/pause button change
+  const canvas = useMemo(
+    () => (
       <Canvas style={canvasDimensions}>
         <Rect
           x={0}
@@ -117,15 +130,22 @@ const VideoPlayerExample = () => {
           <Blur blur={blur ? 5 : 0} />
         </Image>
       </Canvas>
-      {player &&
+    ),
+    [videoImage, canvasDimensions, videoDimensions, blur]
+  );
+
+  return (
+    <View style={{ flex: 1 }}>
+      {canvas}
+      {video &&
         loadedRanges.map((range, index) => (
           <View
             key={index}
             style={{
               position: 'absolute',
               top: canvasDimensions.height,
-              left: (range.start / player.duration) * windowWidth,
-              width: (range.duration / player.duration) * windowWidth,
+              left: (range.start / video.duration) * windowWidth,
+              width: (range.duration / video.duration) * windowWidth,
               height: 5,
               backgroundColor: 'rgba(255, 0, 0, 0.5)',
             }}

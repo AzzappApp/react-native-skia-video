@@ -12,7 +12,9 @@ using namespace facebook;
 
 namespace RNSkiaVideo {
 
-class JSI_EXPORT VideoPlayerHostObject : public jsi::HostObject, EventEmitter {
+class JSI_EXPORT VideoPlayerHostObject : public jsi::HostObject,
+                                         JEventReceiver,
+                                         EventEmitter {
 public:
   VideoPlayerHostObject(jsi::Runtime& runtime, const std::string& uri);
   ~VideoPlayerHostObject();
@@ -20,9 +22,10 @@ public:
   void set(jsi::Runtime&, const jsi::PropNameID& name,
            const jsi::Value& value) override;
   std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime& rt) override;
+  void handleEvent(std::string eventName, alias_ref<jobject> data) override;
 
 private:
-  JEventBridge* eventBridge;
+  global_ref<NativeEventDispatcher> jEventDispatcher;
   jni::global_ref<VideoPlayer> player;
   bool released = false;
   void release();

@@ -1,7 +1,6 @@
 package com.azzapp.rnskv;
 
 import android.graphics.ImageFormat;
-import android.graphics.PixelFormat;
 import android.hardware.HardwareBuffer;
 import android.media.Image;
 import android.media.ImageReader;
@@ -9,19 +8,15 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
-import android.view.Surface;
 
 import androidx.annotation.NonNull;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
-
-import com.facebook.jni.HybridData;
-import com.facebook.jni.annotations.DoNotStrip;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -96,15 +91,12 @@ public class VideoPlayer {
               createImageReader(videoFormat);
               updateCurrentPosition();
 
-              Map<String, Integer> dimensions = new HashMap<>();
-              dimensions.put("width", videoFormat.width);
-              dimensions.put("height", videoFormat.height);
-              dimensions.put("rotation", videoFormat.rotationDegrees);
-              dispatchEventIfNoReleased("ready", dimensions);
+              dispatchEventIfNoReleased("ready", new int[] {
+                videoFormat.width, videoFormat.height, videoFormat.rotationDegrees});
             }
             if(isSeeking) {
               isSeeking = false;
-              dispatchEventIfNoReleased("seeked", null);
+              dispatchEventIfNoReleased("seekComplete", null);
             }
           } else if (playbackState == Player.STATE_ENDED) {
             dispatchEventIfNoReleased("complete", null);
@@ -123,11 +115,7 @@ public class VideoPlayer {
             player.seekToDefaultPosition();
             player.prepare();
           } else {
-            Map<String, Object> serializedError = new HashMap<>();
-            serializedError.put("message", error.getMessage());
-            serializedError.put("code", error.errorCode);
-            serializedError.put("codeName", error.getErrorCodeName());
-            dispatchEventIfNoReleased("error", serializedError);
+            dispatchEventIfNoReleased("error", error.getMessage());
           }
         }
 
@@ -139,18 +127,31 @@ public class VideoPlayer {
       });
 
       player.prepare();
+
+      dispatchBufferingUpdate();
     });
   }
 
+  long previousBufferedPosition = 0;
+  private void dispatchBufferingUpdate() {
+    if (released || player == null) {
+      return;
+    }
+    long bufferedPosition = player.getBufferedPosition();
+    if (bufferedPosition != previousBufferedPosition) {
+      previousBufferedPosition = bufferedPosition;
+      dispatchEventIfNoReleased("bufferingUpdate", bufferedPosition);
+    }
+    mainHandler.postDelayed(() -> { dispatchBufferingUpdate(); }, 500);
+  }
+
   private void updateCurrentPosition() {
-    Player player = this.player;
     if (released || player == null) {
       return;
     }
     this.currentPosition =  player.getCurrentPosition();
     mainHandler.postDelayed(() -> { updateCurrentPosition(); }, 50);
   }
-
 
   private void createImageReader(Format format) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -172,14 +173,14 @@ public class VideoPlayer {
    * Start playing the video
    */
   public void play() {
-    mainHandler.post(() -> player.setPlayWhenReady(true));
+    mainHandler.post(() -> player.play());
   }
 
   /**
    * Pause the video
    */
   public void pause() {
-    mainHandler.post(() -> player.setPlayWhenReady(false));
+    mainHandler.post(() -> player.pause());
   }
 
   /**

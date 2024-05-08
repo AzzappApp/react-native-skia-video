@@ -71,7 +71,7 @@ void RNSkiaVideo::exportVideoComposition(
   std::map<std::string, std::shared_ptr<VideoCompositionItemDecoder>>
       itemDecoders;
   try {
-    for (const auto &item : composition->items) {
+    for (const auto& item : composition->items) {
       itemDecoders[item->id] =
           std::make_shared<VideoCompositionItemDecoder>(item);
     }

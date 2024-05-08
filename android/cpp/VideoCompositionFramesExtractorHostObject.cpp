@@ -8,7 +8,7 @@ VideoCompositionFramesExtractorHostObject::
     VideoCompositionFramesExtractorHostObject(jsi::Runtime& runtime,
                                               jsi::Object jsComposition)
     : EventEmitter(runtime, RNSkiaHelpers::getCallInvoker()) {
-  eventBridge = new JEventBridge(&runtime, this);
+  eventBridge = new JEventBridge(this);
   auto composition = VideoComposition::fromJSIObject(runtime, jsComposition);
   player = make_global(VideoCompositionFramesExtractor::create(
       composition, eventBridge->getEventDispatcher()));

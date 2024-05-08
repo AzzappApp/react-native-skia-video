@@ -8,7 +8,7 @@ namespace RNSkiaVideo {
 using namespace facebook;
 using namespace jni;
 
-class EventReceiver {
+class JEventReceiver {
 public:
   virtual void handleEvent(std::string eventName, alias_ref<jobject> data) = 0;
 };
@@ -18,7 +18,7 @@ struct NativeEventDispatcher : public JavaClass<NativeEventDispatcher> {
       "Lcom/azzapp/rnskv/NativeEventDispatcher;";
 
   static jni::local_ref<NativeEventDispatcher>
-  create(const EventReceiver* receiver);
+  create(const JEventReceiver* receiver);
 
   static void registerNatives();
 
@@ -26,15 +26,14 @@ struct NativeEventDispatcher : public JavaClass<NativeEventDispatcher> {
                             std::string eventName, alias_ref<jobject> data);
 };
 
-class JEventBridge : EventReceiver {
+class JEventBridge : JEventReceiver {
 public:
-  JEventBridge(jsi::Runtime* runtime, EventEmitter* jsEventEmitter);
+  JEventBridge(EventEmitter* jsEventEmitter);
   void handleEvent(std::string eventName, alias_ref<jobject> data);
   global_ref<NativeEventDispatcher> getEventDispatcher();
 
 private:
   global_ref<NativeEventDispatcher> eventDispatcher;
   EventEmitter* jsEventEmitter;
-  jsi::Runtime* runtime;
 };
 } // namespace RNSkiaVideo
