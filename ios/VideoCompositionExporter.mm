@@ -61,8 +61,7 @@ void RNSkiaVideo::exportVideoComposition(
   if ([assetWriter canAddInput:assetWriterInput]) {
     [assetWriter addInput:assetWriterInput];
   } else {
-    NSError* error = assetWriter.error ?: createErrorWithMessage(@"could not add output to asset writter");
-    onError(assetWriter.error);
+    onError(assetWriter.error ?: createErrorWithMessage(@"could not add output to asset writter"));
     return;
   }
   [assetWriter startWriting];
@@ -80,20 +79,21 @@ void RNSkiaVideo::exportVideoComposition(
     onError(createErrorWithMessage(@"Unknown error"));
     return;
   }
+  auto releaseDecoders = [&] () {
+    try {
+      for (const auto& entry : itemDecoders) {
+        entry.second->release();
+      }
+      itemDecoders.clear();
+    } catch(...) {}
+  };
+  
   auto surface = SkiaMetalSurfaceFactory::makeOffscreenSurface(width, height);
   id<MTLDevice> device = MTLCreateSystemDefaultDevice();
   id<MTLCommandQueue> commandQueue = [device newCommandQueue];
 
   int nbFrame = composition->duration * frameRate;
   auto runtime = &workletRuntime->getJSIRuntime();
-  
-  auto releaseResource = [&] () {
-    try {
-      for (const auto& entry : itemDecoders) {
-        entry.second->release();
-      }
-    } catch(...) {}
-  };
   
   
   for (int i = 0; i < nbFrame; i++) {
@@ -129,14 +129,14 @@ void RNSkiaVideo::exportVideoComposition(
     GrBackendTexture texture = SkSurfaces::GetBackendTexture(
                 surface.get(), SkSurfaces::BackendHandleAccess::kFlushRead);
     if (!texture.isValid()) {
-      releaseResource();
+      releaseDecoders();
       onError(createErrorWithMessage(@"Could not extract texture from SkSurface"));
       return;
     }
 
     GrMtlTextureInfo textureInfo;
     if (!texture.getMtlTextureInfo(&textureInfo)) {
-      releaseResource();
+      releaseDecoders();
       onError(createErrorWithMessage(@"Could not extract texture from SkSurface"));
       return;
     }
@@ -172,7 +172,6 @@ void RNSkiaVideo::exportVideoComposition(
     [commandBuffer commit];
     [commandBuffer waitUntilCompleted];
 
-    // Step 1
     CVPixelBufferRef pixelBuffer = NULL;
     NSDictionary* attributes = @{
       (NSString*)
@@ -186,14 +185,14 @@ void RNSkiaVideo::exportVideoComposition(
         (__bridge CFDictionaryRef)attributes, &pixelBuffer);
 
     if (status != kCVReturnSuccess) {
-      releaseResource();
+      releaseDecoders();
       onError(createErrorWithMessage(@"Could not extract pixels from frame"));
       return;
     }
     CVPixelBufferLockBaseAddress(pixelBuffer, 0);
     void* pixelBufferBytes = CVPixelBufferGetBaseAddress(pixelBuffer);
     if (pixelBufferBytes == NULL) {
-      releaseResource();
+      releaseDecoders();
       onError(createErrorWithMessage(@"Could not extract pixels from frame"));
       return;
     }
@@ -207,8 +206,16 @@ void RNSkiaVideo::exportVideoComposition(
                        mipmapLevel:0];
     CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
 
+    int attempt = 0;
     while (!assetWriterInput.isReadyForMoreMediaData) {
-      usleep(10);
+      if (attempt > 100) {
+        CVBufferRelease(pixelBuffer);
+        releaseDecoders();
+        onError(createErrorWithMessage(@"AVAssetWriter unavailable"));
+        return;
+      }
+      attempt++;
+      usleep(5000);
     }
 
     CMSampleBufferRef sampleBuffer = NULL;
@@ -217,53 +224,40 @@ void RNSkiaVideo::exportVideoComposition(
                                                  &formatDescription);
     CMSampleTimingInfo timingInfo = {.presentationTimeStamp = currentTime,
                                      .decodeTimeStamp = kCMTimeInvalid};
-
+                                     
+    NSError *error;
     if (CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer,
                                            true, NULL, NULL, formatDescription,
                                            &timingInfo, &sampleBuffer) != 0) {
-      
-      
-      if (formatDescription) {
-        CFRelease(formatDescription);
-      }
-      CVBufferRelease(pixelBuffer);
-      releaseResource();
-      onError(createErrorWithMessage(@"Could not create image buffer from frame"));
-      return;
+      error = createErrorWithMessage(@"Could not create image buffer from frame");
     }
-
     if (sampleBuffer) {
       if (![assetWriterInput appendSampleBuffer:sampleBuffer]) {
         if (assetWriter.status == AVAssetWriterStatusFailed) {
-          if (formatDescription) {
-            CFRelease(formatDescription);
-          }
-          CVBufferRelease(pixelBuffer);
-          CFRelease(sampleBuffer);
-          releaseResource();
-          onError(assetWriter.error);
-          return;
+          error = assetWriter.error ?: createErrorWithMessage(@"Could not append frame data to AVAssetWriter");
         }
       }
       CFRelease(sampleBuffer);
     } else {
-      if (formatDescription) {
-        CFRelease(formatDescription);
-      }
-      CVBufferRelease(pixelBuffer);
-      releaseResource();
-      onError(createErrorWithMessage(@"Failed to create sampleBuffer"));
+      error = createErrorWithMessage(@"Failed to create sampleBuffer");
       return;
     }
-    CFRelease(sampleBuffer);
     if (formatDescription) {
       CFRelease(formatDescription);
     }
     CVBufferRelease(pixelBuffer);
+    if (error) {
+      releaseDecoders();
+      onError(error);
+    }
   }
   
-  releaseResource();
+  releaseDecoders();
   [assetWriter finishWritingWithCompletionHandler:^{
+    if (assetWriter.status == AVAssetWriterStatusFailed) {
+      onError(assetWriter.error);
+      return;
+    }
     onComplete();
   }];
 }

@@ -327,7 +327,6 @@ const VideoCompositionPreview = ({
       drawFrame
     ).then(() => {
       setExportedPath(outPath);
-      ReactNativeBlobUtil.fs.scanFile([{ path: outPath, mime: 'video/mp4' }]);
     }, console.error);
   }, [videoComposition]);
 
