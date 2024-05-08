@@ -21,7 +21,7 @@ export type UseVideoPlayerOptions = {
 
 export const useVideoPlayer = ({
   uri,
-  autoPlay = true,
+  autoPlay = false,
   isLooping = false,
   volume = 1,
   onReadyToPlay,
@@ -89,7 +89,7 @@ export const useVideoPlayer = ({
     }
   }, [player, autoPlay]);
 
-  const frameCallback = useFrameCallback(() => {
+  useFrameCallback(() => {
     if (!player || (!player.isPlaying && currentFrame.value)) {
       return;
     }
@@ -97,12 +97,7 @@ export const useVideoPlayer = ({
     if (nextFrame) {
       currentFrame.value = nextFrame;
     }
-  });
-
-  useEffect(() => {
-    frameCallback.setActive(!!player);
-    return () => frameCallback.setActive(false);
-  }, [frameCallback, player]);
+  }, true);
 
   return {
     currentFrame,

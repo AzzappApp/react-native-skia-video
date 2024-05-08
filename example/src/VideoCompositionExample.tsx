@@ -334,6 +334,8 @@ const VideoCompositionPreview = ({
 
   const { currentFrame } = useVideoCompositionPlayer({
     composition: exporting ? null : videoComposition,
+    autoPlay: true,
+    isLooping: true,
     drawFrame,
     width: windowWidth,
     height: windowWidth,

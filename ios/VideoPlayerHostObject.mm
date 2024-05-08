@@ -52,7 +52,7 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (released.test() || !CMTIME_IS_VALID(lastFrameAvailable) ||
-              lastFrameDrawn.value == lastFrameAvailable.value) {
+              CMTimeCompare(lastFrameDrawn, lastFrameAvailable) == 0) {
             return jsi::Value::null();
           }
           auto buffer = [player copyPixelBufferForTime:lastFrameAvailable];

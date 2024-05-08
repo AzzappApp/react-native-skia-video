@@ -1,7 +1,11 @@
 import { createPicture } from '@shopify/react-native-skia';
 import type { SkPicture } from '@shopify/react-native-skia';
-import { useSharedValue, useFrameCallback } from 'react-native-reanimated';
-import { useEffect, useMemo } from 'react';
+import {
+  useSharedValue,
+  useDerivedValue,
+  useFrameCallback,
+} from 'react-native-reanimated';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FrameDrawer, VideoComposition } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
 import useEventListener from './utils/useEventListener';
@@ -15,7 +19,7 @@ type UseVideoCompositionPlayerOptions = {
   isLooping?: boolean;
   onReadyToPlay?: () => void;
   onComplete?: () => void;
-  onError?: (error: any) => void;
+  onError?: (error: any, retry: () => void) => void;
 };
 
 export const useVideoCompositionPlayer = ({
@@ -23,27 +27,41 @@ export const useVideoCompositionPlayer = ({
   drawFrame,
   width,
   height,
-  autoPlay = true,
-  isLooping = true,
+  autoPlay = false,
+  isLooping = false,
   onReadyToPlay,
   onComplete,
   onError,
 }: UseVideoCompositionPlayerOptions) => {
+  const [isErrored, setIsErrored] = useState(false);
   const framesExtractor = useMemo(() => {
-    if (composition) {
+    if (composition && !isErrored) {
       return RNSkiaVideoModule.createVideoCompositionFramesExtractor(
         composition
       );
     }
     return null;
-  }, [composition]);
-  const currentFrame = useSharedValue<SkPicture>(createPicture(() => {}));
+  }, [isErrored, composition]);
+
+  const currentFrame = useSharedValue<SkPicture | null>(null);
   useEffect(
     () => () => {
-      currentFrame.value = createPicture(() => {});
+      currentFrame.value = null;
       framesExtractor?.dispose();
     },
     [framesExtractor, currentFrame]
+  );
+
+  const retry = useCallback(() => {
+    setIsErrored(false);
+  }, []);
+
+  const errorHandler = useCallback(
+    (error: any) => {
+      onError?.(error, retry);
+      setIsErrored(true);
+    },
+    [onError, retry]
   );
 
   useEffect(() => {
@@ -52,24 +70,22 @@ export const useVideoCompositionPlayer = ({
     }
   }, [framesExtractor, isLooping]);
 
+  useEventListener(framesExtractor, 'ready', onReadyToPlay);
+  useEventListener(framesExtractor, 'complete', onComplete);
+  useEventListener(framesExtractor, 'error', errorHandler);
+
   useEffect(() => {
     if (autoPlay) {
       framesExtractor?.play();
     }
   }, [framesExtractor, autoPlay]);
 
-  useEventListener(framesExtractor, 'ready', onReadyToPlay);
-  useEventListener(framesExtractor, 'complete', onComplete);
-  useEventListener(framesExtractor, 'error', onError);
-
   useFrameCallback(() => {
     'worklet';
-    if (!framesExtractor) {
-      currentFrame.value?.dispose();
-      currentFrame.value = createPicture(() => {});
-      return;
-    }
-    if (!framesExtractor.isPlaying) {
+    if (
+      !framesExtractor ||
+      (!framesExtractor.isPlaying && currentFrame.value)
+    ) {
       return;
     }
 
@@ -89,28 +105,10 @@ export const useVideoCompositionPlayer = ({
     );
   }, true);
 
-  useEffect(
-    () => () => {
-      currentFrame.value?.dispose();
-    },
-    [currentFrame]
-  );
-
-  return useMemo(
-    () => ({
-      currentFrame,
-      player: framesExtractor && {
-        play: () => framesExtractor.play(),
-        pause: () => framesExtractor.pause(),
-        seekTo: (time: number) => framesExtractor.seekTo(time),
-        get currentTime() {
-          return framesExtractor.currentTime;
-        },
-        get isPlaying() {
-          return framesExtractor.isPlaying;
-        },
-      },
-    }),
-    [currentFrame, framesExtractor]
-  );
+  return {
+    currentFrame: useDerivedValue(
+      () => currentFrame.value ?? createPicture(() => {})
+    ),
+    player: framesExtractor,
+  };
 };
