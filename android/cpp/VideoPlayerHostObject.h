@@ -27,7 +27,7 @@ public:
 private:
   global_ref<NativeEventDispatcher> jEventDispatcher;
   jni::global_ref<VideoPlayer> player;
-  bool released = false;
+  std::atomic_flag released;
   void release();
 };
 
