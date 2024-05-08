@@ -258,13 +258,15 @@ using namespace facebook;
 - (void)bufferingUpdate:(NSArray<NSValue*>*)loadedTimeRanges {
   _host->emit("bufferingUpdate", [=](jsi::Runtime& runtime) -> jsi::Value {
     auto ranges = jsi::Array(runtime, loadedTimeRanges.count);
-    for (NSValue* value in loadedTimeRanges) {
+    for (size_t i = 0; i < loadedTimeRanges.count; i++) {
+      NSValue* value = loadedTimeRanges[i];
       CMTimeRange timeRange = [value CMTimeRangeValue];
       auto range = jsi::Object(runtime);
       range.setProperty(runtime, "start",
                         jsi::Value(CMTimeGetSeconds(timeRange.start)));
       range.setProperty(runtime, "duration",
                         jsi::Value(CMTimeGetSeconds(timeRange.duration)));
+      ranges.setValueAtIndex(runtime, i, range);
     };
     return ranges;
   });

@@ -14,6 +14,8 @@ export type VideoDimensions = {
   rotation: number;
 };
 
+export type BufferingRange = { start: number; duration: number };
+
 export type VideoPlayer = {
   play(): void;
   pause(): void;
@@ -23,7 +25,6 @@ export type VideoPlayer = {
   readonly isPlaying: boolean;
   isLooping: boolean;
   volume: number;
-  readonly rotation: number;
   decodeNextFrame(): VideoFrame;
   dispose(): void;
   on(
@@ -34,9 +35,10 @@ export type VideoPlayer = {
   on(name: 'bufferingEnd', listener: () => void): () => void;
   on(
     name: 'bufferingUpdate',
-    listener: (loadedRanges: { start: number; duration: number }[]) => void
+    listener: (loadedRanges: BufferingRange[]) => void
   ): () => void;
   on(name: 'complete', listener: () => void): () => void;
+  on(name: 'seekComplete', listener: () => void): () => void;
   on(
     name: 'playingStatusChange',
     listener: (isPlaying: boolean) => void

@@ -1,7 +1,7 @@
 import { useSharedValue, useFrameCallback } from 'react-native-reanimated';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import useEventListener from './utils/useEventListener';
-import type { VideoDimensions, VideoFrame, VideoPlayer } from './types';
+import type { BufferingRange, VideoDimensions, VideoFrame } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
 
 export type UseVideoPlayerOptions = {
@@ -12,12 +12,11 @@ export type UseVideoPlayerOptions = {
   onReadyToPlay?: (dimensions: VideoDimensions) => void;
   onBufferingStart?: () => void;
   onBufferingEnd?: () => void;
-  onBufferingUpdate?: (
-    loadedRanges: { start: number; duration: number }[]
-  ) => void;
+  onBufferingUpdate?: (loadedRanges: BufferingRange[]) => void;
   onComplete?: () => void;
   onError?: (error: any, retry: () => void) => void;
   onPlayingStatusChange?: (playing: boolean) => void;
+  onSeekComplete?: () => void;
 };
 
 export const useVideoPlayer = ({
@@ -28,9 +27,11 @@ export const useVideoPlayer = ({
   onReadyToPlay,
   onBufferingStart,
   onBufferingEnd,
+  onBufferingUpdate,
   onComplete,
   onError,
   onPlayingStatusChange,
+  onSeekComplete,
 }: UseVideoPlayerOptions) => {
   const [isErrored, setIsErrored] = useState(false);
   const player = useMemo(() => {
@@ -76,9 +77,11 @@ export const useVideoPlayer = ({
   useEventListener(player, 'ready', onReadyToPlay);
   useEventListener(player, 'bufferingStart', onBufferingStart);
   useEventListener(player, 'bufferingEnd', onBufferingEnd);
+  useEventListener(player, 'bufferingUpdate', onBufferingUpdate);
   useEventListener(player, 'complete', onComplete);
   useEventListener(player, 'error', errorHandler);
   useEventListener(player, 'playingStatusChange', onPlayingStatusChange);
+  useEventListener(player, 'seekComplete', onSeekComplete);
 
   useEffect(() => {
     if (autoPlay) {
@@ -103,6 +106,6 @@ export const useVideoPlayer = ({
 
   return {
     currentFrame,
-    player: player as VideoPlayer | null,
+    player,
   };
 };

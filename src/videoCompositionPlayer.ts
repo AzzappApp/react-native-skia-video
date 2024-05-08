@@ -102,7 +102,7 @@ export const useVideoCompositionPlayer = ({
       player: framesExtractor && {
         play: () => framesExtractor.play(),
         pause: () => framesExtractor.pause(),
-        seekTo: (time: number) => framesExtractor.seekTo(time * 1000),
+        seekTo: (time: number) => framesExtractor.seekTo(time),
         get currentTime() {
           return framesExtractor.currentTime;
         },

@@ -6,7 +6,10 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { useVideoPlayer } from '@azzapp/react-native-skia-video';
+import {
+  useVideoPlayer,
+  type BufferingRange,
+} from '@azzapp/react-native-skia-video';
 import Slider from '@react-native-community/slider';
 import Animated, {
   useDerivedValue,
@@ -18,6 +21,7 @@ import pexelsClient from './helpers/pexelsClient';
 
 const VideoPlayerExample = () => {
   const [video, setVideo] = useState<Video | null>(null);
+  const [loadedRanges, setLoadedRanges] = useState<BufferingRange[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [blur, setBlur] = useState(false);
@@ -25,6 +29,7 @@ const VideoPlayerExample = () => {
   const loadRandomVideo = useCallback(() => {
     setLoading(true);
     setVideo(null);
+    setLoadedRanges([]);
     pexelsClient.videos
       .popular({ per_page: 1, page: Math.round(Math.random() * 1000) })
       .then((response) => {
@@ -40,15 +45,24 @@ const VideoPlayerExample = () => {
     loadRandomVideo();
   }, [loadRandomVideo]);
 
+  const onReadyToPlay = useCallback(() => {
+    setLoading(false);
+  }, []);
+
+  const onPlayingStatusChange = useCallback((isPlaying: boolean) => {
+    setIsPlaying(isPlaying);
+  }, []);
+
+  const onBufferingUpdate = useCallback((loadedRanges: BufferingRange[]) => {
+    setLoadedRanges(loadedRanges);
+  }, []);
+
   const { currentFrame, player } = useVideoPlayer({
     uri: video?.video_files.find((file) => file.quality === 'hd')?.link ?? null,
     isLooping: true,
-    onReadyToPlay() {
-      setLoading(false);
-    },
-    onPlayingStatusChange(isPlaying) {
-      setIsPlaying(isPlaying);
-    },
+    onReadyToPlay,
+    onPlayingStatusChange,
+    onBufferingUpdate,
   });
 
   const videoImage = useDerivedValue(() => {
@@ -102,6 +116,20 @@ const VideoPlayerExample = () => {
           <Blur blur={blur ? 5 : 0} />
         </Image>
       </Canvas>
+      {player &&
+        loadedRanges.map((range, index) => (
+          <View
+            key={index}
+            style={{
+              position: 'absolute',
+              top: canvasDimensions.height,
+              left: (range.start / player.duration) * windowWidth,
+              width: (range.duration / player.duration) * windowWidth,
+              height: 5,
+              backgroundColor: 'rgba(255, 0, 0, 0.5)',
+            }}
+          />
+        ))}
       {loading && (
         <ActivityIndicator
           size="large"
@@ -113,7 +141,7 @@ const VideoPlayerExample = () => {
           }}
         />
       )}
-      <View style={{ flex: 1, gap: 20, alignItems: 'center' }}>
+      <View style={{ marginTop: 10, flex: 1, gap: 20, alignItems: 'center' }}>
         <AnimatedSlider
           value={currentTime}
           minimumValue={0}
@@ -122,7 +150,11 @@ const VideoPlayerExample = () => {
             player?.seekTo(value);
           }}
           style={{ alignSelf: 'stretch' }}
+          disabled={loading}
+          maximumTrackTintColor={'#CCC'}
+          minimumTrackTintColor={'#F00'}
         />
+
         <Button
           title={isPlaying ? 'Pause' : 'Play'}
           onPress={() => (isPlaying ? player?.pause() : player?.play())}
