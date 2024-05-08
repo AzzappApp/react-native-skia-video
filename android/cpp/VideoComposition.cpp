@@ -6,43 +6,49 @@ using namespace facebook::jni;
 
 local_ref<VideoCompositionItem>
 VideoCompositionItem::create(std::string& id, std::string& path,
-                             jlong compositionStartTime,
-                             jlong compositionEndTime) {
+                             double compositionStartTime, double startTime,
+                             double duration) {
   auto inst = newInstance();
   auto cls = javaClassStatic();
   inst->setFieldValue(cls->getField<JString>("id"), make_jstring(id).get());
   inst->setFieldValue(cls->getField<JString>("path"), make_jstring(path).get());
-  inst->setFieldValue(cls->getField<jlong>("compositionStartTime"),
+  inst->setFieldValue(cls->getField<jdouble>("compositionStartTime"),
                       compositionStartTime);
-  inst->setFieldValue(cls->getField<jlong>("compositionEndTime"),
-                      compositionEndTime);
+  inst->setFieldValue(cls->getField<jdouble>("startTime"), startTime);
+  inst->setFieldValue(cls->getField<jdouble>("duration"), duration);
   return inst;
 }
 
-std::string VideoCompositionItem::getId() {
+std::string VideoCompositionItem::getId() const {
   static const auto getIdMethod = getClass()->getMethod<jstring()>("getId");
   return getIdMethod(self())->toStdString();
 }
 
-std::string VideoCompositionItem::getPath() {
+std::string VideoCompositionItem::getPath() const {
   static const auto getPathMethod = getClass()->getMethod<jstring()>("getPath");
   return getPathMethod(self())->toStdString();
 }
 
-jlong VideoCompositionItem::getCompositionStartTime() {
+jdouble VideoCompositionItem::getCompositionStartTime() const {
   static const auto getCompositionStartTimeMethod =
-      getClass()->getMethod<jlong()>("getCompositionStartTime");
+      getClass()->getMethod<jdouble()>("getCompositionStartTime");
   return getCompositionStartTimeMethod(self());
 }
 
-jlong VideoCompositionItem::getCompositionEndTime() {
-  static const auto getCompositionEndTimeMethod =
-      getClass()->getMethod<jlong()>("getCompositionEndTime");
-  return getCompositionEndTimeMethod(self());
+jdouble VideoCompositionItem::getStartTime() const {
+  static const auto getStartTimeMethod =
+      getClass()->getMethod<jdouble()>("getStartTime");
+  return getStartTimeMethod(self());
+}
+
+jdouble VideoCompositionItem::getDuration() const {
+  static const auto getDurationMethod =
+      getClass()->getMethod<jdouble()>("getDuration");
+  return getDurationMethod(self());
 }
 
 local_ref<VideoComposition>
-VideoComposition::create(jlong duration,
+VideoComposition::create(jdouble duration,
                          alias_ref<JList<VideoCompositionItem>> items) {
   return newInstance(duration, items);
 }
@@ -64,10 +70,10 @@ VideoComposition::fromJSIObject(jsi::Runtime& runtime,
         jsItem.getProperty(runtime, "path").asString(runtime).utf8(runtime);
     auto compositionStartTime =
         jsItem.getProperty(runtime, "compositionStartTime").asNumber();
-    auto compositionEndTime =
-        jsItem.getProperty(runtime, "compositionEndTime").asNumber();
+    auto startTime = jsItem.getProperty(runtime, "startTime").asNumber();
+    auto duration = jsItem.getProperty(runtime, "duration").asNumber();
     auto item = VideoCompositionItem::create(id, path, compositionStartTime,
-                                             compositionEndTime);
+                                             startTime, duration);
     items->add(item);
   }
   return VideoComposition::create(duration, items);

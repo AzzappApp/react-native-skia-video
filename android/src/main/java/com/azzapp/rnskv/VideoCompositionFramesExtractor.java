@@ -340,11 +340,11 @@ public class VideoCompositionFramesExtractor {
       } else {
         for (VideoCompositionItemDecoder itemDecoder : decoders.values()) {
           VideoComposition.Item item = itemDecoder.getItem();
-          long startTime = item.getCompositionStartTime() * 1000000;
-          long endTime = item.getCompositionEndTime() * 1000000;
-          if (startTime <= currentPosition && currentPosition < endTime) {
+          long compositionStartTime = Math.round(item.getCompositionStartTime() * 1000000);
+          long endTime = compositionStartTime + Math.round(item.getDuration() * 1000000);
+          if (compositionStartTime <= currentPosition && currentPosition < endTime) {
             while (true) {
-              if (itemDecoder.getInputSamplePresentationTimeUS() > currentPosition - startTime) {
+              if (itemDecoder.getInputSamplePresentationTimeUS() > currentPosition - compositionStartTime) {
                 break;
               }
               boolean queued = itemDecoder.queueSampleToCodec();

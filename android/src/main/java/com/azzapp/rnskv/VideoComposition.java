@@ -9,10 +9,10 @@ public class VideoComposition {
 
   private final List<Item> items;
 
-  private final long duration;
+  private final double duration;
 
   public VideoComposition(
-    long duration,
+    double duration,
     List<Item> items
   )  {
     this.duration = duration;
@@ -23,31 +23,31 @@ public class VideoComposition {
     return items;
   }
 
-  public long getDuration() {
+  public double getDuration() {
     return duration;
   }
 
   public static class Item {
     private String id;
-
     private String path;
-
-    private long compositionStartTime;
-
-    private long compositionEndTime;
+    private double compositionStartTime;
+    private double startTime;
+    private double duration;
 
     public Item() {}
 
     public Item(
       String id,
       String path,
-      long compositionStartTime,
-      long compositionEndTime
+      double compositionStartTime,
+      double startTime,
+      double duration
     ) {
       this.id = id;
       this.path = path;
       this.compositionStartTime = compositionStartTime;
-      this.compositionEndTime = compositionEndTime;
+      this.startTime = startTime;
+      this.duration = duration;
     }
 
     public String getId() {
@@ -58,12 +58,16 @@ public class VideoComposition {
       return path;
     }
 
-    public long getCompositionStartTime() {
+    public double getCompositionStartTime() {
       return compositionStartTime;
     }
 
-    public long getCompositionEndTime() {
-      return compositionEndTime;
+    public double getStartTime() {
+      return startTime;
+    }
+
+    public double getDuration() {
+      return duration;
     }
   }
 }

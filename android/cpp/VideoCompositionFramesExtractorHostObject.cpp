@@ -113,7 +113,8 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
           return jsi::Value::undefined();
         });
   } else if (propName == "currentTime") {
-    return jsi::Value(released ? 0 : (double)player->getCurrentPosition());
+    return jsi::Value(
+        released ? 0 : (double)player->getCurrentPosition() / 1000000.0);
   } else if (propName == "isLooping") {
     return jsi::Value(!released && player->getIsLooping());
   } else if (propName == "isPlaying") {

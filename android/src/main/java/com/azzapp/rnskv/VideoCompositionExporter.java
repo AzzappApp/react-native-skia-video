@@ -179,8 +179,8 @@ public class VideoCompositionExporter {
 
       for (VideoComposition.Item item : composition.getItems()) {
         VideoCompositionItemDecoder itemDecoder = decoders.get(item);
-        long startTime = item.getCompositionStartTime() * 1000000;
-        long endTime = item.getCompositionEndTime() * 1000000;
+        long compositionStartTime = Math.round(item.getCompositionStartTime() * 1000000);
+        long endTime = compositionStartTime + Math.round(item.getDuration() * 1000000);
 
         if (itemDecoder == null || itemDecoder.isOutputEOS() ) {
           continue;
@@ -200,9 +200,9 @@ public class VideoCompositionExporter {
               }
             }
           }
-        } else if (startTime <= timeUS && timeUS < endTime) {
+        } else if (compositionStartTime <= timeUS && timeUS < endTime) {
           while (true) {
-            if (itemDecoder.getInputSamplePresentationTimeUS() > timeUS - startTime) {
+            if (itemDecoder.getInputSamplePresentationTimeUS() > timeUS - compositionStartTime) {
               break;
             }
             boolean queued = itemDecoder.queueSampleToCodec();
@@ -227,7 +227,7 @@ public class VideoCompositionExporter {
         = new HashMap<>();
       for (Map.Entry<VideoComposition.Item, ArrayList<VideoCompositionItemDecoder.Frame>> entry : pendingFrames.entrySet()) {
         VideoComposition.Item item = entry.getKey();
-        long startTime = item.getCompositionStartTime() * 1000000;
+        long startTime = Math.round(item.getCompositionStartTime() * 1000000);
         ArrayList<VideoCompositionItemDecoder.Frame> framesToRender = new ArrayList<>();
         ArrayList<VideoCompositionItemDecoder.Frame> itemFrames = entry.getValue();
         boolean force = isFirstFrame;
@@ -329,7 +329,7 @@ public class VideoCompositionExporter {
         }
       }
       renderFrame(timeUS, videoFrames);
-      long nbFrames = frameRate * composition.getDuration();
+      int nbFrames = (int) Math.floor(frameRate * composition.getDuration());
       boolean eos = currentFrame == nbFrames - 1;
       encoder.drainEncoder(eos);
       if (!eos) {
