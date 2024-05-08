@@ -1,8 +1,8 @@
 #pragma once
-#pragma <jsi/jsi.h>
+#import <jsi/jsi.h>
 
 namespace RNSkiaVideo {
-static jsi::Value NSErrorToJSI(jsi::Runtime& runtime, NSError *error) {
+static jsi::Value NSErrorToJSI(jsi::Runtime& runtime, NSError* error) {
   auto jsError = jsi::Object(runtime);
   auto message = error == nil ? @"Unknown error" : [error description];
   jsError.setProperty(
@@ -13,4 +13,4 @@ static jsi::Value NSErrorToJSI(jsi::Runtime& runtime, NSError *error) {
                                    : jsi::Value::null());
   return jsError;
 }
-}
+} // namespace RNSkiaVideo

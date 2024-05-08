@@ -13,20 +13,19 @@
 
 using namespace RNSkia;
 
-
-NS_INLINE NSError* createErrorWithMessage(NSString *message) {
-  return [NSError errorWithDomain:@"com.azzapp.rnskv" code:0 userInfo:@{
-    NSLocalizedDescriptionKey: message
-  }];
+NS_INLINE NSError* createErrorWithMessage(NSString* message) {
+  return [NSError errorWithDomain:@"com.azzapp.rnskv"
+                             code:0
+                         userInfo:@{NSLocalizedDescriptionKey : message}];
 }
 
 void RNSkiaVideo::exportVideoComposition(
-    std::shared_ptr<VideoComposition> composition, std::string outPath, int width, int height,
-    int frameRate, int bitRate,
+    std::shared_ptr<VideoComposition> composition, std::string outPath,
+    int width, int height, int frameRate, int bitRate,
     std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
     std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
     std::shared_ptr<RNSkPlatformContext> rnskPlatformContext,
-    std::function<void()> onComplete, std::function<void(NSError *)> onError) {
+    std::function<void()> onComplete, std::function<void(NSError*)> onError) {
 
   NSError* error = nil;
   auto assetWriter = [AVAssetWriter
@@ -61,41 +60,45 @@ void RNSkiaVideo::exportVideoComposition(
   if ([assetWriter canAddInput:assetWriterInput]) {
     [assetWriter addInput:assetWriterInput];
   } else {
-    onError(assetWriter.error ?: createErrorWithMessage(@"could not add output to asset writter"));
+    onError(assetWriter.error
+                ?: createErrorWithMessage(
+                       @"could not add output to asset writter"));
     return;
   }
   [assetWriter startWriting];
   [assetWriter startSessionAtSourceTime:kCMTimeZero];
 
-  std::map<std::string, std::shared_ptr<VideoCompositionItemDecoder>> itemDecoders;
+  std::map<std::string, std::shared_ptr<VideoCompositionItemDecoder>>
+      itemDecoders;
   try {
     for (const auto item : composition->items) {
-      itemDecoders[item->id] = std::make_shared<VideoCompositionItemDecoder>(item);
+      itemDecoders[item->id] =
+          std::make_shared<VideoCompositionItemDecoder>(item);
     }
   } catch (NSError* error) {
     onError(error);
     return;
-  } catch(...) {
+  } catch (...) {
     onError(createErrorWithMessage(@"Unknown error"));
     return;
   }
-  auto releaseDecoders = [&] () {
+  auto releaseDecoders = [&]() {
     try {
       for (const auto& entry : itemDecoders) {
         entry.second->release();
       }
       itemDecoders.clear();
-    } catch(...) {}
+    } catch (...) {
+    }
   };
-  
+
   auto surface = SkiaMetalSurfaceFactory::makeOffscreenSurface(width, height);
   id<MTLDevice> device = MTLCreateSystemDefaultDevice();
   id<MTLCommandQueue> commandQueue = [device newCommandQueue];
 
   int nbFrame = composition->duration * frameRate;
   auto runtime = &workletRuntime->getJSIRuntime();
-  
-  
+
   for (int i = 0; i < nbFrame; i++) {
     CMTime currentTime =
         CMTimeMakeWithSeconds((double)i / (double)frameRate, NSEC_PER_SEC);
@@ -124,20 +127,22 @@ void RNSkiaVideo::exportVideoComposition(
                                                 surface->getCanvas()));
     workletRuntime->runGuarded(drawFrame, skCanvas,
                                CMTimeGetSeconds(currentTime), frames);
-                               
+
     GrAsDirectContext(surface->recordingContext())->flushAndSubmit();
     GrBackendTexture texture = SkSurfaces::GetBackendTexture(
-                surface.get(), SkSurfaces::BackendHandleAccess::kFlushRead);
+        surface.get(), SkSurfaces::BackendHandleAccess::kFlushRead);
     if (!texture.isValid()) {
       releaseDecoders();
-      onError(createErrorWithMessage(@"Could not extract texture from SkSurface"));
+      onError(
+          createErrorWithMessage(@"Could not extract texture from SkSurface"));
       return;
     }
 
     GrMtlTextureInfo textureInfo;
     if (!texture.getMtlTextureInfo(&textureInfo)) {
       releaseDecoders();
-      onError(createErrorWithMessage(@"Could not extract texture from SkSurface"));
+      onError(
+          createErrorWithMessage(@"Could not extract texture from SkSurface"));
       return;
     }
 
@@ -224,17 +229,20 @@ void RNSkiaVideo::exportVideoComposition(
                                                  &formatDescription);
     CMSampleTimingInfo timingInfo = {.presentationTimeStamp = currentTime,
                                      .decodeTimeStamp = kCMTimeInvalid};
-                                     
-    NSError *error;
+
+    NSError* error;
     if (CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer,
                                            true, NULL, NULL, formatDescription,
                                            &timingInfo, &sampleBuffer) != 0) {
-      error = createErrorWithMessage(@"Could not create image buffer from frame");
+      error =
+          createErrorWithMessage(@"Could not create image buffer from frame");
     }
     if (sampleBuffer) {
       if (![assetWriterInput appendSampleBuffer:sampleBuffer]) {
         if (assetWriter.status == AVAssetWriterStatusFailed) {
-          error = assetWriter.error ?: createErrorWithMessage(@"Could not append frame data to AVAssetWriter");
+          error = assetWriter.error
+                      ?: createErrorWithMessage(
+                             @"Could not append frame data to AVAssetWriter");
         }
       }
       CFRelease(sampleBuffer);
@@ -251,7 +259,7 @@ void RNSkiaVideo::exportVideoComposition(
       onError(error);
     }
   }
-  
+
   releaseDecoders();
   [assetWriter finishWritingWithCompletionHandler:^{
     if (assetWriter.status == AVAssetWriterStatusFailed) {
@@ -261,4 +269,3 @@ void RNSkiaVideo::exportVideoComposition(
     onComplete();
   }];
 }
-

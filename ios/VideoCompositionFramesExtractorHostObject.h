@@ -25,7 +25,8 @@ public:
 
 private:
   std::shared_ptr<VideoComposition> composition;
-  std::map<std::string, std::shared_ptr<VideoCompositionItemDecoder>> itemDecoders;
+  std::map<std::string, std::shared_ptr<VideoCompositionItemDecoder>>
+      itemDecoders;
   NSDate* startDate;
   CMTime pausePosition = kCMTimeZero;
   bool playWhenReady = false;

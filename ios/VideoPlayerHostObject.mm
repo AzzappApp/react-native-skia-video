@@ -272,7 +272,7 @@ using namespace facebook;
 
 - (void)videoError:(nullable NSError*)error {
   _host->emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {
-      return RNSkiaVideo::NSErrorToJSI(runtime, error);
+    return RNSkiaVideo::NSErrorToJSI(runtime, error);
   });
 }
 

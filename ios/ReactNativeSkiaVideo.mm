@@ -8,11 +8,11 @@
 #import <WorkletRuntime.h>
 #import <jsi/jsi.h>
 
+#import "JSIUtils.h"
 #import "VideoComposition.h"
 #import "VideoCompositionExporter.h"
 #import "VideoCompositionFramesExtractorHostObject.h"
 #import "VideoPlayerHostObject.h"
-#import "JSIUtils.h"
 
 @implementation ReactNativeSkiaVideo
 RCT_EXPORT_MODULE()
@@ -138,10 +138,11 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
                       sharedSuccessCallback->call(runtime);
                     });
               },
-              [callInvoker, &runtime, sharedErrorCallback](NSError *error) {
+              [callInvoker, &runtime, sharedErrorCallback](NSError* error) {
                 callInvoker->invokeAsync(
                     [&runtime, error, sharedErrorCallback]() -> void {
-                      sharedErrorCallback->call(runtime, RNSkiaVideo::NSErrorToJSI(runtime, error));
+                      sharedErrorCallback->call(
+                          runtime, RNSkiaVideo::NSErrorToJSI(runtime, error));
                     });
               });
         });

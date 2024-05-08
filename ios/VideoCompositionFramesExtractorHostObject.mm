@@ -82,7 +82,8 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (!released.test()) {
-            seekTo(CMTimeMakeWithSeconds(arguments[1].asNumber(), NSEC_PER_SEC));
+            seekTo(
+                CMTimeMakeWithSeconds(arguments[1].asNumber(), NSEC_PER_SEC));
           }
           return jsi::Value::undefined();
         });
@@ -138,8 +139,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
             return jsi::Function::createFromHostFunction(
                 runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
                 [](jsi::Runtime& runtime, const jsi::Value& thisValue,
-                       const jsi::Value* arguments,
-                       size_t count) -> jsi::Value {
+                   const jsi::Value* arguments, size_t count) -> jsi::Value {
                   return jsi::Value::undefined();
                 });
           }
@@ -180,12 +180,13 @@ void VideoCompositionFramesExtractorHostObject::set(
 void VideoCompositionFramesExtractorHostObject::init() {
   try {
     for (const auto item : composition->items) {
-      itemDecoders[item->id] = std::make_shared<VideoCompositionItemDecoder>(item);
+      itemDecoders[item->id] =
+          std::make_shared<VideoCompositionItemDecoder>(item);
     }
   } catch (NSError* error) {
     itemDecoders.clear();
     emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {
-        return RNSkiaVideo::NSErrorToJSI(runtime, error);
+      return RNSkiaVideo::NSErrorToJSI(runtime, error);
     });
     return;
   }

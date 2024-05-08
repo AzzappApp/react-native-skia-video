@@ -20,7 +20,7 @@ public:
   std::vector<std::shared_ptr<VideoCompositionItem>> items;
 
   static std::shared_ptr<VideoComposition> fromJS(jsi::Runtime& runtime,
-                                  jsi::Object& jsComposition) {
+                                                  jsi::Object& jsComposition) {
     auto composition = std::make_shared<VideoComposition>();
     composition->duration =
         jsComposition.getProperty(runtime, "duration").asNumber();
