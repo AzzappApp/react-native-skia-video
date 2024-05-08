@@ -221,6 +221,12 @@ void RNSkiaVideo::exportVideoComposition(
     if (CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer,
                                            true, NULL, NULL, formatDescription,
                                            &timingInfo, &sampleBuffer) != 0) {
+      
+      
+      if (formatDescription) {
+        CFRelease(formatDescription);
+      }
+      CVBufferRelease(pixelBuffer);
       releaseResource();
       onError(createErrorWithMessage(@"Could not create image buffer from frame"));
       return;
@@ -229,7 +235,11 @@ void RNSkiaVideo::exportVideoComposition(
     if (sampleBuffer) {
       if (![assetWriterInput appendSampleBuffer:sampleBuffer]) {
         if (assetWriter.status == AVAssetWriterStatusFailed) {
-          NSError* error = assetWriter.error;
+          if (formatDescription) {
+            CFRelease(formatDescription);
+          }
+          CVBufferRelease(pixelBuffer);
+          CFRelease(sampleBuffer);
           releaseResource();
           onError(assetWriter.error);
           return;
@@ -237,10 +247,15 @@ void RNSkiaVideo::exportVideoComposition(
       }
       CFRelease(sampleBuffer);
     } else {
+      if (formatDescription) {
+        CFRelease(formatDescription);
+      }
+      CVBufferRelease(pixelBuffer);
       releaseResource();
       onError(createErrorWithMessage(@"Failed to create sampleBuffer"));
       return;
     }
+    CFRelease(sampleBuffer);
     if (formatDescription) {
       CFRelease(formatDescription);
     }
