@@ -272,15 +272,7 @@ using namespace facebook;
 
 - (void)videoError:(nullable NSError*)error {
   _host->emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {
-    auto jsError = jsi::Object(runtime);
-    auto message = error == nil ? @"Unknown error" : [error description];
-    jsError.setProperty(
-        runtime, "message",
-        jsi::String::createFromUtf8(runtime, [message UTF8String]));
-    jsError.setProperty(runtime, "code",
-                        error != nil ? jsi::Value((double)[error code])
-                                     : jsi::Value::null());
-    return jsError;
+      return RNSkiaVideo::NSErrorToJSI(runtime, error);
   });
 }
 

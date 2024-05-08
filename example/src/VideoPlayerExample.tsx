@@ -119,7 +119,7 @@ const VideoPlayerExample = () => {
           minimumValue={0}
           maximumValue={video?.duration ?? 0}
           onValueChange={(value) => {
-            player?.seekTo(value * 1000);
+            player?.seekTo(value);
           }}
           style={{ alignSelf: 'stretch' }}
         />

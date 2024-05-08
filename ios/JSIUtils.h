@@ -1,60 +1,16 @@
-
 #pragma once
-#include <jsi/jsi.h>
+#pragma <jsi/jsi.h>
 
 namespace RNSkiaVideo {
-
-static jsi::Value convertNSNumberToJSIBoolean(jsi::Runtime& runtime,
-                                              NSNumber* value) {
-  return jsi::Value((bool)[value boolValue]);
+static jsi::Value NSErrorToJSI(jsi::Runtime& runtime, NSError *error) {
+  auto jsError = jsi::Object(runtime);
+  auto message = error == nil ? @"Unknown error" : [error description];
+  jsError.setProperty(
+      runtime, "message",
+      jsi::String::createFromUtf8(runtime, [message UTF8String]));
+  jsError.setProperty(runtime, "code",
+                      error != nil ? jsi::Value((double)[error code])
+                                   : jsi::Value::null());
+  return jsError;
 }
-
-static jsi::Value convertNSNumberToJSINumber(jsi::Runtime& runtime,
-                                             NSNumber* value) {
-  return jsi::Value([value doubleValue]);
 }
-
-static jsi::String convertNSStringToJSIString(jsi::Runtime& runtime,
-                                              NSString* value) {
-  return jsi::String::createFromUtf8(runtime, [value UTF8String] ?: "");
-}
-
-static jsi::Value convertObjCObjectToJSIValue(jsi::Runtime& runtime, id value);
-static jsi::Object convertNSDictionaryToJSIObject(jsi::Runtime& runtime,
-                                                  NSDictionary* value) {
-  jsi::Object result = jsi::Object(runtime);
-  for (NSString* k in value) {
-    result.setProperty(runtime, [k UTF8String],
-                       convertObjCObjectToJSIValue(runtime, value[k]));
-  }
-  return result;
-}
-
-static jsi::Array convertNSArrayToJSIArray(jsi::Runtime& runtime,
-                                           NSArray* value) {
-  jsi::Array result = jsi::Array(runtime, value.count);
-  for (size_t i = 0; i < value.count; i++) {
-    result.setValueAtIndex(runtime, i,
-                           convertObjCObjectToJSIValue(runtime, value[i]));
-  }
-  return result;
-}
-
-static jsi::Value convertObjCObjectToJSIValue(jsi::Runtime& runtime, id value) {
-  if ([value isKindOfClass:[NSString class]]) {
-    return convertNSStringToJSIString(runtime, (NSString*)value);
-  } else if ([value isKindOfClass:[NSNumber class]]) {
-    if ([value isKindOfClass:[@YES class]]) {
-      return convertNSNumberToJSIBoolean(runtime, (NSNumber*)value);
-    }
-    return convertNSNumberToJSINumber(runtime, (NSNumber*)value);
-  } else if ([value isKindOfClass:[NSDictionary class]]) {
-    return convertNSDictionaryToJSIObject(runtime, (NSDictionary*)value);
-  } else if ([value isKindOfClass:[NSArray class]]) {
-    return convertNSArrayToJSIArray(runtime, (NSArray*)value);
-  } else if (value == (id)kCFNull) {
-    return jsi::Value::null();
-  }
-  return jsi::Value::undefined();
-}
-} // namespace RNSkiaVideo

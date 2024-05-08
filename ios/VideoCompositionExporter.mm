@@ -8,16 +8,25 @@
 #import <SkiaMetalSurfaceFactory.h>
 #import <include/gpu/GrBackendSurface.h>
 #import <include/gpu/ganesh/SkImageGanesh.h>
+#import <include/gpu/ganesh/SkSurfaceGanesh.h>
 #import <map>
 
 using namespace RNSkia;
 
+
+NS_INLINE NSError* createErrorWithMessage(NSString *message) {
+  return [NSError errorWithDomain:@"com.azzapp.rnskv" code:0 userInfo:@{
+    NSLocalizedDescriptionKey: message
+  }];
+}
+
 void RNSkiaVideo::exportVideoComposition(
-    VideoComposition* composition, std::string outPath, int width, int height, int frameRate,
-    int bitRate, std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
+    VideoComposition* composition, std::string outPath, int width, int height,
+    int frameRate, int bitRate,
+    std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
     std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
     std::shared_ptr<RNSkPlatformContext> rnskPlatformContext,
-    std::function<void()> onComplete, std::function<void()> onError) {
+    std::function<void()> onComplete, std::function<void(NSError *)> onError) {
 
   NSError* error = nil;
   auto assetWriter = [AVAssetWriter
@@ -29,8 +38,7 @@ void RNSkiaVideo::exportVideoComposition(
                 fileType:AVFileTypeMPEG4
                    error:&error];
   if (error) {
-    onError();
-    NSLog(@"Error creating AVAssetWriter: %@", error);
+    onError(error);
     return;
   }
 
@@ -53,8 +61,8 @@ void RNSkiaVideo::exportVideoComposition(
   if ([assetWriter canAddInput:assetWriterInput]) {
     [assetWriter addInput:assetWriterInput];
   } else {
-    NSLog(@"Cannot add input");
-    onError();
+    NSError* error = assetWriter.error ?: createErrorWithMessage(@"could not add output to asset writter");
+    onError(assetWriter.error);
     return;
   }
   [assetWriter startWriting];
@@ -66,7 +74,10 @@ void RNSkiaVideo::exportVideoComposition(
       itemDecoders[item->id] = new VideoCompositionItemDecoder(item);
     }
   } catch (NSError* error) {
-    onError();
+    onError(error);
+    return;
+  } catch(...) {
+    onError(createErrorWithMessage(@"Unknown error"));
     return;
   }
   auto surface = SkiaMetalSurfaceFactory::makeOffscreenSurface(width, height);
@@ -75,6 +86,16 @@ void RNSkiaVideo::exportVideoComposition(
 
   int nbFrame = composition->duration * frameRate;
   auto runtime = &workletRuntime->getJSIRuntime();
+  
+  auto releaseResource = [&] () {
+    try {
+      for (const auto& entry : itemDecoders) {
+        entry.second->release();
+      }
+    } catch(...) {}
+  };
+  
+  
   for (int i = 0; i < nbFrame; i++) {
     CMTime currentTime =
         CMTimeMakeWithSeconds((double)i / (double)frameRate, NSEC_PER_SEC);
@@ -103,23 +124,20 @@ void RNSkiaVideo::exportVideoComposition(
                                                 surface->getCanvas()));
     workletRuntime->runGuarded(drawFrame, skCanvas,
                                CMTimeGetSeconds(currentTime), frames);
+                               
     GrAsDirectContext(surface->recordingContext())->flushAndSubmit();
-
-    auto skImage = surface->makeImageSnapshot();
-    GrBackendTexture texture;
-    if (!SkImages::GetBackendTextureFromImage(skImage, &texture, false,
-                                              nullptr)) {
-      // Handle error
-      NSLog(@"CGetBackendTextureFromImage error");
-      onError();
+    GrBackendTexture texture = SkSurfaces::GetBackendTexture(
+                surface.get(), SkSurfaces::BackendHandleAccess::kFlushRead);
+    if (!texture.isValid()) {
+      releaseResource();
+      onError(createErrorWithMessage(@"Could not extract texture from SkSurface"));
       return;
     }
 
     GrMtlTextureInfo textureInfo;
     if (!texture.getMtlTextureInfo(&textureInfo)) {
-      // handle error
-      NSLog(@"getMtlTextureInfo error");
-      onError();
+      releaseResource();
+      onError(createErrorWithMessage(@"Could not extract texture from SkSurface"));
       return;
     }
 
@@ -168,13 +186,16 @@ void RNSkiaVideo::exportVideoComposition(
         (__bridge CFDictionaryRef)attributes, &pixelBuffer);
 
     if (status != kCVReturnSuccess) {
-      NSLog(@"Failed to create CVPixelBuffer");
+      releaseResource();
+      onError(createErrorWithMessage(@"Could not extract pixels from frame"));
+      return;
     }
     CVPixelBufferLockBaseAddress(pixelBuffer, 0);
     void* pixelBufferBytes = CVPixelBufferGetBaseAddress(pixelBuffer);
     if (pixelBufferBytes == NULL) {
-      // Unlock the pixel buffer before returning
-      NSLog(@"Handnke error pixel buffer byte");
+      releaseResource();
+      onError(createErrorWithMessage(@"Could not extract pixels from frame"));
+      return;
     }
     size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
 
@@ -200,37 +221,35 @@ void RNSkiaVideo::exportVideoComposition(
     if (CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer,
                                            true, NULL, NULL, formatDescription,
                                            &timingInfo, &sampleBuffer) != 0) {
-      // Handle the error. For example, log it or update the UI.
-      onError();
+      releaseResource();
+      onError(createErrorWithMessage(@"Could not create image buffer from frame"));
       return;
     }
 
     if (sampleBuffer) {
       if (![assetWriterInput appendSampleBuffer:sampleBuffer]) {
-        // Check if the writer has failed
         if (assetWriter.status == AVAssetWriterStatusFailed) {
           NSError* error = assetWriter.error;
-          // Handle the error. For example, log it or update the UI.
-          onError();
+          releaseResource();
+          onError(assetWriter.error);
           return;
         }
       }
       CFRelease(sampleBuffer);
     } else {
-      NSLog(@"Failed to create sampleBuffer, status: %d", status);
-      onError();
+      releaseResource();
+      onError(createErrorWithMessage(@"Failed to create sampleBuffer"));
       return;
     }
     if (formatDescription) {
       CFRelease(formatDescription);
     }
-    CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+    CVBufferRelease(pixelBuffer);
   }
-
+  
+  releaseResource();
   [assetWriter finishWritingWithCompletionHandler:^{
-    for (const auto& entry : itemDecoders) {
-      entry.second->release();
-    }
     onComplete();
   }];
 }
+

@@ -12,6 +12,7 @@
 #import "VideoCompositionExporter.h"
 #import "VideoCompositionFramesExtractorHostObject.h"
 #import "VideoPlayerHostObject.h"
+#import "JSIUtils.h"
 
 @implementation ReactNativeSkiaVideo
 RCT_EXPORT_MODULE()
@@ -137,10 +138,10 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
                       sharedSuccessCallback->call(runtime);
                     });
               },
-              [callInvoker, &runtime, sharedErrorCallback]() {
+              [callInvoker, &runtime, sharedErrorCallback](NSError *error) {
                 callInvoker->invokeAsync(
-                    [&runtime, sharedErrorCallback]() -> void {
-                      sharedErrorCallback->call(runtime);
+                    [&runtime, error, sharedErrorCallback]() -> void {
+                      sharedErrorCallback->call(runtime, RNSkiaVideo::NSErrorToJSI(runtime, error));
                     });
               });
         });
