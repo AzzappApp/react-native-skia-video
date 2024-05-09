@@ -1,5 +1,4 @@
 #include "VideoCompositionFramesExtractorHostObject.h"
-#include "JSIJNIConversion.h"
 #include "RNSkiaHelpers.h"
 
 namespace RNSkiaVideo {

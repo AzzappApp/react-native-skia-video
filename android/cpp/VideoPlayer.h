@@ -3,7 +3,7 @@
 #include <android/hardware_buffer_jni.h>
 #include <fbjni/fbjni.h>
 
-#include "JEventBridge.h"
+#include "NativeEventDispatcher.h"
 #include "VideoFrame.h"
 
 namespace RNSkiaVideo {

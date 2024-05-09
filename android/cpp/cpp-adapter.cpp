@@ -1,4 +1,4 @@
-#include "JEventBridge.h"
+#include "NativeEventDispatcher.h"
 #include "VideoCompositionExporter.h"
 #include "VideoCompositionFramesExtractorHostObject.h"
 #include "VideoPlayerHostObject.h"

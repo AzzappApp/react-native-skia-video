@@ -5,7 +5,6 @@
 #include <map>
 
 #include "EventEmitter.h"
-#include "JSIJNIConversion.h"
 #include "VideoPlayer.h"
 
 using namespace facebook;

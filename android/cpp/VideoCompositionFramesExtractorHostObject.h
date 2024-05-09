@@ -1,9 +1,7 @@
 #pragma once
 
+#include "NativeEventDispatcher.h"
 #include "VideoCompositionFramesExtractor.h"
-#include <EGL/egl.h>
-#include <GLES2/gl2.h>
-#include <GLES2/gl2ext.h>
 #include <fbjni/fbjni.h>
 #include <jsi/jsi.h>
 #include <map>

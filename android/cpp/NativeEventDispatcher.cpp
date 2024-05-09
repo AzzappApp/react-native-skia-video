@@ -1,5 +1,4 @@
-#include "JEventBridge.h"
-#include "JSIJNIConversion.h"
+#include "NativeEventDispatcher.h"
 
 namespace RNSkiaVideo {
 using namespace facebook;
@@ -20,20 +19,6 @@ void NativeEventDispatcher::dispatchEvent(alias_ref<JClass>, jlong receiverPtr,
                                           alias_ref<jobject> data) {
   auto receiver = reinterpret_cast<JEventReceiver*>(receiverPtr);
   receiver->handleEvent(eventName, data);
-}
-
-JEventBridge::JEventBridge(RNSkiaVideo::EventEmitter* jsEventEmitter)
-    : jsEventEmitter(jsEventEmitter) {
-  eventDispatcher = make_global(NativeEventDispatcher::create(this));
-}
-
-void JEventBridge::handleEvent(std::string eventName, alias_ref<jobject> data) {
-  jsEventEmitter->emit(eventName, JSIJNIConversion::convertJNIObjectToJSIValue(
-                                      *jsEventEmitter->getRuntime(), data));
-}
-
-global_ref<NativeEventDispatcher> JEventBridge::getEventDispatcher() {
-  return eventDispatcher;
 }
 
 } // namespace RNSkiaVideo

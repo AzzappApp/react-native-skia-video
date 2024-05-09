@@ -64,7 +64,7 @@ const VideoPlayerExample = () => {
 
   const { currentFrame, player } = useVideoPlayer({
     uri: video?.video_files.find((file) => file.quality === 'hd')?.link ?? null,
-    autoPlay: false,
+    autoPlay: true,
     isLooping: true,
     onReadyToPlay,
     onPlayingStatusChange,

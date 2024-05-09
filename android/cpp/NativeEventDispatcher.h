@@ -25,15 +25,4 @@ struct NativeEventDispatcher : public JavaClass<NativeEventDispatcher> {
   static void dispatchEvent(alias_ref<JClass>, jlong receiver,
                             std::string eventName, alias_ref<jobject> data);
 };
-
-class JEventBridge : JEventReceiver {
-public:
-  JEventBridge(EventEmitter* jsEventEmitter);
-  void handleEvent(std::string eventName, alias_ref<jobject> data);
-  global_ref<NativeEventDispatcher> getEventDispatcher();
-
-private:
-  global_ref<NativeEventDispatcher> eventDispatcher;
-  EventEmitter* jsEventEmitter;
-};
 } // namespace RNSkiaVideo

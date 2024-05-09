@@ -35,10 +35,8 @@ add_library(${PACKAGE_NAME}
         ../cpp/EventEmitter.h
         ../cpp/EventEmitter.cpp
         cpp/cpp-adapter.cpp
-        cpp/JSIJNIConversion.h
-        cpp/JSIJNIConversion.cpp
-        cpp/JEventBridge.h
-        cpp/JEventBridge.cpp
+        cpp/NativeEventDispatcher.h
+        cpp/NativeEventDispatcher.cpp
         cpp/RNSkiaHelpers.h
         cpp/RNSkiaHelpers.cpp
         cpp/VideoCompositionFramesExtractorHostObject.h

@@ -1,5 +1,4 @@
 #include "VideoCompositionFramesExtractor.h"
-#include "JSIJNIConversion.h"
 
 namespace RNSkiaVideo {
 using namespace facebook::jni;

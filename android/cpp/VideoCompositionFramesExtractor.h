@@ -2,7 +2,7 @@
 
 #include <fbjni/fbjni.h>
 
-#include "JEventBridge.h"
+#include "NativeEventDispatcher.h"
 #include "VideoComposition.h"
 #include "VideoFrame.h"
 
