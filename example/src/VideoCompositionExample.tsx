@@ -276,10 +276,10 @@ const VideoCompositionPreview = ({
       const composition: VideoComposition = {
         duration: videoWithFiles.reduce(
           (acc, video) => acc + Math.min(Math.max(2, video.duration), 5) - 1,
-          0
+          1
         ),
         items: videoWithFiles.map((video) => {
-          const duration = Math.min(Math.max(2, video.duration - 1), 5);
+          const duration = Math.min(Math.max(2, video.duration), 5);
           const item = {
             id: video.id.toString(),
             path: video.path!,
@@ -311,7 +311,6 @@ const VideoCompositionPreview = ({
       return;
     }
 
-    console.log('exporting');
     setExporting(true);
     const outPath =
       ReactNativeBlobUtil.fs.dirs.CacheDir + '/' + createId() + '.mp4';

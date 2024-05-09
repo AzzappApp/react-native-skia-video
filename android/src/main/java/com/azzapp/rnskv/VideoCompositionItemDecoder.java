@@ -174,6 +174,9 @@ public class VideoCompositionItemDecoder {
     }
     boolean sampleQueued = false;
     ByteBuffer inputBuffer = decoder.getInputBuffer(inputBufIndex);
+    if (inputBuffer == null) {
+      return false;
+    }
     int sampleSize = extractor.readSampleData(inputBuffer, 0);
     long presentationTimeUs = 0;
 

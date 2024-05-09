@@ -11,16 +11,13 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.Process;
 import android.os.SystemClock;
-import android.util.Log;
 
 import androidx.annotation.NonNull;
-
-import com.facebook.jni.HybridData;
-import com.facebook.jni.annotations.DoNotStrip;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -186,7 +183,10 @@ public class VideoCompositionFramesExtractor {
       this.onPlaybackThreadRelease = onPlaybackThreadRelease;
     }
 
-    private final ArrayList<VideoCompositionItemDecoder.Frame> framesToRender = new ArrayList<>();
+    private final Map<
+      VideoComposition.Item,
+      List<VideoCompositionItemDecoder.Frame>
+    > collectedFrames = new HashMap();
 
     @Override
     public synchronized void start() {
@@ -316,21 +316,17 @@ public class VideoCompositionFramesExtractor {
       handler.removeMessages(PLAYBACK_LOOP);
     }
 
+    /* Deltat value that we use keep input buffer with an advance of time to be sure that decoders
+     * Input buffer contains enough data
+     */
+    private static final long INPUT_DELTA = 500000L;
+
     private void loopInternal() throws IOException, InterruptedException {
       long loopStartTime = SystemClock.elapsedRealtime();
 
       currentPosition = microTime() - startTime;
 
-      isEOS = currentPosition >= composition.getDuration() * 1000000;
-
-      ArrayList<VideoCompositionItemDecoder.Frame> renderedFrames = new ArrayList<>();
-      for (VideoCompositionItemDecoder.Frame frame: framesToRender) {
-        if (frame.getPresentationTimeUs() <= currentPosition) {
-          frame.render();
-          renderedFrames.add(frame);
-        }
-      }
-      framesToRender.removeAll(renderedFrames);
+      isEOS = currentPosition >= TimeHelpers.secToUs(composition.getDuration());
 
       if (isEOS) {
         eventDispatcher.dispatchEvent("complete", null);
@@ -343,11 +339,15 @@ public class VideoCompositionFramesExtractor {
       } else {
         for (VideoCompositionItemDecoder itemDecoder : decoders.values()) {
           VideoComposition.Item item = itemDecoder.getItem();
-          long compositionStartTime = Math.round(item.getCompositionStartTime() * 1000000);
-          long endTime = compositionStartTime + Math.round(item.getDuration() * 1000000);
-          if (compositionStartTime <= currentPosition && currentPosition < endTime) {
+          long compositionStartTime = TimeHelpers.secToUs(item.getCompositionStartTime());
+          long startTime = TimeHelpers.secToUs(item.getStartTime());
+          long duration = TimeHelpers.secToUs(item.getDuration());
+          if (
+            compositionStartTime <= currentPosition
+              && currentPosition <= compositionStartTime + duration + INPUT_DELTA) {
             while (true) {
-              if (itemDecoder.getInputSamplePresentationTimeUS() > currentPosition - compositionStartTime) {
+              if (itemDecoder.getInputSamplePresentationTimeUS() >=
+                  currentPosition + startTime + INPUT_DELTA - compositionStartTime) {
                 break;
               }
               boolean queued = itemDecoder.queueSampleToCodec();
@@ -361,14 +361,45 @@ public class VideoCompositionFramesExtractor {
               if (frame == null) {
                 break;
               }
-              framesToRender.add(frame);
+              List<VideoCompositionItemDecoder.Frame> frameList;
+              if (!collectedFrames.containsKey(item)) {
+                frameList = new ArrayList<>();
+                collectedFrames.put(item, frameList);
+              } else {
+                frameList = collectedFrames.get(item);
+              }
+              frameList.add(frame);
             }
           }
         }
       }
 
+      for (
+        Map.Entry<VideoComposition.Item, List<VideoCompositionItemDecoder.Frame>> entry:
+          collectedFrames.entrySet()) {
+        VideoComposition.Item item = entry.getKey();
+        List<VideoCompositionItemDecoder.Frame> itemFrames = entry.getValue();
+        ArrayList<VideoCompositionItemDecoder.Frame> renderedFrames = new ArrayList<>();
+
+        long compositionStartTime = TimeHelpers.secToUs(item.getCompositionStartTime());
+        long startTime = TimeHelpers.secToUs(item.getStartTime());
+        long duration = TimeHelpers.secToUs(item.getDuration());
+        long itemPosition = Math.min(
+          startTime + currentPosition - compositionStartTime,
+          startTime + duration
+        );
+
+        for (VideoCompositionItemDecoder.Frame frame: itemFrames) {
+          if (frame.getPresentationTimeUs() <= itemPosition) {
+            renderedFrames.add(frame);
+          }
+        }
+        itemFrames.removeAll(renderedFrames);
+        renderedFrames.forEach(VideoCompositionItemDecoder.Frame::render);
+      }
+
       if(!paused) {
-        long delay = 5;
+        long delay = 10;
         long duration = (SystemClock.elapsedRealtime() - loopStartTime);
         delay = delay - duration;
         if(delay > 0) {
@@ -382,14 +413,18 @@ public class VideoCompositionFramesExtractor {
     private void seekInternal(long position) {
       startTime = microTime() - position;
       currentPosition = position;
-      framesToRender.forEach(VideoCompositionItemDecoder.Frame::release);
-      framesToRender.clear();
+      collectedFrames.values().forEach(frames ->
+        frames.forEach(VideoCompositionItemDecoder.Frame::release));
+      collectedFrames.clear();
       decoders.values().forEach(itemDecoder -> itemDecoder.seekTo(position));
     }
 
     private void releaseInternal() {
       interrupt();
       quit();
+      collectedFrames.values().forEach(frames ->
+        frames.forEach(VideoCompositionItemDecoder.Frame::release));
+      collectedFrames.clear();
       itemDecoders.values().forEach(VideoCompositionItemDecoder::release);
       onPlaybackThreadRelease.onReleased();
     }
