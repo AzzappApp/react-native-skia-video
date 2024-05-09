@@ -9,6 +9,7 @@ public class RNSkiaHelpers {
 
   /**
    * Get the Skia platform context. used from the native side.
+   *
    * @return the Skia platform context
    */
   static public Object getSkiaPlatformContext() {

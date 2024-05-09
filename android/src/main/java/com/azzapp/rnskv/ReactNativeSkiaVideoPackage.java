@@ -29,16 +29,16 @@ public class ReactNativeSkiaVideoPackage extends TurboReactPackage {
       final Map<String, ReactModuleInfo> moduleInfos = new HashMap<>();
       boolean isTurboModule = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED;
       moduleInfos.put(
-              ReactNativeSkiaVideoModule.NAME,
-              new ReactModuleInfo(
-                      ReactNativeSkiaVideoModule.NAME,
-                      ReactNativeSkiaVideoModule.NAME,
-                      false, // canOverrideExistingModule
-                      false, // needsEagerInit
-                      true, // hasConstants
-                      false, // isCxxModule
-                      isTurboModule // isTurboModule
-      ));
+        ReactNativeSkiaVideoModule.NAME,
+        new ReactModuleInfo(
+          ReactNativeSkiaVideoModule.NAME,
+          ReactNativeSkiaVideoModule.NAME,
+          false, // canOverrideExistingModule
+          false, // needsEagerInit
+          true, // hasConstants
+          false, // isCxxModule
+          isTurboModule // isTurboModule
+        ));
       return moduleInfos;
     };
   }

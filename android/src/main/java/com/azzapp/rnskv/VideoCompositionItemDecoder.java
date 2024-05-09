@@ -47,6 +47,7 @@ public class VideoCompositionItemDecoder {
 
   /**
    * Create a new VideoCompositionItemDecoder.
+   *
    * @param item the video composition item to decode
    */
   public VideoCompositionItemDecoder(VideoComposition.Item item) {
@@ -55,6 +56,7 @@ public class VideoCompositionItemDecoder {
 
   /**
    * Prepare the decoder.
+   *
    * @throws IOException if the decoder cannot be prepared
    */
   public void prepare() throws IOException {
@@ -81,6 +83,7 @@ public class VideoCompositionItemDecoder {
 
   /**
    * Set the surface to render the video to.
+   *
    * @param surface the surface to render the video to
    */
   public void setSurface(Surface surface) {
@@ -147,6 +150,7 @@ public class VideoCompositionItemDecoder {
 
   /**
    * Seek to a specific time in the video.
+   *
    * @param time the time in microseconds to seek to
    */
   public void seekTo(long time) {
@@ -164,7 +168,7 @@ public class VideoCompositionItemDecoder {
    * Queue a sample to the codec.
    */
   public boolean queueSampleToCodec() {
-    if(inputEOS || !prepared || !configured) {
+    if (inputEOS || !prepared || !configured) {
       return false;
     }
 
@@ -205,6 +209,7 @@ public class VideoCompositionItemDecoder {
 
   /**
    * Dequeue the output buffer, optionally forcing the dequeue
+   *
    * @return the frame representing the decoded output buffer sample or null if no output buffer is ready
    */
   public Frame dequeueOutputBuffer() {

@@ -1,30 +1,17 @@
 package com.azzapp.rnskv;
 
-import android.graphics.ImageFormat;
 import android.hardware.HardwareBuffer;
 import android.media.Image;
 import android.media.ImageReader;
-import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.Message;
-import android.os.Process;
-import android.util.Log;
-
-import androidx.annotation.NonNull;
 
 import com.facebook.jni.HybridData;
 import com.facebook.jni.annotations.DoNotStrip;
 
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 
 /**
@@ -48,8 +35,6 @@ public class VideoCompositionExporter {
   private int currentFrame = 0;
 
   private final Map<VideoComposition.Item, Boolean> awaitedItems = new HashMap<>();
-
-  private final HashMap<String, VideoFrame> videoFrames = new HashMap<>();
 
   private HandlerThread exportThread = null;
 
@@ -147,35 +132,7 @@ public class VideoCompositionExporter {
   }
 
   private void writeFrame() {
-    for (VideoComposition.Item item : awaitedItems.keySet()) {
-      ImageReader imageReader = decoder.getImageReaderForItem(item);
-      VideoCompositionDecoder.VideoDimensions dimensions = decoder.getVideoDimensions(item);
-      if (imageReader == null || dimensions == null) {
-        continue;
-      }
-      Image image = imageReader.acquireLatestImage();
-      if (image == null) {
-        continue;
-      }
-      HardwareBuffer hardwareBuffer = image.getHardwareBuffer();
-      image.close();
-      if (hardwareBuffer == null) {
-        continue;
-      }
-      String id = item.getId();
-      VideoFrame currentVideoFrame = videoFrames.get(id);
-      if (currentVideoFrame != null) {
-        currentVideoFrame.getBuffer().close();
-      }
-      videoFrames.put(id, new VideoFrame(
-        hardwareBuffer,
-        dimensions.width(),
-        dimensions.height(),
-        dimensions.rotation()
-      ));
-    }
-
-    renderFrame((double) currentFrame / frameRate, videoFrames);
+    renderFrame((double) currentFrame / frameRate, decoder.getUpdatedVideoFrames());
 
     long nbFrames = (long) Math.floor(frameRate * composition.getDuration());
     boolean eos = currentFrame == nbFrames - 1;

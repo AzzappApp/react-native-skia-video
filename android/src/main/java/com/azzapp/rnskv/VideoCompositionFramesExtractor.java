@@ -1,11 +1,7 @@
 package com.azzapp.rnskv;
 
-import android.hardware.HardwareBuffer;
-import android.media.Image;
-import android.media.ImageReader;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.Looper;
 import android.os.Message;
 import android.os.Process;
 import android.os.SystemClock;
@@ -13,7 +9,6 @@ import android.os.SystemClock;
 import androidx.annotation.NonNull;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -25,8 +20,6 @@ public class VideoCompositionFramesExtractor {
   private final VideoComposition composition;
 
   private final VideoCompositionDecoder decoder;
-
-  private final HashMap<String, VideoFrame> videoFrames = new HashMap<>();
 
   PlaybackThread playbackThread;
 
@@ -79,37 +72,7 @@ public class VideoCompositionFramesExtractor {
    * @return a map of item id to video frame
    */
   public Map<String, VideoFrame> decodeCompositionFrames() {
-    if (Looper.myLooper() != Looper.getMainLooper()) {
-      throw new RuntimeException("decodeNextFrame should be called on UI Thread");
-    }
-    for (VideoComposition.Item item : composition.getItems()) {
-      ImageReader imageReader = decoder.getImageReaderForItem(item);
-      VideoCompositionDecoder.VideoDimensions dimensions = decoder.getVideoDimensions(item);
-      if (imageReader == null || dimensions == null) {
-        continue;
-      }
-      Image image = imageReader.acquireLatestImage();
-      if (image == null) {
-        continue;
-      }
-      HardwareBuffer hardwareBuffer = image.getHardwareBuffer();
-      image.close();
-      if (hardwareBuffer == null) {
-        continue;
-      }
-      String id = item.getId();
-      VideoFrame currentFrame = videoFrames.get(id);
-      if (currentFrame != null) {
-        currentFrame.getBuffer().close();
-      }
-      videoFrames.put(id, new VideoFrame(
-        hardwareBuffer,
-        dimensions.width(),
-        dimensions.height(),
-        dimensions.rotation()
-      ));
-    }
-    return videoFrames;
+    return decoder.getUpdatedVideoFrames();
   }
 
   /**
@@ -260,6 +223,7 @@ public class VideoCompositionFramesExtractor {
     }
 
     private void pauseInternal() {
+      pausePosition = currentPosition;
       handler.removeMessages(PLAYBACK_LOOP);
     }
 
@@ -305,7 +269,6 @@ public class VideoCompositionFramesExtractor {
       interrupt();
       quit();
       decoder.release();
-      videoFrames.values().forEach(frame -> ((HardwareBuffer) frame.getHardwareBuffer()).close());
     }
   }
 

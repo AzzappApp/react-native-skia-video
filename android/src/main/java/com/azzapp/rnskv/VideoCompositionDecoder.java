@@ -2,6 +2,7 @@ package com.azzapp.rnskv;
 
 import android.graphics.ImageFormat;
 import android.hardware.HardwareBuffer;
+import android.media.Image;
 import android.media.ImageReader;
 import android.os.Build;
 import android.os.Handler;
@@ -178,6 +179,37 @@ public class VideoCompositionDecoder {
     return updatedItems;
   }
 
+  public Map<String, VideoFrame> getUpdatedVideoFrames() {
+    for (VideoComposition.Item item : composition.getItems()) {
+      ImageReader imageReader = imageReaders.get(item);
+      VideoCompositionItemDecoder decoder = decoders.get(item);
+      if (imageReader == null || decoder == null) {
+        continue;
+      }
+      Image image = imageReader.acquireLatestImage();
+      if (image == null) {
+        continue;
+      }
+      HardwareBuffer hardwareBuffer = image.getHardwareBuffer();
+      image.close();
+      if (hardwareBuffer == null) {
+        continue;
+      }
+      String id = item.getId();
+      VideoFrame currentFrame = videoFrames.get(id);
+      if (currentFrame != null) {
+        currentFrame.getBuffer().close();
+      }
+      videoFrames.put(id, new VideoFrame(
+        hardwareBuffer,
+        decoder.getVideoWidth(),
+        decoder.getVideoHeight(),
+        decoder.getRotation()
+      ));
+    }
+    return videoFrames;
+  }
+
   public void seekTo(long position) {
     pendingFrames.values().forEach(frames ->
       frames.forEach(VideoCompositionItemDecoder.Frame::release));
@@ -193,25 +225,7 @@ public class VideoCompositionDecoder {
     decoders.clear();
     imageReaders.values().forEach(ImageReader::close);
     imageReaders.clear();
-  }
-
-  public @Nullable ImageReader getImageReaderForItem(VideoComposition.Item item) {
-    return imageReaders.get(item);
-  }
-
-  public @Nullable VideoDimensions getVideoDimensions(VideoComposition.Item item) {
-    VideoCompositionItemDecoder decoder = decoders.get(item);
-    if (decoder == null) {
-      return null;
-    }
-    return new VideoDimensions(
-      decoder.getVideoWidth(),
-      decoder.getVideoHeight(),
-      decoder.getRotation()
-    );
-  }
-
-  record VideoDimensions(int width, int height, int rotation) {
+    videoFrames.values().forEach(frame -> ((HardwareBuffer) frame.getHardwareBuffer()).close());
   }
 
   interface OnItemImageAvailableListener {

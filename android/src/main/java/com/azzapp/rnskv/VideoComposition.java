@@ -14,7 +14,7 @@ public class VideoComposition {
   public VideoComposition(
     double duration,
     List<Item> items
-  )  {
+  ) {
     this.duration = duration;
     this.items = items;
   }
@@ -34,7 +34,8 @@ public class VideoComposition {
     private double startTime;
     private double duration;
 
-    public Item() {}
+    public Item() {
+    }
 
     public Item(
       String id,
