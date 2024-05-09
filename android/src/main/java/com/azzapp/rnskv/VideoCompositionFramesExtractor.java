@@ -186,7 +186,7 @@ public class VideoCompositionFramesExtractor {
     private final Map<
       VideoComposition.Item,
       List<VideoCompositionItemDecoder.Frame>
-    > collectedFrames = new HashMap();
+    > pendingFrames = new HashMap();
 
     @Override
     public synchronized void start() {
@@ -361,14 +361,9 @@ public class VideoCompositionFramesExtractor {
               if (frame == null) {
                 break;
               }
-              List<VideoCompositionItemDecoder.Frame> frameList;
-              if (!collectedFrames.containsKey(item)) {
-                frameList = new ArrayList<>();
-                collectedFrames.put(item, frameList);
-              } else {
-                frameList = collectedFrames.get(item);
-              }
-              frameList.add(frame);
+              List<VideoCompositionItemDecoder.Frame> itemPendingFrames =
+                pendingFrames.computeIfAbsent(item, k -> new ArrayList<>());
+              itemPendingFrames.add(frame);
             }
           }
         }
@@ -376,10 +371,10 @@ public class VideoCompositionFramesExtractor {
 
       for (
         Map.Entry<VideoComposition.Item, List<VideoCompositionItemDecoder.Frame>> entry:
-          collectedFrames.entrySet()) {
+          pendingFrames.entrySet()) {
         VideoComposition.Item item = entry.getKey();
         List<VideoCompositionItemDecoder.Frame> itemFrames = entry.getValue();
-        ArrayList<VideoCompositionItemDecoder.Frame> renderedFrames = new ArrayList<>();
+        ArrayList<VideoCompositionItemDecoder.Frame> framesToRender = new ArrayList<>();
 
         long compositionStartTime = TimeHelpers.secToUs(item.getCompositionStartTime());
         long startTime = TimeHelpers.secToUs(item.getStartTime());
@@ -391,11 +386,11 @@ public class VideoCompositionFramesExtractor {
 
         for (VideoCompositionItemDecoder.Frame frame: itemFrames) {
           if (frame.getPresentationTimeUs() <= itemPosition) {
-            renderedFrames.add(frame);
+            framesToRender.add(frame);
           }
         }
-        itemFrames.removeAll(renderedFrames);
-        renderedFrames.forEach(VideoCompositionItemDecoder.Frame::render);
+        itemFrames.removeAll(framesToRender);
+        framesToRender.forEach(VideoCompositionItemDecoder.Frame::render);
       }
 
       if(!paused) {
@@ -413,18 +408,18 @@ public class VideoCompositionFramesExtractor {
     private void seekInternal(long position) {
       startTime = microTime() - position;
       currentPosition = position;
-      collectedFrames.values().forEach(frames ->
+      pendingFrames.values().forEach(frames ->
         frames.forEach(VideoCompositionItemDecoder.Frame::release));
-      collectedFrames.clear();
+      pendingFrames.clear();
       decoders.values().forEach(itemDecoder -> itemDecoder.seekTo(position));
     }
 
     private void releaseInternal() {
       interrupt();
       quit();
-      collectedFrames.values().forEach(frames ->
+      pendingFrames.values().forEach(frames ->
         frames.forEach(VideoCompositionItemDecoder.Frame::release));
-      collectedFrames.clear();
+      pendingFrames.clear();
       itemDecoders.values().forEach(VideoCompositionItemDecoder::release);
       onPlaybackThreadRelease.onReleased();
     }
