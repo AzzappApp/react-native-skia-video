@@ -8,10 +8,10 @@ VideoCompositionFramesExtractorHostObject::
     VideoCompositionFramesExtractorHostObject(jsi::Runtime& runtime,
                                               jsi::Object jsComposition)
     : EventEmitter(runtime, RNSkiaHelpers::getCallInvoker()) {
-  eventBridge = new JEventBridge(this);
+  jEventDispatcher = make_global(NativeEventDispatcher::create(this));
   auto composition = VideoComposition::fromJSIObject(runtime, jsComposition);
-  player = make_global(VideoCompositionFramesExtractor::create(
-      composition, eventBridge->getEventDispatcher()));
+  player = make_global(
+      VideoCompositionFramesExtractor::create(composition, jEventDispatcher));
 }
 
 VideoCompositionFramesExtractorHostObject::
@@ -45,7 +45,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           auto result = jsi::Object(runtime);
-          if (released) {
+          if (released.test()) {
             return result;
           }
           auto frames = player->decodeCompositionFrames();
@@ -63,7 +63,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "play"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released) {
+          if (!released.test()) {
             player->play();
           }
           return jsi::Value::undefined();
@@ -73,17 +73,17 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "pause"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released) {
+          if (!released.test()) {
             player->pause();
           }
           return jsi::Value::undefined();
         });
   } else if (propName == "seekTo") {
     return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "pause"), 0,
+        runtime, jsi::PropNameID::forAscii(runtime, "seekTo"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released) {
+          if (!released.test()) {
             if (count != 1) {
               throw jsi::JSError(
                   runtime,
@@ -100,6 +100,15 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          if (released.test()) {
+            return jsi::Function::createFromHostFunction(
+                runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
+                [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+                       const jsi::Value* arguments,
+                       size_t count) -> jsi::Value {
+                  return jsi::Value::undefined();
+                });
+          }
           auto name = arguments[0].asString(runtime).utf8(runtime);
           auto handler = arguments[1].asObject(runtime).asFunction(runtime);
           return this->on(name, std::move(handler));
@@ -114,11 +123,11 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         });
   } else if (propName == "currentTime") {
     return jsi::Value(
-        released ? 0 : (double)player->getCurrentPosition() / 1000000.0);
+        released.test() ? 0 : (double)player->getCurrentPosition() / 1000000.0);
   } else if (propName == "isLooping") {
-    return jsi::Value(!released && player->getIsLooping());
+    return jsi::Value(!released.test() && player->getIsLooping());
   } else if (propName == "isPlaying") {
-    return jsi::Value(!released && player->getIsPlaying());
+    return jsi::Value(!released.test() && player->getIsPlaying());
   }
   return jsi::Value::undefined();
 }
@@ -127,7 +136,7 @@ void VideoCompositionFramesExtractorHostObject::set(
     facebook::jsi::Runtime& runtime,
     const facebook::jsi::PropNameID& propNameId,
     const facebook::jsi::Value& value) {
-  if (released) {
+  if (released.test()) {
     return;
   }
   auto propName = propNameId.utf8(runtime);
@@ -136,11 +145,27 @@ void VideoCompositionFramesExtractorHostObject::set(
   }
 }
 
+void VideoCompositionFramesExtractorHostObject::handleEvent(
+    std::string eventName, alias_ref<jobject> data) {
+  if (eventName == "error") {
+    auto message = static_ref_cast<JString>(data)->toStdString();
+    emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {
+      auto dimensions = jsi::Object(runtime);
+      dimensions.setProperty(runtime, "message",
+                             jsi::String::createFromUtf8(runtime, message));
+      return dimensions;
+    });
+  } else {
+    emit(eventName);
+  }
+}
+
 void VideoCompositionFramesExtractorHostObject::release() {
-  if (!released) {
+  if (!released.test_and_set()) {
+    removeAllListeners();
     player->release();
-    jsListeners.clear();
-    released = true;
+    player = nullptr;
+    jEventDispatcher = nullptr;
   }
 }
 } // namespace RNSkiaVideo

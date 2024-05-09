@@ -66,6 +66,9 @@ public class VideoCompositionItemDecoder {
     }
     format = extractor.getTrackFormat(trackIndex);
     String mime = format.getString(MediaFormat.KEY_MIME);
+    if (mime == null) {
+      throw new IOException("Could not determine file mime type");
+    }
     decoder = MediaCodec.createDecoderByType(mime);
     extractor.selectTrack(trackIndex);
     videoWidth = format.getInteger(MediaFormat.KEY_WIDTH);

@@ -14,7 +14,8 @@ namespace RNSkiaVideo {
 
 class JSI_EXPORT VideoCompositionFramesExtractorHostObject
     : public jsi::HostObject,
-      EventEmitter {
+      EventEmitter,
+      JEventReceiver {
 public:
   VideoCompositionFramesExtractorHostObject(jsi::Runtime& runtime, jsi::Object);
   ~VideoCompositionFramesExtractorHostObject();
@@ -22,12 +23,12 @@ public:
   void set(jsi::Runtime&, const jsi::PropNameID& name,
            const jsi::Value& value) override;
   std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime& rt) override;
+  void handleEvent(std::string eventName, alias_ref<jobject> data) override;
 
 private:
-  bool released = false;
-  JEventBridge* eventBridge;
+  global_ref<NativeEventDispatcher> jEventDispatcher;
   global_ref<VideoCompositionFramesExtractor> player;
-  std::map<std::string, std::shared_ptr<facebook::jsi::Function>> jsListeners;
+  std::atomic_flag released;
   void release();
 };
 

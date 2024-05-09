@@ -181,8 +181,7 @@ public class VideoCompositionFramesExtractor {
 
     public PlaybackThread(Map<VideoComposition.Item, VideoCompositionItemDecoder> itemDecoders,
                           OnPlaybackThreadRelease onPlaybackThreadRelease) {
-      super(TAG + PlaybackThread.class.getSimpleName(),
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? Process.THREAD_PRIORITY_VIDEO : -10);
+      super(TAG + PlaybackThread.class.getSimpleName(), Process.THREAD_PRIORITY_VIDEO);
       this.itemDecoders = itemDecoders;
       this.onPlaybackThreadRelease = onPlaybackThreadRelease;
     }
@@ -232,28 +231,32 @@ public class VideoCompositionFramesExtractor {
         }
 
         switch (msg.what) {
-          case PLAYBACK_PLAY:
+          case PLAYBACK_PLAY -> {
             playInternal();
             return true;
-          case PLAYBACK_PAUSE:
+          }
+          case PLAYBACK_PAUSE -> {
             pauseInternal();
             return true;
-          case PLAYBACK_LOOP:
+          }
+          case PLAYBACK_LOOP -> {
             loopInternal();
             return true;
-          case PLAYBACK_SEEK:
+          }
+          case PLAYBACK_SEEK -> {
             seekInternal((Long) msg.obj);
             return true;
-          case PLAYBACK_RELEASE:
+          }
+          case PLAYBACK_RELEASE -> {
             releaseInternal();
             return true;
-          default:
+          }
+          default -> {
             return false;
+          }
         }
       } catch (Exception error) {
-        Map<String, Object> serializedError = new HashMap<>();
-        serializedError.put("message", error.getMessage());
-        eventDispatcher.dispatchEvent("error", serializedError);
+        eventDispatcher.dispatchEvent("error", error.getMessage());
       }
 
       // Release after an exception
@@ -365,7 +368,7 @@ public class VideoCompositionFramesExtractor {
       }
 
       if(!paused) {
-        long delay = 10;
+        long delay = 5;
         long duration = (SystemClock.elapsedRealtime() - loopStartTime);
         delay = delay - duration;
         if(delay > 0) {
