@@ -7,7 +7,6 @@ import android.media.ImageReader;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 
 import androidx.annotation.Nullable;
 
@@ -24,7 +23,7 @@ import java.util.Set;
  * A class that previews a video composition.
  */
 public class VideoCompositionDecoder {
-  private static final String TAG = "VideoCompositionDecoder";
+
 
   private final VideoComposition composition;
 
@@ -33,7 +32,6 @@ public class VideoCompositionDecoder {
   private final HashMap<VideoComposition.Item, ImageReader> imageReaders;
 
   private final HashMap<String, VideoFrame> videoFrames = new HashMap<>();
-
 
   private OnItemImageAvailableListener onItemImageAvailableListener;
 
@@ -88,22 +86,17 @@ public class VideoCompositionDecoder {
     });
   }
 
-  /* Deltat value that we use keep input buffer with an advance of time to be sure that decoders
-   * Input buffer contains enough data
-   */
-  private static final long INPUT_DELTA = 500000L;
-
   public void setOnItemImageAvailableListener(
     OnItemImageAvailableListener onItemImageAvailableListener) {
     this.onItemImageAvailableListener = onItemImageAvailableListener;
   }
 
-  public Set<VideoComposition.Item> advance(long currentPosition, boolean forceRendering)
-    throws IOException, InterruptedException {
-    return advance(currentPosition, forceRendering, false);
-  }
+  /* Deltat value that we use to keep input buffer with an advance of time to be sure that decoders
+   * Input buffer contains enough data
+   */
+  private static final long INPUT_DELTA = 500000L;
 
-  public Set<VideoComposition.Item> advance(long currentPosition, boolean forceRendering, boolean verbose)
+  public Set<VideoComposition.Item> advance(long currentPosition, boolean forceRendering)
     throws IOException, InterruptedException {
     for (VideoCompositionItemDecoder itemDecoder : decoders.values()) {
       VideoComposition.Item item = itemDecoder.getItem();
@@ -115,18 +108,14 @@ public class VideoCompositionDecoder {
         compositionStartTime <= currentPosition
           && currentPosition <= compositionStartTime + duration + INPUT_DELTA &&
           currentPosition <= compositionDuration + INPUT_DELTA)) {
-        if (verbose) Log.i(TAG, "decoding item " + item.getId());
         while (true) {
           long presentationTimeUs = itemDecoder.getInputSamplePresentationTimeUS();
-          if (verbose) Log.i(TAG, "Presentation time " + presentationTimeUs);
           if ((forceRendering && (presentationTimeUs >= startTime + INPUT_DELTA)) ||
             presentationTimeUs >= currentPosition + startTime + INPUT_DELTA - compositionStartTime) {
-            if (verbose) Log.i(TAG, "Exiting");
             break;
           }
           boolean queued = itemDecoder.queueSampleToCodec();
           if (!queued) {
-            if (verbose) Log.i(TAG, "Exiting no more queue");
             break;
           }
         }
@@ -134,10 +123,8 @@ public class VideoCompositionDecoder {
         while (true) {
           VideoCompositionItemDecoder.Frame frame = itemDecoder.dequeueOutputBuffer();
           if (frame == null) {
-            if (verbose) Log.i(TAG, "No more frame");
             break;
           }
-          if (verbose) Log.i(TAG, "Frame found for time : " + frame.getPresentationTimeUs());
           List<VideoCompositionItemDecoder.Frame> itemPendingFrames =
             pendingFrames.computeIfAbsent(item, k -> new ArrayList<>());
           itemPendingFrames.add(frame);
@@ -166,8 +153,6 @@ public class VideoCompositionDecoder {
       boolean force = forceRendering;
       for (VideoCompositionItemDecoder.Frame frame : itemFrames) {
         if (force || frame.getPresentationTimeUs() <= itemPosition) {
-          if (verbose)
-            Log.i(TAG, "found frames to render for time " + frame.getPresentationTimeUs());
           framesToRender.add(frame);
           force = false;
           updatedItems.add(item);
@@ -229,7 +214,7 @@ public class VideoCompositionDecoder {
   }
 
   interface OnItemImageAvailableListener {
-    public void onItemImageAvailable(VideoComposition.Item item);
+    void onItemImageAvailable(VideoComposition.Item item);
   }
 }
 

@@ -19,8 +19,6 @@ import java.util.Set;
  */
 public class VideoCompositionExporter {
 
-  private static final String TAG = "VideoCompositionExporter";
-
   @DoNotStrip
   private HybridData mHybridData;
 
@@ -107,7 +105,7 @@ public class VideoCompositionExporter {
     long currentTime = TimeHelpers.secToUs((double) currentFrame / frameRate);
     Set<VideoComposition.Item> updatedItems;
     try {
-      updatedItems = decoder.advance(currentTime, currentFrame == 0, true);
+      updatedItems = decoder.advance(currentTime, currentFrame == 0);
     } catch (Exception e) {
       handleError(e);
       return;
