@@ -97,7 +97,7 @@ void VideoCompositionExporter::start(std::function<void()> onComplete,
 }
 
 void VideoCompositionExporter::renderFrame(
-    jlong timeUS, alias_ref<JMap<JString, VideoFrame>> frames) {
+    jdouble time, alias_ref<JMap<JString, VideoFrame>> frames) {
   auto env = Environment::current();
   if (this->surface == nullptr) {
     auto jSurface = getCodecInputSurface();
@@ -111,7 +111,7 @@ void VideoCompositionExporter::renderFrame(
   }
   SkiaOpenGLHelper::makeCurrent(&ThreadContextHolder::ThreadSkiaOpenGLContext,
                                 glSurface);
-  auto timeMS = jsi::Value((double)timeUS / 1000);
+  auto currentTime = jsi::Value(time);
   auto result = jsi::Object(workletRuntime->getJSIRuntime());
   auto platformContext = RNSkiaHelpers::getSkiaPlatformContext();
   for (auto& entry : *frames) {
@@ -126,10 +126,10 @@ void VideoCompositionExporter::renderFrame(
       workletRuntime->getJSIRuntime(),
       std::make_shared<JsiSkCanvas>(RNSkiaHelpers::getSkiaPlatformContext(),
                                     surface->getCanvas()));
-  workletRuntime->runGuarded(drawFrameWorklet, skCanvas, timeMS, result);
+  workletRuntime->runGuarded(drawFrameWorklet, skCanvas, currentTime, result);
   GrAsDirectContext(surface->recordingContext())->flushAndSubmit();
   eglPresentationTimeANDROID(OpenGLResourceHolder::getInstance().glDisplay,
-                             glSurface, timeUS * 1000);
+                             glSurface, time * 1000000000);
   eglSwapBuffers(OpenGLResourceHolder::getInstance().glDisplay, glSurface);
 }
 

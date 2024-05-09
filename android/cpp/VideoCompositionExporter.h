@@ -50,7 +50,7 @@ private:
   void start(std::function<void()> onCompleteCallback,
              std::function<void()> onErrorCallback);
   local_ref<jobject> getCodecInputSurface() const;
-  void renderFrame(jlong timeUS, alias_ref<JMap<JString, VideoFrame>> frames);
+  void renderFrame(jdouble timeUS, alias_ref<JMap<JString, VideoFrame>> frames);
   void onComplete();
   void onError(alias_ref<JObject> e);
   void release();

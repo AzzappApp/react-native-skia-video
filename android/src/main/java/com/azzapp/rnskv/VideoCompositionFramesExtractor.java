@@ -1,10 +1,8 @@
 package com.azzapp.rnskv;
 
-import android.graphics.ImageFormat;
 import android.hardware.HardwareBuffer;
 import android.media.Image;
 import android.media.ImageReader;
-import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
@@ -15,9 +13,7 @@ import android.os.SystemClock;
 import androidx.annotation.NonNull;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -28,9 +24,7 @@ public class VideoCompositionFramesExtractor {
 
   private final VideoComposition composition;
 
-  private final HashMap<VideoComposition.Item, VideoCompositionItemDecoder> decoders;
-
-  private HashMap<VideoComposition.Item, ImageReader> imageReaders;
+  private final VideoCompositionDecoder decoder;
 
   private final HashMap<String, VideoFrame> videoFrames = new HashMap<>();
 
@@ -40,17 +34,14 @@ public class VideoCompositionFramesExtractor {
 
   /**
    * Create a new VideoCompositionFramesExtractor.
+   *
    * @param composition the video composition to preview
    */
   public VideoCompositionFramesExtractor(VideoComposition composition, NativeEventDispatcher eventDispatcher) {
     this.eventDispatcher = eventDispatcher;
     this.composition = composition;
-    decoders = new HashMap<>();
-    composition.getItems().forEach(item -> {
-      VideoCompositionItemDecoder decoder = new VideoCompositionItemDecoder(item);
-      decoders.put(item, decoder);
-    });
-    playbackThread = new PlaybackThread(decoders, this::releaseImageReaders);
+    decoder = new VideoCompositionDecoder(composition);
+    playbackThread = new PlaybackThread();
     playbackThread.start();
   }
 
@@ -84,37 +75,39 @@ public class VideoCompositionFramesExtractor {
 
   /**
    * Decode the next frame of each composition item according to the current position of the player.
-   * @return an array of the ids of the items that have a new frame
+   *
+   * @return a map of item id to video frame
    */
   public Map<String, VideoFrame> decodeCompositionFrames() {
     if (Looper.myLooper() != Looper.getMainLooper()) {
       throw new RuntimeException("decodeNextFrame should be called on UI Thread");
     }
-    if (imageReaders == null) {
-      return videoFrames;
-    }
-    for (Map.Entry<VideoComposition.Item, ImageReader> entry: imageReaders.entrySet()) {
-      VideoComposition.Item item = entry.getKey();
-      ImageReader imageReader = entry.getValue();
-      VideoCompositionItemDecoder decoder = decoders.get(item);
-      Image image = imageReader.acquireLatestImage();
-      if (image != null && decoder != null) {
-        HardwareBuffer hardwareBuffer = image.getHardwareBuffer();
-        image.close();
-        if (hardwareBuffer != null) {
-          String id = item.getId();
-          VideoFrame currentFrame = videoFrames.get(id);
-          if (currentFrame != null) {
-            currentFrame.getBuffer().close();
-          }
-          videoFrames.put(id, new VideoFrame(
-            hardwareBuffer,
-            decoder.getVideoWidth(),
-            decoder.getVideoHeight(),
-            decoder.getRotation()
-          ));
-        }
+    for (VideoComposition.Item item : composition.getItems()) {
+      ImageReader imageReader = decoder.getImageReaderForItem(item);
+      VideoCompositionDecoder.VideoDimensions dimensions = decoder.getVideoDimensions(item);
+      if (imageReader == null || dimensions == null) {
+        continue;
       }
+      Image image = imageReader.acquireLatestImage();
+      if (image == null) {
+        continue;
+      }
+      HardwareBuffer hardwareBuffer = image.getHardwareBuffer();
+      image.close();
+      if (hardwareBuffer == null) {
+        continue;
+      }
+      String id = item.getId();
+      VideoFrame currentFrame = videoFrames.get(id);
+      if (currentFrame != null) {
+        currentFrame.getBuffer().close();
+      }
+      videoFrames.put(id, new VideoFrame(
+        hardwareBuffer,
+        dimensions.width(),
+        dimensions.height(),
+        dimensions.rotation()
+      ));
     }
     return videoFrames;
   }
@@ -150,13 +143,6 @@ public class VideoCompositionFramesExtractor {
     return !playbackThread.paused;
   }
 
-  private void releaseImageReaders() {
-    for (ImageReader imageReader: imageReaders.values()) {
-      imageReader.close();
-    }
-    imageReaders.clear();
-  }
-
   private class PlaybackThread extends HandlerThread implements Handler.Callback {
     private static final int PLAYBACK_PLAY = 1;
     private static final int PLAYBACK_PAUSE = 2;
@@ -167,26 +153,16 @@ public class VideoCompositionFramesExtractor {
     private boolean prepared;
     private boolean releasing;
     private boolean looping;
-    private final Map<VideoComposition.Item, VideoCompositionItemDecoder> itemDecoders;
 
     private long startTime;
+    private long pausePosition = 0;
     private long currentPosition = 0;
     private boolean isEOS = false;
     private Handler handler;
 
-    private final OnPlaybackThreadRelease onPlaybackThreadRelease;
-
-    public PlaybackThread(Map<VideoComposition.Item, VideoCompositionItemDecoder> itemDecoders,
-                          OnPlaybackThreadRelease onPlaybackThreadRelease) {
+    public PlaybackThread() {
       super(TAG + PlaybackThread.class.getSimpleName(), Process.THREAD_PRIORITY_VIDEO);
-      this.itemDecoders = itemDecoders;
-      this.onPlaybackThreadRelease = onPlaybackThreadRelease;
     }
-
-    private final Map<
-      VideoComposition.Item,
-      List<VideoCompositionItemDecoder.Frame>
-    > pendingFrames = new HashMap();
 
     @Override
     public synchronized void start() {
@@ -211,7 +187,7 @@ public class VideoCompositionFramesExtractor {
     }
 
     private void release() {
-      if(!isAlive()) {
+      if (!isAlive()) {
         return;
       }
 
@@ -224,7 +200,7 @@ public class VideoCompositionFramesExtractor {
     @Override
     public boolean handleMessage(@NonNull Message msg) {
       try {
-        if(releasing) {
+        if (releasing) {
           // When the releasing flag is set, just release without processing any more messages
           releaseInternal();
           return true;
@@ -240,7 +216,7 @@ public class VideoCompositionFramesExtractor {
             return true;
           }
           case PLAYBACK_LOOP -> {
-            loopInternal();
+            loopInternal(false);
             return true;
           }
           case PLAYBACK_SEEK -> {
@@ -266,29 +242,7 @@ public class VideoCompositionFramesExtractor {
 
 
     private void prepareInternal() {
-      imageReaders = new HashMap<>();
-      decoders.values().forEach(decoder -> {
-        try {
-          decoder.prepare();
-          ImageReader imageReader;
-          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            imageReader = ImageReader.newInstance(
-              decoder.getVideoWidth(),
-              decoder.getVideoHeight(),
-              ImageFormat.PRIVATE, 2,
-              HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE
-            );
-          } else {
-            imageReader = ImageReader.newInstance(
-              decoder.getVideoWidth(), decoder.getVideoHeight(), ImageFormat.PRIVATE, 2);
-          }
-          imageReaders.put(decoder.getItem(), imageReader);
-          decoder.setSurface(imageReader.getSurface());
-        } catch (IOException e) {
-          throw new RuntimeException(e);
-        }
-      });
-
+      decoder.prepare();
       prepared = true;
       eventDispatcher.dispatchEvent("ready", null);
     }
@@ -297,31 +251,19 @@ public class VideoCompositionFramesExtractor {
       if (!prepared) {
         prepareInternal();
       }
-      if(isEOS) {
+      if (isEOS) {
         isEOS = false;
         seekInternal(0);
       }
-      long minPos = Long.MAX_VALUE;
-      for (VideoCompositionItemDecoder decoder: decoders.values()) {
-        if (decoder.getOutputPresentationTimeTimeUS() < minPos) {
-          minPos = decoder.getInputSamplePresentationTimeUS();
-        }
-      }
-
-      startTime = microTime() - minPos;
-      loopInternal();
+      startTime = microTime() - pausePosition;
+      loopInternal(true);
     }
 
     private void pauseInternal() {
       handler.removeMessages(PLAYBACK_LOOP);
     }
 
-    /* Deltat value that we use keep input buffer with an advance of time to be sure that decoders
-     * Input buffer contains enough data
-     */
-    private static final long INPUT_DELTA = 500000L;
-
-    private void loopInternal() throws IOException, InterruptedException {
+    private void loopInternal(boolean force) throws IOException, InterruptedException {
       long loopStartTime = SystemClock.elapsedRealtime();
 
       currentPosition = microTime() - startTime;
@@ -330,74 +272,22 @@ public class VideoCompositionFramesExtractor {
 
       if (isEOS) {
         eventDispatcher.dispatchEvent("complete", null);
-        if(looping) {
+        if (looping) {
           playInternal();
+          return;
         } else {
           paused = true;
           pauseInternal();
         }
       } else {
-        for (VideoCompositionItemDecoder itemDecoder : decoders.values()) {
-          VideoComposition.Item item = itemDecoder.getItem();
-          long compositionStartTime = TimeHelpers.secToUs(item.getCompositionStartTime());
-          long startTime = TimeHelpers.secToUs(item.getStartTime());
-          long duration = TimeHelpers.secToUs(item.getDuration());
-          if (
-            compositionStartTime <= currentPosition
-              && currentPosition <= compositionStartTime + duration + INPUT_DELTA) {
-            while (true) {
-              if (itemDecoder.getInputSamplePresentationTimeUS() >=
-                  currentPosition + startTime + INPUT_DELTA - compositionStartTime) {
-                break;
-              }
-              boolean queued = itemDecoder.queueSampleToCodec();
-              if (!queued) {
-                break;
-              }
-            }
-
-            while (true) {
-              VideoCompositionItemDecoder.Frame frame = itemDecoder.dequeueOutputBuffer();
-              if (frame == null) {
-                break;
-              }
-              List<VideoCompositionItemDecoder.Frame> itemPendingFrames =
-                pendingFrames.computeIfAbsent(item, k -> new ArrayList<>());
-              itemPendingFrames.add(frame);
-            }
-          }
-        }
+        decoder.advance(currentPosition, force);
       }
 
-      for (
-        Map.Entry<VideoComposition.Item, List<VideoCompositionItemDecoder.Frame>> entry:
-          pendingFrames.entrySet()) {
-        VideoComposition.Item item = entry.getKey();
-        List<VideoCompositionItemDecoder.Frame> itemFrames = entry.getValue();
-        ArrayList<VideoCompositionItemDecoder.Frame> framesToRender = new ArrayList<>();
-
-        long compositionStartTime = TimeHelpers.secToUs(item.getCompositionStartTime());
-        long startTime = TimeHelpers.secToUs(item.getStartTime());
-        long duration = TimeHelpers.secToUs(item.getDuration());
-        long itemPosition = Math.min(
-          startTime + currentPosition - compositionStartTime,
-          startTime + duration
-        );
-
-        for (VideoCompositionItemDecoder.Frame frame: itemFrames) {
-          if (frame.getPresentationTimeUs() <= itemPosition) {
-            framesToRender.add(frame);
-          }
-        }
-        itemFrames.removeAll(framesToRender);
-        framesToRender.forEach(VideoCompositionItemDecoder.Frame::render);
-      }
-
-      if(!paused) {
+      if (!paused) {
         long delay = 10;
         long duration = (SystemClock.elapsedRealtime() - loopStartTime);
         delay = delay - duration;
-        if(delay > 0) {
+        if (delay > 0) {
           handler.sendEmptyMessageDelayed(PLAYBACK_LOOP, delay);
         } else {
           handler.sendEmptyMessage(PLAYBACK_LOOP);
@@ -408,26 +298,15 @@ public class VideoCompositionFramesExtractor {
     private void seekInternal(long position) {
       startTime = microTime() - position;
       currentPosition = position;
-      pendingFrames.values().forEach(frames ->
-        frames.forEach(VideoCompositionItemDecoder.Frame::release));
-      pendingFrames.clear();
-      decoders.values().forEach(itemDecoder -> itemDecoder.seekTo(position));
+      decoder.seekTo(currentPosition);
     }
 
     private void releaseInternal() {
       interrupt();
       quit();
-      pendingFrames.values().forEach(frames ->
-        frames.forEach(VideoCompositionItemDecoder.Frame::release));
-      pendingFrames.clear();
-      itemDecoders.values().forEach(VideoCompositionItemDecoder::release);
-      onPlaybackThreadRelease.onReleased();
+      decoder.release();
+      videoFrames.values().forEach(frame -> ((HardwareBuffer) frame.getHardwareBuffer()).close());
     }
-  }
-
-
-  private interface OnPlaybackThreadRelease {
-    void onReleased();
   }
 
   private static long microTime() {
