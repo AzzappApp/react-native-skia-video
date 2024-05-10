@@ -5,7 +5,7 @@ folly_compiler_flags = '-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1 
 
 # Important: we test if we can find the rnskia module in the node_modules folder.
 # (When installing modules with yarn it might create a node_modules/.bin folder, but thats not the real place where all node modules are stored)
-nodeModules = Dir.exist?(File.join(__dir__, "node_modules", "@shopify", "react-native-skia")) ? File.join(__dir__, "node_modules") : File.join(__dir__, "..")
+nodeModules = Dir.exist?(File.join(__dir__, "node_modules", "@shopify", "react-native-skia")) ? File.join(__dir__, "node_modules") : File.join(__dir__, "../..")
 skiaPath = File.join(nodeModules, "@shopify", "react-native-skia")
 
 Pod::Spec.new do |s|
