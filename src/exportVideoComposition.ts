@@ -20,6 +20,13 @@ const getExportRuntime = () => {
   return exportRuntime;
 };
 
+/**
+ * Exports a video composition to a video file.
+ * @param videoComposition The video composition to export.
+ * @param options The export options.
+ * @param drawFrame The function used to draw the video frames.
+ * @returns A promise that resolves when the export is complete.
+ */
 export const exportVideoComposition = async (
   videoComposition: VideoComposition,
   options: ExportOptions,
