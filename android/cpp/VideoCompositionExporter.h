@@ -16,11 +16,17 @@ class VideoCompositionExporter : public HybridClass<VideoCompositionExporter> {
 public:
   static constexpr auto kJavaDescriptor =
       "Lcom/azzapp/rnskv/VideoCompositionExporter;";
-  static VideoCompositionExporter*
+  static global_ref<VideoCompositionExporter::JavaPart>
   create(alias_ref<VideoComposition> composition, std::string& outPath,
          int width, int height, int frameRate, int bitRate,
          std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
          std::shared_ptr<reanimated::ShareableWorklet> drawFrame);
+
+  explicit VideoCompositionExporter(
+      int width, int height,
+      std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
+      std::shared_ptr<reanimated::ShareableWorklet> drawFrame);
+
   static void registerNatives();
 
   static jsi::Value exportVideoComposition(
@@ -41,11 +47,6 @@ private:
   EGLSurface glSurface;
   ANativeWindow* window;
   sk_sp<SkSurface> surface;
-
-  explicit VideoCompositionExporter(
-      int width, int height,
-      std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
-      std::shared_ptr<reanimated::ShareableWorklet> drawFrame);
 
   void start(std::function<void()> onCompleteCallback,
              std::function<void()> onErrorCallback);

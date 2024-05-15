@@ -26,49 +26,46 @@ jsi::Value VideoCompositionExporter::exportVideoComposition(
   int frameRate = options.getProperty(runtime, "frameRate").asNumber();
   int bitRate = options.getProperty(runtime, "bitRate").asNumber();
 
-  auto exporter = VideoCompositionExporter::create(composition, outPath, width,
-                                                   height, frameRate, bitRate,
-                                                   workletRuntime, drawFrame);
-  auto sharedExporter =
-      std::shared_ptr<VideoCompositionExporter>(std::move(exporter));
+  global_ref<VideoCompositionExporter::JavaPart> exporter =
+      VideoCompositionExporter::create(composition, outPath, width, height,
+                                       frameRate, bitRate, workletRuntime,
+                                       drawFrame);
 
   auto sharedSuccessCallback =
       std::make_shared<jsi::Function>(std::move(onSuccess));
   auto sharedErrorCallback =
       std::make_shared<jsi::Function>(std::move(onError));
 
-  sharedExporter->start(
-      [sharedExporter, &runtime, sharedSuccessCallback]() {
-        sharedExporter->release();
-        RNSkiaHelpers::getCallInvoker()->invokeAsync(
-            [&runtime, sharedSuccessCallback]() -> void {
-              sharedSuccessCallback->call(runtime);
-            });
+  exporter->cthis()->start(
+      [=, &runtime]() {
+        RNSkiaHelpers::getCallInvoker()->invokeAsync([=, &runtime]() -> void {
+          exporter->cthis()->release();
+          sharedSuccessCallback->call(runtime);
+        });
       },
-      [sharedExporter, &runtime, sharedErrorCallback]() {
-        sharedExporter->release();
-        RNSkiaHelpers::getCallInvoker()->invokeAsync(
-            [&runtime, sharedErrorCallback]() -> void {
-              sharedErrorCallback->call(runtime);
-            });
+      [=, &runtime]() {
+        RNSkiaHelpers::getCallInvoker()->invokeAsync([=, &runtime]() -> void {
+          exporter->cthis()->release();
+          sharedErrorCallback->call(runtime);
+        });
       });
-
   return jsi::Value::undefined();
 }
 
-VideoCompositionExporter* VideoCompositionExporter::create(
-    alias_ref<VideoComposition> composition, std::string& outPath, int width,
-    int height, int frameRate, int bitRate,
+global_ref<VideoCompositionExporter::JavaPart> VideoCompositionExporter::create(
+    alias_ref<RNSkiaVideo::VideoComposition> composition, std::string& outPath,
+    int width, int height, int frameRate, int bitRate,
     std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
     std::shared_ptr<reanimated::ShareableWorklet> drawFrame) {
-  VideoCompositionExporter* exporter =
-      new VideoCompositionExporter(width, height, workletRuntime, drawFrame);
-  auto hybridData =
-      makeHybridData(std::unique_ptr<VideoCompositionExporter>(exporter));
-  auto javaPart = newObjectJavaArgs(hybridData, composition, outPath, width,
-                                    height, frameRate, bitRate);
-  exporter->jThis = make_global(javaPart);
-  return exporter;
+
+  auto hybridData = makeHybridData(std::make_unique<VideoCompositionExporter>(
+      width, height, workletRuntime, drawFrame));
+  auto jExporter = newObjectJavaArgs(hybridData, composition, outPath, width,
+                                     height, frameRate, bitRate);
+
+  auto globalExporter = make_global(jExporter);
+  jExporter->cthis()->jThis = globalExporter;
+  return globalExporter;
 }
 
 VideoCompositionExporter::VideoCompositionExporter(
@@ -141,6 +138,7 @@ local_ref<jobject> VideoCompositionExporter::getCodecInputSurface() const {
 
 void VideoCompositionExporter::release() {
   this->surface = nullptr;
+  this->jThis = nullptr;
   if (glSurface != nullptr) {
     eglDestroySurface(OpenGLResourceHolder::getInstance().glDisplay, glSurface);
   }
