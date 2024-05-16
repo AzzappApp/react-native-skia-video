@@ -5,7 +5,7 @@
 #include "VideoCompositionExporter.h"
 #include <EGL/eglext.h>
 #include <JsiSkCanvas.h>
-#include <gpu/ganesh/SkImageGanesh.h>
+#include <gpu/ganesh/SkSurfaceGanesh.h>
 #include <gpu/ganesh/gl/GrGLBackendSurface.h>
 
 #include "JNIHelpers.h"
@@ -129,10 +129,9 @@ int VideoCompositionExporter::renderFrame(
   workletRuntime->runGuarded(drawFrameWorklet, skCanvas, currentTime, result);
 
   GrAsDirectContext(surface->recordingContext())->flushAndSubmit();
-  auto snapshot = surface->makeImageSnapshot();
-  GrBackendTexture texture;
-  if (!SkImages::GetBackendTextureFromImage(snapshot, &texture, false,
-                                            nullptr)) {
+  GrBackendTexture texture = SkSurfaces::GetBackendTexture(
+      surface.get(), SkSurfaces::BackendHandleAccess::kFlushRead);
+  if (!texture.isValid()) {
     return -1;
   }
   GrGLTextureInfo textureInfo;
