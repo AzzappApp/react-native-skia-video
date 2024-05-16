@@ -5,8 +5,10 @@
 #include "VideoCompositionExporter.h"
 #include <EGL/eglext.h>
 #include <JsiSkCanvas.h>
+#include <gpu/ganesh/SkImageGanesh.h>
+#include <gpu/ganesh/gl/GrGLBackendSurface.h>
 
-#include "RNSkiaHelpers.h"
+#include "JNIHelpers.h"
 
 namespace RNSkiaVideo {
 
@@ -38,13 +40,13 @@ jsi::Value VideoCompositionExporter::exportVideoComposition(
 
   exporter->cthis()->start(
       [=, &runtime]() {
-        RNSkiaHelpers::getCallInvoker()->invokeAsync([=, &runtime]() -> void {
+        JNIHelpers::getCallInvoker()->invokeAsync([=, &runtime]() -> void {
           exporter->cthis()->release();
           sharedSuccessCallback->call(runtime);
         });
       },
       [=, &runtime]() {
-        RNSkiaHelpers::getCallInvoker()->invokeAsync([=, &runtime]() -> void {
+        JNIHelpers::getCallInvoker()->invokeAsync([=, &runtime]() -> void {
           exporter->cthis()->release();
           sharedErrorCallback->call(runtime);
         });
@@ -80,7 +82,9 @@ VideoCompositionExporter::VideoCompositionExporter(
 
 void VideoCompositionExporter::registerNatives() {
   registerHybrid(
-      {makeNativeMethod("renderFrame", VideoCompositionExporter::renderFrame),
+      {makeNativeMethod("makeSkiaSharedContextCurrent",
+                        VideoCompositionExporter::makeSkiaSharedContextCurrent),
+       makeNativeMethod("renderFrame", VideoCompositionExporter::renderFrame),
        makeNativeMethod("onComplete", VideoCompositionExporter::onComplete),
        makeNativeMethod("onError", VideoCompositionExporter::onError)});
 }
@@ -93,24 +97,23 @@ void VideoCompositionExporter::start(std::function<void()> onComplete,
   startMethod(jThis);
 }
 
-void VideoCompositionExporter::renderFrame(
-    jdouble time, alias_ref<JMap<JString, VideoFrame>> frames) {
-  auto env = Environment::current();
-  if (this->surface == nullptr) {
-    auto jSurface = getCodecInputSurface();
-    window = ANativeWindow_fromSurface(env, jSurface.get());
-    auto pair = RNSkiaHelpers::createWindowSkSurface(window, width, height);
-    if (!pair.has_value()) {
-      throw std::runtime_error("Could not create skia surface");
-    }
-    surface = pair->first;
-    glSurface = pair->second;
+void VideoCompositionExporter::makeSkiaSharedContextCurrent() {
+  if (surface == nullptr) {
+    surface = SkiaOpenGLSurfaceFactory::makeOffscreenSurface(width, height);
   }
-  SkiaOpenGLHelper::makeCurrent(&ThreadContextHolder::ThreadSkiaOpenGLContext,
-                                glSurface);
+  SkiaOpenGLHelper::makeCurrent(
+      &ThreadContextHolder::ThreadSkiaOpenGLContext,
+      ThreadContextHolder::ThreadSkiaOpenGLContext.gl1x1Surface);
+}
+
+int VideoCompositionExporter::renderFrame(
+    jdouble time, alias_ref<JMap<JString, VideoFrame>> frames) {
+  SkiaOpenGLHelper::makeCurrent(
+      &ThreadContextHolder::ThreadSkiaOpenGLContext,
+      ThreadContextHolder::ThreadSkiaOpenGLContext.gl1x1Surface);
   auto currentTime = jsi::Value(time);
   auto result = jsi::Object(workletRuntime->getJSIRuntime());
-  auto platformContext = RNSkiaHelpers::getSkiaPlatformContext();
+  auto platformContext = JNIHelpers::getSkiaPlatformContext();
   for (auto& entry : *frames) {
     auto id = entry.first->toStdString();
     auto frame = entry.second;
@@ -121,30 +124,26 @@ void VideoCompositionExporter::renderFrame(
   surface->getCanvas()->clear(SkColors::kTransparent);
   auto skCanvas = jsi::Object::createFromHostObject(
       workletRuntime->getJSIRuntime(),
-      std::make_shared<JsiSkCanvas>(RNSkiaHelpers::getSkiaPlatformContext(),
+      std::make_shared<JsiSkCanvas>(JNIHelpers::getSkiaPlatformContext(),
                                     surface->getCanvas()));
   workletRuntime->runGuarded(drawFrameWorklet, skCanvas, currentTime, result);
-  GrAsDirectContext(surface->recordingContext())->flushAndSubmit();
-  eglPresentationTimeANDROID(OpenGLResourceHolder::getInstance().glDisplay,
-                             glSurface, time * 1000000000);
-  eglSwapBuffers(OpenGLResourceHolder::getInstance().glDisplay, glSurface);
-}
 
-local_ref<jobject> VideoCompositionExporter::getCodecInputSurface() const {
-  static const auto getCodecInputSurfaceMethod =
-      jThis->getClass()->getMethod<jobject()>("getCodecInputSurface");
-  return getCodecInputSurfaceMethod(jThis);
+  GrAsDirectContext(surface->recordingContext())->flushAndSubmit();
+  auto snapshot = surface->makeImageSnapshot();
+  GrBackendTexture texture;
+  if (!SkImages::GetBackendTextureFromImage(snapshot, &texture, false,
+                                            nullptr)) {
+    return -1;
+  }
+  GrGLTextureInfo textureInfo;
+  return GrBackendTextures::GetGLTextureInfo(texture, &textureInfo)
+             ? textureInfo.fID
+             : -1;
 }
 
 void VideoCompositionExporter::release() {
-  this->surface = nullptr;
-  this->jThis = nullptr;
-  if (glSurface != nullptr) {
-    eglDestroySurface(OpenGLResourceHolder::getInstance().glDisplay, glSurface);
-  }
-  if (window != nullptr) {
-    ANativeWindow_release(window);
-  }
+  surface = nullptr;
+  jThis = nullptr;
 }
 
 void VideoCompositionExporter::onComplete() {

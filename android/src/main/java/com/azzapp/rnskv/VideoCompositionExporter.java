@@ -1,8 +1,5 @@
 package com.azzapp.rnskv;
 
-import android.hardware.HardwareBuffer;
-import android.media.Image;
-import android.media.ImageReader;
 import android.os.Handler;
 import android.os.HandlerThread;
 
@@ -12,6 +9,9 @@ import com.facebook.jni.annotations.DoNotStrip;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+
+import javax.microedition.khronos.egl.EGL10;
+import javax.microedition.khronos.egl.EGLContext;
 
 
 /**
@@ -90,8 +90,13 @@ public class VideoCompositionExporter {
     Handler handler = new Handler(exportThread.getLooper());
     handler.post(() -> {
       try {
+        makeSkiaSharedContextCurrent();
+        EGLContext sharedContext = ((EGL10) EGLContext.getEGL()).eglGetCurrentContext();
+        if (sharedContext == EGL10.EGL_NO_CONTEXT) {
+          throw new RuntimeException("No shared context");
+        }
+        encoder.prepare(sharedContext);
         decoder.prepare();
-        encoder.prepare();
         decoder.setOnItemImageAvailableListener(this::imageAvailable);
       } catch (Exception e) {
         handleError(e);
@@ -130,11 +135,11 @@ public class VideoCompositionExporter {
   }
 
   private void writeFrame() {
-    renderFrame((double) currentFrame / frameRate, decoder.getUpdatedVideoFrames());
-
     long nbFrames = (long) Math.floor(frameRate * composition.getDuration());
     boolean eos = currentFrame == nbFrames - 1;
-    encoder.drainEncoder(eos);
+    double time = (double) currentFrame / frameRate;
+    int texture = renderFrame(time, decoder.getUpdatedVideoFrames());
+    encoder.writeFrame(TimeHelpers.secToUs(time), texture, eos);
     if (!eos) {
       currentFrame += 1;
       decodeNextFrame();
@@ -143,14 +148,15 @@ public class VideoCompositionExporter {
     }
   }
 
-  public Object getCodecInputSurface() {
-    return encoder.getInputSurface();
-  }
+  /**
+   * Makes the Skia shared context current.
+   */
+  private native void makeSkiaSharedContextCurrent();
 
   /**
    * Renders a frame. (call the javascript render method with a skia canvas on the native side)
    */
-  public native void renderFrame(double timeUS, Map<String, VideoFrame> videoFrames);
+  public native int renderFrame(double timeSecond, Map<String, VideoFrame> videoFrames);
 
   private native void onComplete();
 

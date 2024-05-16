@@ -1,5 +1,5 @@
 #include "VideoFrame.h"
-#include "RNSkiaHelpers.h"
+#include "JNIHelpers.h"
 
 namespace RNSkiaVideo {
 AHardwareBuffer* VideoFrame::getHardwareBuffer() {

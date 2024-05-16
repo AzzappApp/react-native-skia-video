@@ -44,16 +44,15 @@ private:
   std::shared_ptr<reanimated::ShareableWorklet> drawFrameWorklet;
   std::function<void()> onCompleteCallback;
   std::function<void()> onErrorCallback;
-  EGLSurface glSurface;
-  ANativeWindow* window;
   sk_sp<SkSurface> surface;
 
   void start(std::function<void()> onCompleteCallback,
              std::function<void()> onErrorCallback);
-  local_ref<jobject> getCodecInputSurface() const;
-  void renderFrame(jdouble timeUS, alias_ref<JMap<JString, VideoFrame>> frames);
+  void makeSkiaSharedContextCurrent();
+  int renderFrame(jdouble timeUS, alias_ref<JMap<JString, VideoFrame>> frames);
   void onComplete();
   void onError(alias_ref<JObject> e);
   void release();
 };
+
 } // namespace RNSkiaVideo

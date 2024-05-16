@@ -5,7 +5,7 @@ import com.shopify.reactnative.skia.RNSkiaModule;
 /**
  * Helper class to get the Skia platform context.
  */
-public class RNSkiaHelpers {
+public class JNIHelpers {
 
   /**
    * Get the Skia platform context. used from the native side.

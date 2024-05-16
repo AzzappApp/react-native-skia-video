@@ -4,6 +4,7 @@ import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
+import android.opengl.GLES20;
 import android.opengl.Matrix;
 import android.util.Log;
 import android.view.Surface;
@@ -11,11 +12,13 @@ import android.view.Surface;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
+import javax.microedition.khronos.egl.EGLContext;
+
 
 /**
  * Helper class for encoding video.
  */
-public class VideoEncoder  {
+public class VideoEncoder {
 
   private static final String TAG = "VideoEncoder";
 
@@ -24,7 +27,8 @@ public class VideoEncoder  {
   public static final int DEFAULT_I_FRAME_INTERVAL_SECONDS = 1;
 
   private static final float[] IDENTITY_MATRIX = new float[16];
-  static  {
+
+  static {
     Matrix.setIdentityM(IDENTITY_MATRIX, 0);
   }
 
@@ -42,6 +46,10 @@ public class VideoEncoder  {
 
   private Surface inputSurface;
 
+  private EGLResourcesHolder eglResourcesHolder;
+
+  private TextureRenderer textureRenderer;
+
   private MediaMuxer muxer;
 
   private int trackIndex;
@@ -50,13 +58,15 @@ public class VideoEncoder  {
 
   private MediaCodec.BufferInfo bufferInfo;
 
+
   /**
    * Creates a new VideoEncoder.
+   *
    * @param outputPath the path to write the encoded video to
-   * @param width the width of the video
-   * @param height the height of the video
-   * @param frameRate the frame rate of the video
-   * @param bitRate the bit rate of the video
+   * @param width      the width of the video
+   * @param height     the height of the video
+   * @param frameRate  the frame rate of the video
+   * @param bitRate    the bit rate of the video
    */
   public VideoEncoder(
     String outputPath,
@@ -75,7 +85,7 @@ public class VideoEncoder  {
   /**
    * Configures encoder and muxer state, and prepares the input Surface.
    */
-  public void prepare() throws IOException {
+  public void prepare(EGLContext sharedContext) throws IOException {
     bufferInfo = new MediaCodec.BufferInfo();
 
     MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, width, height);
@@ -91,6 +101,9 @@ public class VideoEncoder  {
     encoder = MediaCodec.createEncoderByType(MIME_TYPE);
     encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
     inputSurface = encoder.createInputSurface();
+    eglResourcesHolder = EGLResourcesHolder.createWithWindowedSurface(sharedContext, inputSurface);
+    eglResourcesHolder.makeCurrent();
+    textureRenderer = new TextureRenderer();
     encoder.start();
 
     // Create a MediaMuxer.  We can't add the video track and start() the muxer here,
@@ -109,12 +122,27 @@ public class VideoEncoder  {
     muxerStarted = false;
   }
 
+  public void writeFrame(long timeUS, int texture, boolean eos) {
+    eglResourcesHolder.makeCurrent();
+
+    GLES20.glClearColor(0, 0, 0, 0);
+    GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+    GLES20.glViewport(0, 0, width, height);
+    textureRenderer.draw(texture, IDENTITY_MATRIX);
+    eglResourcesHolder.setPresentationTime(timeUS * 1000);
+    if (!eglResourcesHolder.swapBuffers()) {
+      throw new RuntimeException("eglSwapBuffer failed");
+    }
+    drainEncoder(eos);
+  }
+
 
   /**
    * Extracts all pending data from the encoder.
+   *
    * @param endOfStream true if this is the end of the stream
    */
-  public void drainEncoder(boolean endOfStream) {
+  private void drainEncoder(boolean endOfStream) {
     final int TIMEOUT_USEC = 10000;
 
     if (endOfStream) {
@@ -128,7 +156,8 @@ public class VideoEncoder  {
         if (!endOfStream) {
           break; // out of while
         }
-      } if (encoderStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+      }
+      if (encoderStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
         // should happen before receiving buffers, and should only happen once
         if (muxerStarted) {
           throw new RuntimeException("format changed twice");
@@ -141,7 +170,7 @@ public class VideoEncoder  {
         muxer.start();
         muxerStarted = true;
       } else if (encoderStatus < 0) {
-        Log.w(TAG, "unexpected result from encoder.dequeueOutputBuffer: " +  encoderStatus);
+        Log.w(TAG, "unexpected result from encoder.dequeueOutputBuffer: " + encoderStatus);
         // let's ignore it
       } else {
         ByteBuffer encodedData = encoder.getOutputBuffer(encoderStatus);
@@ -197,9 +226,5 @@ public class VideoEncoder  {
       muxer.release();
       muxer = null;
     }
-  }
-
-  public Surface getInputSurface() {
-    return inputSurface;
   }
 }

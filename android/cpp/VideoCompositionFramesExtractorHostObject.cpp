@@ -1,12 +1,12 @@
 #include "VideoCompositionFramesExtractorHostObject.h"
-#include "RNSkiaHelpers.h"
+#include "JNIHelpers.h"
 
 namespace RNSkiaVideo {
 
 VideoCompositionFramesExtractorHostObject::
     VideoCompositionFramesExtractorHostObject(jsi::Runtime& runtime,
                                               jsi::Object jsComposition)
-    : EventEmitter(runtime, RNSkiaHelpers::getCallInvoker()) {
+    : EventEmitter(runtime, JNIHelpers::getCallInvoker()) {
   jEventDispatcher = make_global(NativeEventDispatcher::create(this));
   auto composition = VideoComposition::fromJSIObject(runtime, jsComposition);
   player = make_global(
@@ -48,7 +48,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
             return result;
           }
           auto frames = player->decodeCompositionFrames();
-          auto platformContext = RNSkiaHelpers::getSkiaPlatformContext();
+          auto platformContext = JNIHelpers::getSkiaPlatformContext();
           for (auto& entry : *frames) {
             auto id = entry.first->toStdString();
             auto frame = entry.second;

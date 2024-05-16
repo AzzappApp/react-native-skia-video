@@ -37,8 +37,8 @@ add_library(${PACKAGE_NAME}
         cpp/cpp-adapter.cpp
         cpp/NativeEventDispatcher.h
         cpp/NativeEventDispatcher.cpp
-        cpp/RNSkiaHelpers.h
-        cpp/RNSkiaHelpers.cpp
+        cpp/JNIHelpers.h
+        cpp/JNIHelpers.cpp
         cpp/VideoCompositionFramesExtractorHostObject.h
         cpp/VideoCompositionFramesExtractorHostObject.cpp
         cpp/VideoPlayerHostObject.h
