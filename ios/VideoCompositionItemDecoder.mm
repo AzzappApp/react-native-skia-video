@@ -89,14 +89,17 @@ void VideoCompositionItemDecoder::advance(CMTime currentTime) {
     CFRelease(sampleBuffer);
   }
 
-  CVBufferRef nextBuffer = nullptr;
+  CVPixelBufferRef nextBuffer = nullptr;
   auto it = decodedFrames.begin();
   while (it != decodedFrames.end()) {
     auto timestamp = CMTimeMakeWithSeconds(it->first, NSEC_PER_SEC);
     if (CMTimeCompare(timestamp, itemPosition) <= 0 ||
         (!hasFrame && nextBuffer == nullptr)) {
       if (nextBuffer != nullptr) {
-        CVBufferRelease(nextBuffer);
+        try {
+          CVPixelBufferRelease(nextBuffer);
+        } catch (...) {
+        }
       }
       nextBuffer = it->second;
       it = decodedFrames.erase(it);
@@ -106,7 +109,10 @@ void VideoCompositionItemDecoder::advance(CMTime currentTime) {
   }
   if (nextBuffer) {
     if (currentBuffer) {
-      CVBufferRelease(currentBuffer);
+      try {
+        CVPixelBufferRelease(currentBuffer);
+      } catch (...) {
+      }
     }
     currentBuffer = nextBuffer;
   }
@@ -114,7 +120,10 @@ void VideoCompositionItemDecoder::advance(CMTime currentTime) {
 
 void VideoCompositionItemDecoder::seekTo(CMTime currentTime) {
   for (const auto& frame : decodedFrames) {
-    CVBufferRelease(frame.second);
+    try {
+      CVPixelBufferRelease(frame.second);
+    } catch (...) {
+    }
   }
   decodedFrames.clear();
   [assetReader cancelReading];
@@ -131,11 +140,17 @@ VideoDimensions VideoCompositionItemDecoder::getFramesDimensions() {
 
 void VideoCompositionItemDecoder::release() {
   if (currentBuffer) {
-    CVBufferRelease(currentBuffer);
+    try {
+      CVPixelBufferRelease(currentBuffer);
+    } catch (...) {
+    }
     currentBuffer = nullptr;
   }
   for (const auto& frame : decodedFrames) {
-    CVBufferRelease(frame.second);
+    try {
+      CVPixelBufferRelease(frame.second);
+    } catch (...) {
+    }
   }
   decodedFrames.clear();
   if (assetReader) {

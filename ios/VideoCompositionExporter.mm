@@ -214,7 +214,10 @@ void RNSkiaVideo::exportVideoComposition(
     int attempt = 0;
     while (!assetWriterInput.isReadyForMoreMediaData) {
       if (attempt > 100) {
-        CVBufferRelease(pixelBuffer);
+        try {
+          CVPixelBufferRelease(pixelBuffer);
+        } catch (...) {
+        };
         releaseDecoders();
         onError(createErrorWithMessage(@"AVAssetWriter unavailable"));
         return;
@@ -252,8 +255,11 @@ void RNSkiaVideo::exportVideoComposition(
     }
     if (formatDescription) {
       CFRelease(formatDescription);
+    };
+    try {
+      CVPixelBufferRelease(pixelBuffer);
+    } catch (...) {
     }
-    CVBufferRelease(pixelBuffer);
     if (error) {
       releaseDecoders();
       onError(error);

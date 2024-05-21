@@ -32,7 +32,7 @@ public:
 private:
   RNSVVideoPlayer* player;
   RNSVSkiaVideoPlayerDelegateImpl* playerDelegate;
-  CVBufferRef currentBuffer;
+  CVPixelBufferRef currentBuffer;
   CMTime lastFrameAvailable = kCMTimeInvalid;
   CMTime lastFrameDrawn = kCMTimeInvalid;
   float width;

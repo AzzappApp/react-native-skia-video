@@ -61,7 +61,10 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
           }
           lastFrameDrawn = lastFrameAvailable;
           if (currentBuffer != nullptr) {
-            CVBufferRelease(currentBuffer);
+            try {
+              CVPixelBufferRelease(currentBuffer);
+            } catch (...) {
+            }
           }
           currentBuffer = buffer;
 
@@ -200,7 +203,10 @@ void VideoPlayerHostObject::release() {
   if (!released.test_and_set()) {
     removeAllListeners();
     if (currentBuffer != nullptr) {
-      CVBufferRelease(currentBuffer);
+      try {
+        CVPixelBufferRelease(currentBuffer);
+      } catch (...) {
+      }
     }
     currentBuffer = nullptr;
     [playerDelegate dispose];
