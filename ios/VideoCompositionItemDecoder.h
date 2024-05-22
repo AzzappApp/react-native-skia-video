@@ -1,6 +1,7 @@
 #pragma once
 
 #import "VideoComposition.h"
+#import "VideoFrame.h"
 #import <AVFoundation/AVFoundation.h>
 #import <list>
 
@@ -8,29 +9,30 @@ using namespace facebook;
 
 namespace RNSkiaVideo {
 
-struct VideoDimensions {
-  double width;
-  double height;
-  int rotation;
-};
-
 class VideoCompositionItemDecoder {
 public:
-  VideoCompositionItemDecoder(std::shared_ptr<VideoCompositionItem> item);
-  void advance(CMTime currentTime);
+  VideoCompositionItemDecoder(std::shared_ptr<VideoCompositionItem> item,
+                              bool enableLoopMode);
+  void advanceDecoder(CMTime currentTime);
   void seekTo(CMTime currentTime);
-  CVPixelBufferRef getCurrentBuffer();
-  VideoDimensions getFramesDimensions();
+  std::shared_ptr<VideoFrame> acquireFrameForTime(CMTime currentTime,
+                                                  bool force);
   void release();
 
 private:
+  bool enableLoopMode = false;
+  bool hasLooped = false;
   std::shared_ptr<VideoCompositionItem> item;
-  VideoDimensions framesDimensions;
+  double width;
+  double height;
+  int rotation;
   AVURLAsset* asset;
   AVAssetTrack* videoTrack;
   AVAssetReader* assetReader;
-  std::list<std::pair<double, CVPixelBufferRef>> decodedFrames;
-  CVPixelBufferRef currentBuffer;
+  std::list<std::pair<double, std::shared_ptr<VideoFrame>>> decodedFrames;
+  std::list<std::pair<double, std::shared_ptr<VideoFrame>>> nextLoopFrames;
+  CMTime lastRequestedTime = kCMTimeInvalid;
+  std::shared_ptr<VideoFrame> currentFrame;
 
   void setupReader(CMTime initialTime);
 };

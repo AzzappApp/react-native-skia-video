@@ -60,24 +60,11 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
             return jsi::Value::null();
           }
           lastFrameDrawn = lastFrameAvailable;
-          if (currentBuffer != nullptr) {
-            try {
-              CVPixelBufferRelease(currentBuffer);
-            } catch (...) {
-            }
+          if (currentFrame != nullptr) {
+            currentFrame->release();
           }
-          currentBuffer = buffer;
-
-          auto frame = jsi::Object(runtime);
-          frame.setProperty(runtime, "width", jsi::Value(this->width));
-          frame.setProperty(runtime, "height", jsi::Value(this->height));
-          frame.setProperty(runtime, "rotation", jsi::Value(this->rotation));
-          frame.setProperty(
-              runtime, "buffer",
-              jsi::BigInt::fromUint64(
-                  runtime, reinterpret_cast<uintptr_t>(currentBuffer)));
-
-          return frame;
+          currentFrame = std::make_shared<VideoFrame>(buffer, width, height, rotation);
+          return currentFrame->toJS(runtime);
         });
   } else if (propName == "play") {
     return jsi::Function::createFromHostFunction(
@@ -202,13 +189,8 @@ void VideoPlayerHostObject::readyToPlay(float width, float height,
 void VideoPlayerHostObject::release() {
   if (!released.test_and_set()) {
     removeAllListeners();
-    if (currentBuffer != nullptr) {
-      try {
-        CVPixelBufferRelease(currentBuffer);
-      } catch (...) {
-      }
-    }
-    currentBuffer = nullptr;
+    currentFrame->release();
+    currentFrame = nullptr;
     [playerDelegate dispose];
     playerDelegate = nullptr;
     [player dispose];

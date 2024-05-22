@@ -34,7 +34,8 @@ static void* rateContext = &rateContext;
   _player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
 
   NSDictionary* pixBuffAttributes = @{
-    (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
+    (id)kCVPixelBufferPixelFormatTypeKey :
+        @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
     (id)kCVPixelBufferMetalCompatibilityKey : @YES
   };
   _videoOutput = [[AVPlayerItemVideoOutput alloc]
@@ -293,7 +294,8 @@ static void* rateContext = &rateContext;
       return;
     }
     AVAssetTrack* track = [videoTracks firstObject];
-    int rotation = RNSkiaVideo::GetTrackRotationInDegree(track);
+    int rotation =
+        RNSkiaVideo::AVAssetTrackUtils::GetTrackRotationInDegree(track);
 
     // The player may be initialized but still needs to determine the duration.
     CMTime duration = currentItem.duration;
