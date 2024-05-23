@@ -7,19 +7,18 @@
 namespace RNSkiaVideo {
 
 VideoCompositionItemDecoder::VideoCompositionItemDecoder(
-    std::shared_ptr<VideoCompositionItem> item) {
+    std::shared_ptr<VideoCompositionItem> item, bool enableLoopMode) {
   this->item = item;
-
+  this->enableLoopMode = enableLoopMode;
   NSString* path =
       [NSString stringWithCString:item->path.c_str()
                          encoding:[NSString defaultCStringEncoding]];
   asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:nil];
   videoTrack = [[asset tracksWithMediaType:AVMediaTypeVideo] objectAtIndex:0];
-  CGFloat width = videoTrack.naturalSize.width;
-  CGFloat height = videoTrack.naturalSize.height;
-  int rotationDegrees = GetTrackRotationInDegree(videoTrack);
-
-  framesDimensions = {width, height, rotationDegrees};
+  width = videoTrack.naturalSize.width;
+  height = videoTrack.naturalSize.height;
+  rotation = AVAssetTrackUtils::GetTrackRotationInDegree(videoTrack);
+  currentFrame = nullptr;
   this->setupReader(kCMTimeZero);
 }
 
@@ -40,7 +39,8 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
                      position));
 
   NSDictionary* pixBuffAttributes = @{
-    (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
+    (id)kCVPixelBufferPixelFormatTypeKey :
+        @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
     (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
     (id)kCVPixelBufferMetalCompatibilityKey : @YES
   };
@@ -52,25 +52,40 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
   [assetReader startReading];
 }
 
-void VideoCompositionItemDecoder::advance(CMTime currentTime) {
-  if (assetReader.status == AVAssetReaderStatusUnknown) {
-    [assetReader startReading];
+#define DECODER_INPUT_TIME_ADVANCE 0.3
+
+void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
+  CMTime startTime = CMTimeMakeWithSeconds(item->startTime, NSEC_PER_SEC);
+  CMTime compositionStartTime =
+      CMTimeMakeWithSeconds(item->compositionStartTime, NSEC_PER_SEC);
+  CMTime position =
+      CMTimeAdd(startTime, CMTimeSubtract(currentTime, compositionStartTime));
+  CMTime inputPosition =
+      CMTimeAdd(position, CMTimeMakeWithSeconds(DECODER_INPUT_TIME_ADVANCE,
+                                                NSEC_PER_SEC));
+  CMTime duration = CMTimeMakeWithSeconds(item->duration, NSEC_PER_SEC);
+  CMTime endTime = CMTimeAdd(startTime, duration);
+
+  if (enableLoopMode && CMTimeCompare(endTime, inputPosition) < 0 &&
+      !hasLooped) {
+    setupReader(kCMTimeZero);
+    hasLooped = true;
+    // we will loop so we want to decode the first frames of the next loop
+    inputPosition =
+        CMTimeAdd(position, CMTimeMakeWithSeconds(DECODER_INPUT_TIME_ADVANCE,
+                                                  NSEC_PER_SEC));
   }
 
-  auto hasFrame = currentBuffer != nil;
-
-  CMTime itemPosition = CMTimeSubtract(
-      currentTime,
-      CMTimeMakeWithSeconds(item->compositionStartTime, NSEC_PER_SEC));
-
+  auto framesQueue = hasLooped ? &nextLoopFrames : &decodedFrames;
   CMTime latestSampleTime = kCMTimeInvalid;
-  if (decodedFrames.size() > 0) {
+  if (framesQueue->size() > 0) {
     latestSampleTime =
-        CMTimeMakeWithSeconds(decodedFrames.back().first, NSEC_PER_SEC);
+        CMTimeMakeWithSeconds(framesQueue->back().first, NSEC_PER_SEC);
   }
 
   while (!CMTIME_IS_VALID(latestSampleTime) ||
-         CMTimeCompare(latestSampleTime, itemPosition) < 0) {
+         (CMTimeCompare(latestSampleTime, inputPosition) < 0 &&
+          CMTimeCompare(endTime, inputPosition) >= 0)) {
     AVAssetReaderOutput* assetReaderOutput = [assetReader.outputs firstObject];
     CMSampleBufferRef sampleBuffer = [assetReaderOutput copyNextSampleBuffer];
     if (!sampleBuffer) {
@@ -82,77 +97,71 @@ void VideoCompositionItemDecoder::advance(CMTime currentTime) {
     }
     auto timeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
     auto buffer = CMSampleBufferGetImageBuffer(sampleBuffer);
-    CVBufferRetain(buffer);
-    decodedFrames.push_back(
-        std::make_pair(CMTimeGetSeconds(timeStamp), buffer));
+    auto frame = std::make_shared<VideoFrame>(buffer, width, height, rotation);
+    framesQueue->push_back(std::make_pair(CMTimeGetSeconds(timeStamp), frame));
     latestSampleTime = timeStamp;
     CFRelease(sampleBuffer);
   }
+}
 
-  CVPixelBufferRef nextBuffer = nullptr;
+std::shared_ptr<VideoFrame>
+VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
+                                                 bool force) {
+  if (hasLooped && CMTIME_IS_VALID(lastRequestedTime) &&
+      CMTimeCompare(currentTime, lastRequestedTime) < 0) {
+    hasLooped = false;
+    for (const auto& frame : decodedFrames) {
+      frame.second->release();
+    }
+    decodedFrames = nextLoopFrames;
+    nextLoopFrames.clear();
+  }
+  lastRequestedTime = currentTime;
+
+  CMTime position = CMTimeAdd(
+      CMTimeMakeWithSeconds(item->startTime, NSEC_PER_SEC),
+      CMTimeMakeWithSeconds(
+          MAX((CMTimeGetSeconds(currentTime) - item->compositionStartTime), 0),
+          NSEC_PER_SEC));
+
+  std::shared_ptr<VideoFrame> nextFrame = nullptr;
   auto it = decodedFrames.begin();
   while (it != decodedFrames.end()) {
     auto timestamp = CMTimeMakeWithSeconds(it->first, NSEC_PER_SEC);
-    if (CMTimeCompare(timestamp, itemPosition) <= 0 ||
-        (!hasFrame && nextBuffer == nullptr)) {
-      if (nextBuffer != nullptr) {
-        try {
-          CVPixelBufferRelease(nextBuffer);
-        } catch (...) {
-        }
+    if (CMTimeCompare(timestamp, position) <= 0 ||
+        (force && nextFrame == nullptr)) {
+      if (nextFrame != nullptr) {
+        nextFrame->release();
       }
-      nextBuffer = it->second;
+      nextFrame = it->second;
       it = decodedFrames.erase(it);
     } else {
-      ++it;
+      break;
     }
   }
-  if (nextBuffer) {
-    if (currentBuffer) {
-      try {
-        CVPixelBufferRelease(currentBuffer);
-      } catch (...) {
-      }
-    }
-    currentBuffer = nextBuffer;
-  }
+  return nextFrame;
 }
 
 void VideoCompositionItemDecoder::seekTo(CMTime currentTime) {
-  for (const auto& frame : decodedFrames) {
-    try {
-      CVPixelBufferRelease(frame.second);
-    } catch (...) {
-    }
-  }
-  decodedFrames.clear();
-  [assetReader cancelReading];
+  release();
   setupReader(currentTime);
 }
 
-CVPixelBufferRef VideoCompositionItemDecoder::getCurrentBuffer() {
-  return currentBuffer;
-}
-
-VideoDimensions VideoCompositionItemDecoder::getFramesDimensions() {
-  return framesDimensions;
-}
-
 void VideoCompositionItemDecoder::release() {
-  if (currentBuffer) {
-    try {
-      CVPixelBufferRelease(currentBuffer);
-    } catch (...) {
-    }
-    currentBuffer = nullptr;
-  }
   for (const auto& frame : decodedFrames) {
-    try {
-      CVPixelBufferRelease(frame.second);
-    } catch (...) {
-    }
+    frame.second->release();
   }
   decodedFrames.clear();
+  for (const auto& frame : nextLoopFrames) {
+    frame.second->release();
+  }
+  if (currentFrame) {
+    currentFrame->release();
+    currentFrame = nullptr;
+  }
+  nextLoopFrames.clear();
+  hasLooped = false;
+  lastRequestedTime = kCMTimeInvalid;
   if (assetReader) {
     [assetReader cancelReading];
   }

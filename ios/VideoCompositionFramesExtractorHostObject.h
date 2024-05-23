@@ -3,9 +3,22 @@
 #import "EventEmitter.h"
 #import "VideoComposition.h"
 #import "VideoCompositionItemDecoder.h"
+#import "VideoFrame.h"
 #import <AVFoundation/AVFoundation.h>
 #import <jsi/jsi.h>
 #import <map>
+
+@interface RNSVDisplayLinkWrapper : NSObject
+
+@property(nonatomic, strong) CADisplayLink* displayLink;
+@property(nonatomic, copy) void (^updateBlock)(CADisplayLink* displayLink);
+
+- (instancetype)initWithUpdateBlock:
+    (void (^)(CADisplayLink* displayLink))updateBlock;
+- (void)start;
+- (void)invalidate;
+
+@end
 
 namespace RNSkiaVideo {
 using namespace facebook;
@@ -27,6 +40,9 @@ private:
   std::shared_ptr<VideoComposition> composition;
   std::map<std::string, std::shared_ptr<VideoCompositionItemDecoder>>
       itemDecoders;
+  std::map<std::string, std::shared_ptr<VideoFrame>> currentFrames;
+  dispatch_queue_t decoderQueue;
+  RNSVDisplayLinkWrapper* displayLink;
   NSDate* startDate;
   CMTime pausePosition = kCMTimeZero;
   bool playWhenReady = false;

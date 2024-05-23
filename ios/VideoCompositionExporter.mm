@@ -73,7 +73,7 @@ void RNSkiaVideo::exportVideoComposition(
   try {
     for (const auto& item : composition->items) {
       itemDecoders[item->id] =
-          std::make_shared<VideoCompositionItemDecoder>(item);
+          std::make_shared<VideoCompositionItemDecoder>(item, false);
     }
   } catch (NSError* error) {
     onError(error);
@@ -99,26 +99,30 @@ void RNSkiaVideo::exportVideoComposition(
   int nbFrame = composition->duration * frameRate;
   auto runtime = &workletRuntime->getJSIRuntime();
 
+  std::map<std::string, std::shared_ptr<VideoFrame>> currentFrames;
   for (int i = 0; i < nbFrame; i++) {
     CMTime currentTime =
         CMTimeMakeWithSeconds((double)i / (double)frameRate, NSEC_PER_SEC);
     auto frames = jsi::Object(*runtime);
     for (const auto& entry : itemDecoders) {
+      auto itemId = entry.first;
       auto decoder = entry.second;
-      decoder->advance(currentTime);
-      auto frame = jsi::Object(*runtime);
 
-      auto buffer = decoder->getCurrentBuffer();
-      auto dimensions = decoder->getFramesDimensions();
-      if (buffer) {
-        frame.setProperty(*runtime, "width", jsi::Value(dimensions.width));
-        frame.setProperty(*runtime, "height", jsi::Value(dimensions.height));
-        frame.setProperty(*runtime, "rotation",
-                          jsi::Value(dimensions.rotation));
-        frame.setProperty(*runtime, "buffer",
-                          jsi::BigInt::fromUint64(
-                              *runtime, reinterpret_cast<uintptr_t>(buffer)));
-        frames.setProperty(*runtime, entry.first.c_str(), frame);
+      decoder->advanceDecoder(currentTime);
+
+      auto previousFrame = currentFrames[itemId];
+      auto frame = decoder->acquireFrameForTime(currentTime, !previousFrame);
+      if (frame) {
+        if (previousFrame) {
+          previousFrame->release();
+        }
+        currentFrames[itemId] = frame;
+      } else {
+        frame = previousFrame;
+      }
+      if (frame) {
+        frames.setProperty(*runtime, entry.first.c_str(),
+                           frame->toJS(*runtime));
       }
     }
     surface->getCanvas()->clear(SkColors::kTransparent);

@@ -2,6 +2,7 @@
 
 #include "EventEmitter.h"
 #include "RNSVVideoPlayer.h"
+#include "VideoFrame.h"
 
 using namespace facebook;
 
@@ -32,7 +33,7 @@ public:
 private:
   RNSVVideoPlayer* player;
   RNSVSkiaVideoPlayerDelegateImpl* playerDelegate;
-  CVPixelBufferRef currentBuffer;
+  std::shared_ptr<VideoFrame> currentFrame;
   CMTime lastFrameAvailable = kCMTimeInvalid;
   CMTime lastFrameDrawn = kCMTimeInvalid;
   float width;

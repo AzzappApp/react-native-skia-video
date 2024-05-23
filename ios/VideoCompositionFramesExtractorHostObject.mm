@@ -4,6 +4,7 @@
 #import "JSIUtils.h"
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
+#import <future>
 
 namespace RNSkiaVideo {
 
@@ -15,13 +16,48 @@ VideoCompositionFramesExtractorHostObject::
 
   composition = VideoComposition::fromJS(runtime, jsComposition);
 
-  auto queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
-  dispatch_async(queue, ^{
+  dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(
+      DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0);
+  decoderQueue =
+      dispatch_queue_create("ReactNativeVideoCompositionItemDecoder", attr);
+  dispatch_async(decoderQueue, ^{
     if (released.test()) {
       return;
     }
     this->init();
   });
+
+  displayLink = [[RNSVDisplayLinkWrapper alloc]
+      initWithUpdateBlock:^(CADisplayLink* displayLink) {
+        dispatch_async(decoderQueue, ^{
+          if (released.test() || !initialized) {
+            return;
+          }
+          auto currentTime = getCurrentTime();
+          if (CMTimeGetSeconds(currentTime) >= composition->duration) {
+            emit("complete", jsi::Value::null());
+            if (isLooping) {
+              currentTime = kCMTimeZero;
+              startDate = [NSDate date];
+            } else {
+              isPlaying = false;
+              return;
+            }
+          }
+          std::vector<std::future<void>> futures;
+          for (const auto& entry : itemDecoders) {
+            auto decoder = entry.second;
+            futures.push_back(
+                std::async(std::launch::async, [decoder, currentTime]() {
+                  decoder->advanceDecoder(currentTime);
+                }));
+          }
+          for (auto& future : futures) {
+            future.get();
+          }
+        });
+      }];
+  [displayLink start];
 }
 
 VideoCompositionFramesExtractorHostObject::
@@ -98,34 +134,24 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
           }
           auto frames = jsi::Object(runtime);
           auto currentTime = getCurrentTime();
-          if (CMTimeGetSeconds(currentTime) >= composition->duration) {
-            emit("complete", jsi::Value::null());
-            if (isLooping) {
-              seekTo(kCMTimeZero);
-              currentTime = kCMTimeZero;
-            } else {
-              isPlaying = false;
-            }
-          }
-
           for (const auto& entry : itemDecoders) {
+            auto itemId = entry.first;
             auto decoder = entry.second;
-            decoder->advance(currentTime);
-            auto frame = jsi::Object(runtime);
 
-            auto buffer = decoder->getCurrentBuffer();
-            auto dimensions = decoder->getFramesDimensions();
-            if (buffer) {
-              frame.setProperty(runtime, "width", jsi::Value(dimensions.width));
-              frame.setProperty(runtime, "height",
-                                jsi::Value(dimensions.height));
-              frame.setProperty(runtime, "rotation",
-                                jsi::Value(dimensions.rotation));
-              frame.setProperty(
-                  runtime, "buffer",
-                  jsi::BigInt::fromUint64(runtime,
-                                          reinterpret_cast<uintptr_t>(buffer)));
-              frames.setProperty(runtime, entry.first.c_str(), frame);
+            auto previousFrame = currentFrames[itemId];
+            auto frame =
+                decoder->acquireFrameForTime(currentTime, !previousFrame);
+            if (frame) {
+              if (previousFrame) {
+                previousFrame->release();
+              }
+              currentFrames[itemId] = frame;
+            } else {
+              frame = previousFrame;
+            }
+            if (frame) {
+              frames.setProperty(runtime, entry.first.c_str(),
+                                 frame->toJS(runtime));
             }
           }
           return frames;
@@ -181,7 +207,7 @@ void VideoCompositionFramesExtractorHostObject::init() {
   try {
     for (const auto& item : composition->items) {
       itemDecoders[item->id] =
-          std::make_shared<VideoCompositionItemDecoder>(item);
+          std::make_shared<VideoCompositionItemDecoder>(item, true);
     }
   } catch (NSError* error) {
     itemDecoders.clear();
@@ -235,12 +261,55 @@ CMTime VideoCompositionFramesExtractorHostObject::getCurrentTime() {
 
 void VideoCompositionFramesExtractorHostObject::release() {
   if (!released.test_and_set()) {
-    for (const auto& entry : itemDecoders) {
-      entry.second->release();
+    try {
+      for (const auto& entry : itemDecoders) {
+        entry.second->release();
+      }
+      for (const auto& entry : currentFrames) {
+        entry.second->release();
+      }
+    } catch (...) {
     }
     itemDecoders.clear();
+    currentFrames.clear();
     removeAllListeners();
+    if (displayLink != nullptr) {
+      [displayLink invalidate];
+      displayLink = nullptr;
+    }
   }
 }
 
 } // namespace RNSkiaVideo
+
+@implementation RNSVDisplayLinkWrapper
+
+- (instancetype)initWithUpdateBlock:
+    (void (^)(CADisplayLink* displayLink))updateBlock {
+  self = [super init];
+  if (self) {
+    _updateBlock = [updateBlock copy];
+    _displayLink =
+        [CADisplayLink displayLinkWithTarget:self
+                                    selector:@selector(displayLinkFired:)];
+  }
+  return self;
+}
+
+- (void)displayLinkFired:(CADisplayLink*)displayLink {
+  if (self.updateBlock) {
+    self.updateBlock(displayLink);
+  }
+}
+
+- (void)start {
+  [self.displayLink addToRunLoop:[NSRunLoop mainRunLoop]
+                         forMode:NSRunLoopCommonModes];
+}
+
+- (void)invalidate {
+  [self.displayLink invalidate];
+  self.displayLink = nil;
+}
+
+@end
