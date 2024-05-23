@@ -17,7 +17,6 @@
 @implementation ReactNativeSkiaVideo
 RCT_EXPORT_MODULE()
 RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
-  NSLog(@"Installing global.createFrameExtractor...");
   RCTBridge* bridge = [RCTBridge currentBridge];
   RCTCxxBridge* cxxBridge = (RCTCxxBridge*)bridge;
   if (cxxBridge == nil) {
