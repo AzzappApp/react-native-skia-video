@@ -73,6 +73,11 @@ public class VideoCompositionItemDecoder {
     }
     decoder = MediaCodec.createDecoderByType(mime);
     extractor.selectTrack(trackIndex);
+    if (item.getStartTime() != 0) {
+      extractor.seekTo(
+        TimeHelpers.secToUs(item.getStartTime()), MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
+    }
+
     videoWidth = format.getInteger(MediaFormat.KEY_WIDTH);
     videoHeight = format.getInteger(MediaFormat.KEY_HEIGHT);
     rotation = format.containsKey(MediaFormat.KEY_ROTATION) ? format.getInteger(MediaFormat.KEY_ROTATION) : 0;
@@ -154,25 +159,31 @@ public class VideoCompositionItemDecoder {
    * @param time the time in microseconds to seek to
    */
   public void seekTo(long time) {
-    extractor.seekTo(time, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
     decoder.flush();
-    inputSamplePresentationTimeUS = time;
+    long seekTime = time + TimeHelpers.secToUs(item.getStartTime());
+    extractor.seekTo(seekTime,
+      MediaExtractor.SEEK_TO_CLOSEST_SYNC);
+    inputSamplePresentationTimeUS = 0;
     outputPresentationTimeTimeUS = -1;
     outputEOS = false;
     inputEOS = false;
   }
 
-  private static final int TIMEOUT_US = 0;
-
   /**
    * Queue a sample to the codec.
+   *
+   * @return true if the sample has been queued
    */
   public boolean queueSampleToCodec() {
+    return queueSampleToCodec(0);
+  }
+
+  public boolean queueSampleToCodec(long timeoutUS) {
     if (inputEOS || !prepared || !configured) {
       return false;
     }
 
-    int inputBufIndex = decoder.dequeueInputBuffer(TIMEOUT_US);
+    int inputBufIndex = decoder.dequeueInputBuffer(timeoutUS);
     if (inputBufIndex < 0) {
       return false;
     }
@@ -200,12 +211,13 @@ public class VideoCompositionItemDecoder {
       inputEOS ? MediaCodec.BUFFER_FLAG_END_OF_STREAM : 0
     );
 
-    inputSamplePresentationTimeUS = presentationTimeUs;
+    inputSamplePresentationTimeUS = 0;
     if (!inputEOS) {
       extractor.advance();
     }
     return sampleQueued;
   }
+
 
   /**
    * Dequeue the output buffer, optionally forcing the dequeue
@@ -213,14 +225,18 @@ public class VideoCompositionItemDecoder {
    * @return the frame representing the decoded output buffer sample or null if no output buffer is ready
    */
   public Frame dequeueOutputBuffer() {
+    return dequeueOutputBuffer(0);
+  }
+
+  public Frame dequeueOutputBuffer(int timeout) {
     if (outputEOS || !prepared || !configured) {
       return null;
     }
-    int outputBufferIndex = decoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_US);
+    int outputBufferIndex = decoder.dequeueOutputBuffer(bufferInfo, timeout);
     outputEOS = outputBufferIndex >= 0 && (bufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
     if (outputBufferIndex < 0) {
       if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-        return dequeueOutputBuffer();
+        return dequeueOutputBuffer(timeout);
       }
       return null;
     }

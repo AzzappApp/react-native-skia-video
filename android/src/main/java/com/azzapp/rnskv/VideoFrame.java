@@ -21,7 +21,7 @@ public class VideoFrame {
   }
 
   public Object getHardwareBuffer() {
-    return buffer;
+    return buffer.isClosed() ? null : buffer;
   }
 
   public HardwareBuffer getBuffer() {

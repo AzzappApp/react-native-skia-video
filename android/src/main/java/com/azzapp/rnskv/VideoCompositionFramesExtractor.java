@@ -53,7 +53,7 @@ public class VideoCompositionFramesExtractor {
   }
 
   /**
-   * Seek to givent position
+   * Seek to given position
    */
   public void seekTo(long position) {
     playbackThread.seekTo(position);
@@ -219,6 +219,7 @@ public class VideoCompositionFramesExtractor {
         seekInternal(0);
       }
       startTime = microTime() - pausePosition;
+      handler.removeMessages(PLAYBACK_LOOP);
       loopInternal(true);
     }
 
@@ -260,9 +261,9 @@ public class VideoCompositionFramesExtractor {
     }
 
     private void seekInternal(long position) {
+      decoder.seekTo(position);
       startTime = microTime() - position;
       currentPosition = position;
-      decoder.seekTo(currentPosition);
     }
 
     private void releaseInternal() {

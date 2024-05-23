@@ -163,7 +163,6 @@ public class VideoEncoder {
           throw new RuntimeException("format changed twice");
         }
         MediaFormat newFormat = encoder.getOutputFormat();
-        Log.d(TAG, "encoder output format changed: " + newFormat);
 
         // now that we have the Magic Goodies, start the muxer
         trackIndex = muxer.addTrack(newFormat);

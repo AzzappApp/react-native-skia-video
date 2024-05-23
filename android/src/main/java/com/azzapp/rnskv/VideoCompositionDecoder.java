@@ -8,8 +8,6 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 
-import androidx.annotation.Nullable;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -38,7 +36,7 @@ public class VideoCompositionDecoder {
   private final Map<
     VideoComposition.Item,
     List<VideoCompositionItemDecoder.Frame>
-    > pendingFrames = new HashMap();
+    > pendingFrames = new HashMap<>();
 
   /**
    * Create a new VideoCompositionFramesExtractor.
@@ -111,7 +109,7 @@ public class VideoCompositionDecoder {
         while (true) {
           long presentationTimeUs = itemDecoder.getInputSamplePresentationTimeUS();
           if ((forceRendering && (presentationTimeUs >= startTime + INPUT_DELTA)) ||
-            presentationTimeUs >= currentPosition + startTime + INPUT_DELTA - compositionStartTime) {
+            presentationTimeUs >= currentPosition - compositionStartTime + startTime + INPUT_DELTA) {
             break;
           }
           boolean queued = itemDecoder.queueSampleToCodec();
@@ -139,6 +137,7 @@ public class VideoCompositionDecoder {
       VideoComposition.Item item = entry.getKey();
       List<VideoCompositionItemDecoder.Frame> itemFrames = entry.getValue();
       ArrayList<VideoCompositionItemDecoder.Frame> framesToRender = new ArrayList<>();
+      ArrayList<VideoCompositionItemDecoder.Frame> framesToRelease = new ArrayList<>();
 
       long compositionStartTime = TimeHelpers.secToUs(item.getCompositionStartTime());
       long startTime = TimeHelpers.secToUs(item.getStartTime());
@@ -148,16 +147,25 @@ public class VideoCompositionDecoder {
         startTime + currentPosition - compositionStartTime,
         startTime + duration
       );
-      itemPosition = Math.min(compositionDuration, itemPosition);
+      itemPosition = Math.min(startTime + compositionDuration, itemPosition);
 
       boolean force = forceRendering;
-      for (VideoCompositionItemDecoder.Frame frame : itemFrames) {
-        if (force || frame.getPresentationTimeUs() <= itemPosition) {
-          framesToRender.add(frame);
-          force = false;
-          updatedItems.add(item);
+      List<VideoCompositionItemDecoder.Frame> itemFramesCopy = new ArrayList<>(itemFrames);
+      for (VideoCompositionItemDecoder.Frame frame : itemFramesCopy) {
+        long presentationTimeUS = frame.getPresentationTimeUs();
+        if (force || presentationTimeUS <= itemPosition) {
+          if (presentationTimeUS < startTime) {
+            framesToRelease.add(frame);
+          } else {
+            framesToRender.add(frame);
+            force = false;
+            updatedItems.add(item);
+          }
         }
       }
+      itemFrames.removeAll(framesToRelease);
+      framesToRelease.forEach(VideoCompositionItemDecoder.Frame::release);
+
       itemFrames.removeAll(framesToRender);
       framesToRender.forEach(VideoCompositionItemDecoder.Frame::render);
     }
@@ -213,7 +221,7 @@ public class VideoCompositionDecoder {
     videoFrames.values().forEach(frame -> ((HardwareBuffer) frame.getHardwareBuffer()).close());
   }
 
-  interface OnItemImageAvailableListener {
+  public interface OnItemImageAvailableListener {
     void onItemImageAvailable(VideoComposition.Item item);
   }
 }
