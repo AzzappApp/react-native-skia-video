@@ -31,8 +31,6 @@ static void* rateContext = &rateContext;
 
   AVAsset* asset = [AVAsset assetWithURL:url];
 
-  _player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
-
   NSDictionary* pixBuffAttributes = @{
     (id)kCVPixelBufferPixelFormatTypeKey :
         @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
@@ -49,6 +47,7 @@ static void* rateContext = &rateContext;
 
   AVPlayerItem* item = [AVPlayerItem playerItemWithAsset:asset];
   _player = [AVPlayer playerWithPlayerItem:item];
+  _player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
   [self addObserversForItem:item player:_player];
 
   return self;
