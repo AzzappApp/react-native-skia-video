@@ -2,6 +2,8 @@
 
 Video encoding/decoding support for [React Native Skia](https://github.com/Shopify/react-native-skia)
 
+> ⚠️ This library is still a beta in a very unstable state
+
 ## Installation
 
 ```sh
