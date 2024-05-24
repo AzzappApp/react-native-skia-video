@@ -43,7 +43,6 @@ VideoCompositionFramesExtractorHostObject::
                 return;
               }
             }
-            auto decoders = itemDecoders;
             for (const auto& entry : itemDecoders) {
               auto decoder = entry.second;
               if (decoder) {
