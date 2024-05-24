@@ -20,6 +20,7 @@ public:
   void release();
 
 private:
+  NSObject* lock;
   bool enableLoopMode = false;
   bool hasLooped = false;
   std::shared_ptr<VideoCompositionItem> item;

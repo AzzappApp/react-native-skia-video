@@ -12,13 +12,14 @@
 namespace RNSkiaVideo {
 using namespace facebook;
 
-class VideoFrame {
+class JSI_EXPORT VideoFrame : public jsi::HostObject {
 public:
   VideoFrame(CVPixelBufferRef pixelBuffer, double width, double height,
              int rotation);
   ~VideoFrame();
 
-  jsi::Value toJS(jsi::Runtime& runtime);
+  std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime& rt) override;
+  jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
   void release();
 
 private:

@@ -10,6 +10,7 @@ VideoCompositionItemDecoder::VideoCompositionItemDecoder(
     std::shared_ptr<VideoCompositionItem> item, bool enableLoopMode) {
   this->item = item;
   this->enableLoopMode = enableLoopMode;
+  lock = [[NSObject alloc] init];
   NSString* path =
       [NSString stringWithCString:item->path.c_str()
                          encoding:[NSString defaultCStringEncoding]];
@@ -55,52 +56,60 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
 #define DECODER_INPUT_TIME_ADVANCE 0.3
 
 void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
-  CMTime startTime = CMTimeMakeWithSeconds(item->startTime, NSEC_PER_SEC);
-  CMTime compositionStartTime =
-      CMTimeMakeWithSeconds(item->compositionStartTime, NSEC_PER_SEC);
-  CMTime position =
-      CMTimeAdd(startTime, CMTimeSubtract(currentTime, compositionStartTime));
-  CMTime inputPosition =
-      CMTimeAdd(position, CMTimeMakeWithSeconds(DECODER_INPUT_TIME_ADVANCE,
-                                                NSEC_PER_SEC));
-  CMTime duration = CMTimeMakeWithSeconds(item->duration, NSEC_PER_SEC);
-  CMTime endTime = CMTimeAdd(startTime, duration);
-
-  if (enableLoopMode && CMTimeCompare(endTime, inputPosition) < 0 &&
-      !hasLooped) {
-    setupReader(kCMTimeZero);
-    hasLooped = true;
-    // we will loop so we want to decode the first frames of the next loop
-    inputPosition =
+  @synchronized(lock) {
+    CMTime startTime = CMTimeMakeWithSeconds(item->startTime, NSEC_PER_SEC);
+    CMTime compositionStartTime =
+        CMTimeMakeWithSeconds(item->compositionStartTime, NSEC_PER_SEC);
+    CMTime position =
+        CMTimeAdd(startTime, CMTimeSubtract(currentTime, compositionStartTime));
+    CMTime inputPosition =
         CMTimeAdd(position, CMTimeMakeWithSeconds(DECODER_INPUT_TIME_ADVANCE,
                                                   NSEC_PER_SEC));
-  }
+    CMTime duration = CMTimeMakeWithSeconds(item->duration, NSEC_PER_SEC);
+    CMTime endTime = CMTimeAdd(startTime, duration);
 
-  auto framesQueue = hasLooped ? &nextLoopFrames : &decodedFrames;
-  CMTime latestSampleTime = kCMTimeInvalid;
-  if (framesQueue->size() > 0) {
-    latestSampleTime =
-        CMTimeMakeWithSeconds(framesQueue->back().first, NSEC_PER_SEC);
-  }
-
-  while (!CMTIME_IS_VALID(latestSampleTime) ||
-         (CMTimeCompare(latestSampleTime, inputPosition) < 0 &&
-          CMTimeCompare(endTime, inputPosition) >= 0)) {
-    AVAssetReaderOutput* assetReaderOutput = [assetReader.outputs firstObject];
-    CMSampleBufferRef sampleBuffer = [assetReaderOutput copyNextSampleBuffer];
-    if (!sampleBuffer) {
-      break;
+    if (enableLoopMode && CMTimeCompare(endTime, inputPosition) < 0 &&
+        !hasLooped) {
+      setupReader(kCMTimeZero);
+      hasLooped = true;
+      // we will loop so we want to decode the first frames of the next loop
+      inputPosition =
+          CMTimeAdd(position, CMTimeMakeWithSeconds(DECODER_INPUT_TIME_ADVANCE,
+                                                    NSEC_PER_SEC));
     }
-    if (CMSampleBufferGetNumSamples(sampleBuffer) == 0) {
+
+    auto framesQueue = hasLooped ? &nextLoopFrames : &decodedFrames;
+    CMTime latestSampleTime = kCMTimeInvalid;
+    if (framesQueue->size() > 0) {
+      latestSampleTime =
+          CMTimeMakeWithSeconds(framesQueue->back().first, NSEC_PER_SEC);
+    }
+
+    while (!CMTIME_IS_VALID(latestSampleTime) ||
+           (CMTimeCompare(latestSampleTime, inputPosition) < 0 &&
+            CMTimeCompare(endTime, inputPosition) >= 0)) {
+      if (assetReader.status != AVAssetReaderStatusReading) {
+        break;
+      }
+      AVAssetReaderOutput* assetReaderOutput =
+          [assetReader.outputs firstObject];
+      CMSampleBufferRef sampleBuffer = [assetReaderOutput copyNextSampleBuffer];
+      if (!sampleBuffer) {
+        break;
+      }
+      if (CMSampleBufferGetNumSamples(sampleBuffer) == 0) {
+        CFRelease(sampleBuffer);
+        continue;
+      }
+      auto timeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
+      auto buffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+      auto frame =
+          std::make_shared<VideoFrame>(buffer, width, height, rotation);
+      framesQueue->push_back(
+          std::make_pair(CMTimeGetSeconds(timeStamp), frame));
+      latestSampleTime = timeStamp;
       CFRelease(sampleBuffer);
-      continue;
     }
-    auto timeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
-    auto buffer = CMSampleBufferGetImageBuffer(sampleBuffer);
-    auto frame = std::make_shared<VideoFrame>(buffer, width, height, rotation);
-    framesQueue->push_back(std::make_pair(CMTimeGetSeconds(timeStamp), frame));
-    latestSampleTime = timeStamp;
-    CFRelease(sampleBuffer);
   }
 }
 
@@ -143,27 +152,32 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
 }
 
 void VideoCompositionItemDecoder::seekTo(CMTime currentTime) {
-  release();
-  setupReader(currentTime);
+  @synchronized(lock) {
+    release();
+    setupReader(currentTime);
+  }
 }
 
 void VideoCompositionItemDecoder::release() {
-  for (const auto& frame : decodedFrames) {
-    frame.second->release();
-  }
-  decodedFrames.clear();
-  for (const auto& frame : nextLoopFrames) {
-    frame.second->release();
-  }
-  if (currentFrame) {
-    currentFrame->release();
-    currentFrame = nullptr;
-  }
-  nextLoopFrames.clear();
-  hasLooped = false;
-  lastRequestedTime = kCMTimeInvalid;
-  if (assetReader) {
-    [assetReader cancelReading];
+  @synchronized(lock) {
+    if (assetReader) {
+      [assetReader cancelReading];
+      assetReader = nullptr;
+    }
+    for (const auto& frame : decodedFrames) {
+      frame.second->release();
+    }
+    decodedFrames.clear();
+    for (const auto& frame : nextLoopFrames) {
+      frame.second->release();
+    }
+    if (currentFrame) {
+      currentFrame->release();
+      currentFrame = nullptr;
+    }
+    nextLoopFrames.clear();
+    hasLooped = false;
+    lastRequestedTime = kCMTimeInvalid;
   }
 }
 

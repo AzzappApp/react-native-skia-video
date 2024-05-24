@@ -22,18 +22,32 @@ VideoFrame::~VideoFrame() {
   release();
 }
 
-jsi::Value VideoFrame::toJS(jsi::Runtime& runtime) {
-  if (released.test()) {
-    return jsi::Value::null();
+std::vector<jsi::PropNameID> VideoFrame::getPropertyNames(jsi::Runtime& rt) {
+  std::vector<jsi::PropNameID> result;
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("width")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("height")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("rotation")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("buffer")));
+  return result;
+}
+
+jsi::Value VideoFrame::get(jsi::Runtime& runtime,
+                           const jsi::PropNameID& propNameId) {
+  auto propName = propNameId.utf8(runtime);
+  if (propName == "width") {
+    return jsi::Value(width);
+  } else if (propName == "height") {
+    return jsi::Value(height);
+  } else if (propName == "rotation") {
+    return jsi::Value(rotation);
+  } else if (propName == "buffer") {
+    if (pixelBuffer != nullptr) {
+      return jsi::BigInt::fromUint64(runtime,
+                                     reinterpret_cast<uintptr_t>(pixelBuffer));
+    }
   }
-  auto frame = jsi::Object(runtime);
-  frame.setProperty(runtime, "width", jsi::Value(width));
-  frame.setProperty(runtime, "height", jsi::Value(height));
-  frame.setProperty(runtime, "rotation", jsi::Value(rotation));
-  frame.setProperty(runtime, "buffer",
-                    jsi::BigInt::fromUint64(
-                        runtime, reinterpret_cast<uintptr_t>(pixelBuffer)));
-  return frame;
+
+  return jsi::Value::undefined();
 }
 
 void VideoFrame::release() {

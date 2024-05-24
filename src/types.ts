@@ -11,7 +11,7 @@ export type VideoFrame = {
    * The memory address of the native buffer.
    * @see Skia.Image.MakeImageFromNativeBuffer
    */
-  buffer: BigInt;
+  buffer: BigInt | null;
   /**
    * The width in pixels of the frame.
    */
