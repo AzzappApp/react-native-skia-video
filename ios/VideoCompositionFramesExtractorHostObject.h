@@ -37,6 +37,7 @@ public:
   std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime& rt) override;
 
 private:
+  NSObject* lock;
   std::shared_ptr<VideoComposition> composition;
   std::map<std::string, std::shared_ptr<VideoCompositionItemDecoder>>
       itemDecoders;
@@ -49,7 +50,7 @@ private:
   bool isPlaying = false;
   bool isLooping = false;
   bool initialized = false;
-  std::atomic_flag released = false;
+  bool released = false;
 
   void init();
   void play();

@@ -122,7 +122,7 @@ void RNSkiaVideo::exportVideoComposition(
       }
       if (frame) {
         frames.setProperty(*runtime, entry.first.c_str(),
-                           frame->toJS(*runtime));
+                           jsi::Object::createFromHostObject(*runtime, frame));
       }
     }
     surface->getCanvas()->clear(SkColors::kTransparent);

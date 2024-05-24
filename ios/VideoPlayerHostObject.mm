@@ -63,8 +63,9 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
           if (currentFrame != nullptr) {
             currentFrame->release();
           }
-          currentFrame = std::make_shared<VideoFrame>(buffer, width, height, rotation);
-          return currentFrame->toJS(runtime);
+          currentFrame =
+              std::make_shared<VideoFrame>(buffer, width, height, rotation);
+          return jsi::Object::createFromHostObject(runtime, currentFrame);
         });
   } else if (propName == "play") {
     return jsi::Function::createFromHostFunction(
