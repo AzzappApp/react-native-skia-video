@@ -12,7 +12,7 @@ namespace RNSkiaVideo {
 class VideoCompositionItemDecoder {
 public:
   VideoCompositionItemDecoder(std::shared_ptr<VideoCompositionItem> item,
-                              bool enableLoopMode);
+                              bool realTime);
   void advanceDecoder(CMTime currentTime);
   void seekTo(CMTime currentTime);
   std::shared_ptr<VideoFrame> acquireFrameForTime(CMTime currentTime,
@@ -21,7 +21,7 @@ public:
 
 private:
   NSObject* lock;
-  bool enableLoopMode = false;
+  bool realTime = false;
   bool hasLooped = false;
   std::shared_ptr<VideoCompositionItem> item;
   double width;

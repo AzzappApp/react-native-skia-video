@@ -82,15 +82,6 @@ void RNSkiaVideo::exportVideoComposition(
     onError(createErrorWithMessage(@"Unknown error"));
     return;
   }
-  auto releaseDecoders = [&]() {
-    try {
-      for (const auto& entry : itemDecoders) {
-        entry.second->release();
-      }
-      itemDecoders.clear();
-    } catch (...) {
-    }
-  };
 
   auto surface = SkiaMetalSurfaceFactory::makeOffscreenSurface(width, height);
   id<MTLDevice> device = MTLCreateSystemDefaultDevice();
@@ -98,8 +89,27 @@ void RNSkiaVideo::exportVideoComposition(
 
   int nbFrame = composition->duration * frameRate;
   auto runtime = &workletRuntime->getJSIRuntime();
+  auto skCanvas = jsi::Object::createFromHostObject(
+      *runtime,
+      std::make_shared<JsiSkCanvas>(rnskPlatformContext, surface->getCanvas()));
 
   std::map<std::string, std::shared_ptr<VideoFrame>> currentFrames;
+  auto releaseResources = [&]() {
+    for (const auto& entry : itemDecoders) {
+      auto decoder = entry.second;
+      if (decoder) {
+        decoder->release();
+      }
+    }
+    itemDecoders.clear();
+    for (const auto& entry : currentFrames) {
+      auto frame = entry.second;
+      if (frame) {
+        frame->release();
+      }
+    }
+    currentFrames.clear();
+  };
   for (int i = 0; i < nbFrame; i++) {
     CMTime currentTime =
         CMTimeMakeWithSeconds((double)i / (double)frameRate, NSEC_PER_SEC);
@@ -126,9 +136,6 @@ void RNSkiaVideo::exportVideoComposition(
       }
     }
     surface->getCanvas()->clear(SkColors::kTransparent);
-    auto skCanvas = jsi::Object::createFromHostObject(
-        *runtime, std::make_shared<JsiSkCanvas>(rnskPlatformContext,
-                                                surface->getCanvas()));
     workletRuntime->runGuarded(drawFrame, skCanvas,
                                CMTimeGetSeconds(currentTime), frames);
 
@@ -136,7 +143,7 @@ void RNSkiaVideo::exportVideoComposition(
     GrBackendTexture texture = SkSurfaces::GetBackendTexture(
         surface.get(), SkSurfaces::BackendHandleAccess::kFlushRead);
     if (!texture.isValid()) {
-      releaseDecoders();
+      releaseResources();
       onError(
           createErrorWithMessage(@"Could not extract texture from SkSurface"));
       return;
@@ -144,7 +151,7 @@ void RNSkiaVideo::exportVideoComposition(
 
     GrMtlTextureInfo textureInfo;
     if (!texture.getMtlTextureInfo(&textureInfo)) {
-      releaseDecoders();
+      releaseResources();
       onError(
           createErrorWithMessage(@"Could not extract texture from SkSurface"));
       return;
@@ -194,14 +201,14 @@ void RNSkiaVideo::exportVideoComposition(
         (__bridge CFDictionaryRef)attributes, &pixelBuffer);
 
     if (status != kCVReturnSuccess) {
-      releaseDecoders();
+      releaseResources();
       onError(createErrorWithMessage(@"Could not extract pixels from frame"));
       return;
     }
     CVPixelBufferLockBaseAddress(pixelBuffer, 0);
     void* pixelBufferBytes = CVPixelBufferGetBaseAddress(pixelBuffer);
     if (pixelBufferBytes == NULL) {
-      releaseDecoders();
+      releaseResources();
       onError(createErrorWithMessage(@"Could not extract pixels from frame"));
       return;
     }
@@ -218,11 +225,9 @@ void RNSkiaVideo::exportVideoComposition(
     int attempt = 0;
     while (!assetWriterInput.isReadyForMoreMediaData) {
       if (attempt > 100) {
-        try {
-          CVPixelBufferRelease(pixelBuffer);
-        } catch (...) {
-        };
-        releaseDecoders();
+        releaseResources();
+        CVPixelBufferRelease(pixelBuffer);
+        [cpuAccessibleTexture setPurgeableState:MTLPurgeableStateEmpty];
         onError(createErrorWithMessage(@"AVAssetWriter unavailable"));
         return;
       }
@@ -255,22 +260,19 @@ void RNSkiaVideo::exportVideoComposition(
       CFRelease(sampleBuffer);
     } else {
       error = createErrorWithMessage(@"Failed to create sampleBuffer");
-      return;
     }
     if (formatDescription) {
       CFRelease(formatDescription);
     };
-    try {
-      CVPixelBufferRelease(pixelBuffer);
-    } catch (...) {
-    }
+    CVPixelBufferRelease(pixelBuffer);
+    [cpuAccessibleTexture setPurgeableState:MTLPurgeableStateEmpty];
     if (error) {
-      releaseDecoders();
+      releaseResources();
       onError(error);
     }
   }
 
-  releaseDecoders();
+  releaseResources();
   [assetWriter finishWritingWithCompletionHandler:^{
     if (assetWriter.status == AVAssetWriterStatusFailed) {
       onError(assetWriter.error);

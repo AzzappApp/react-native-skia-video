@@ -7,9 +7,9 @@
 namespace RNSkiaVideo {
 
 VideoCompositionItemDecoder::VideoCompositionItemDecoder(
-    std::shared_ptr<VideoCompositionItem> item, bool enableLoopMode) {
+    std::shared_ptr<VideoCompositionItem> item, bool realTime) {
   this->item = item;
-  this->enableLoopMode = enableLoopMode;
+  this->realTime = realTime;
   lock = [[NSObject alloc] init];
   NSString* path =
       [NSString stringWithCString:item->path.c_str()
@@ -64,7 +64,7 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
   [assetReader startReading];
 }
 
-#define DECODER_INPUT_TIME_ADVANCE 0.3
+#define DECODER_INPUT_TIME_ADVANCE 0.1
 
 void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
   @synchronized(lock) {
@@ -74,13 +74,14 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
     CMTime position =
         CMTimeAdd(startTime, CMTimeSubtract(currentTime, compositionStartTime));
     CMTime inputPosition =
-        CMTimeAdd(position, CMTimeMakeWithSeconds(DECODER_INPUT_TIME_ADVANCE,
-                                                  NSEC_PER_SEC));
+        realTime
+            ? CMTimeAdd(position, CMTimeMakeWithSeconds(
+                                      DECODER_INPUT_TIME_ADVANCE, NSEC_PER_SEC))
+            : position;
     CMTime duration = CMTimeMakeWithSeconds(item->duration, NSEC_PER_SEC);
     CMTime endTime = CMTimeAdd(startTime, duration);
 
-    if (enableLoopMode && CMTimeCompare(endTime, inputPosition) < 0 &&
-        !hasLooped) {
+    if (realTime && CMTimeCompare(endTime, inputPosition) < 0 && !hasLooped) {
       setupReader(kCMTimeZero);
       hasLooped = true;
       // we will loop so we want to decode the first frames of the next loop
