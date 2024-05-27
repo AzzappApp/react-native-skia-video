@@ -42,9 +42,13 @@ public:
       item->duration = jsItem.getProperty(runtime, "duration").asNumber();
       item->resolution = CGSize();
       if (jsItem.hasProperty(runtime, "resolution")) {
-        auto res = jsItem.getProperty(runtime, "resolution").asObject(runtime);
-        item->resolution.width = res.getProperty(runtime, "width").asNumber();
-        item->resolution.height = res.getProperty(runtime, "height").asNumber();
+        auto resProp = jsItem.getProperty(runtime, "resolution");
+        if (resProp.isObject()) {
+          auto res = resProp.asObject(runtime);
+          item->resolution.width = res.getProperty(runtime, "width").asNumber();
+          item->resolution.height =
+              res.getProperty(runtime, "height").asNumber();
+        }
       }
 
       composition->items.push_back(item);
