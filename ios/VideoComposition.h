@@ -12,6 +12,7 @@ public:
   double compositionStartTime;
   double startTime;
   double duration;
+  CGSize resolution;
 };
 
 class VideoComposition {
@@ -39,6 +40,12 @@ public:
           jsItem.getProperty(runtime, "compositionStartTime").asNumber();
       item->startTime = jsItem.getProperty(runtime, "startTime").asNumber();
       item->duration = jsItem.getProperty(runtime, "duration").asNumber();
+      item->resolution = CGSize();
+      if (jsItem.hasProperty(runtime, "resolution")) {
+        auto res = jsItem.getProperty(runtime, "resolution").asObject(runtime);
+        item->resolution.width = res.getProperty(runtime, "width").asNumber();
+        item->resolution.height = res.getProperty(runtime, "height").asNumber();
+      }
 
       composition->items.push_back(item);
     }

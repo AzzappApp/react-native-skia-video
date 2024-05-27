@@ -20,6 +20,14 @@ type UseVideoPlayerOptions = {
    */
   uri: string | null;
   /**
+   * If provided, the resolution to scale the video to.
+   * If not provided, the original resolution of the video will be used.
+   * Downscaling the video can improve performance.
+   * Changing the resolution after the video player will lead to re-creating the video player.
+   * @platform ios
+   */
+  resolution?: { width: number; height: number } | null;
+  /**
    * Whether the video should start playing automatically.
    */
   autoPlay?: boolean;
@@ -94,6 +102,7 @@ type UseVideoPlayerReturnType = {
  */
 export const useVideoPlayer = ({
   uri,
+  resolution,
   autoPlay = false,
   isLooping = false,
   volume = 1,
@@ -109,10 +118,11 @@ export const useVideoPlayer = ({
   const [isErrored, setIsErrored] = useState(false);
   const player = useMemo(() => {
     if (uri && !isErrored) {
-      return RNSkiaVideoModule.createVideoPlayer(uri);
+      return RNSkiaVideoModule.createVideoPlayer(uri, resolution);
     }
     return null;
-  }, [isErrored, uri]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isErrored, resolution?.width, resolution?.height, uri]);
 
   const currentFrame = useSharedValue<null | VideoFrame>(null);
   useEffect(

@@ -41,10 +41,21 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
 
   NSDictionary* pixBuffAttributes = @{
     (id)kCVPixelBufferPixelFormatTypeKey :
-        @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+        @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange),
     (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
     (id)kCVPixelBufferMetalCompatibilityKey : @YES
   };
+  CGSize resolution = item->resolution;
+  if (resolution.width > 0 && resolution.height > 0) {
+    pixBuffAttributes =
+        [NSMutableDictionary dictionaryWithDictionary:pixBuffAttributes];
+    [pixBuffAttributes setValue:@(resolution.width)
+                         forKey:(id)kCVPixelBufferWidthKey];
+    [pixBuffAttributes setValue:@(resolution.height)
+                         forKey:(id)kCVPixelBufferHeightKey];
+    width = resolution.width;
+    height = resolution.height;
+  }
 
   AVAssetReaderOutput* assetReaderOutput =
       [[AVAssetReaderTrackOutput alloc] initWithTrack:videoTrack

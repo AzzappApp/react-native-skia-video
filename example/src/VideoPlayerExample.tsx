@@ -3,6 +3,7 @@ import { Blur, Canvas, Image, Rect, Skia } from '@shopify/react-native-skia';
 import {
   ActivityIndicator,
   Button,
+  PixelRatio,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -62,30 +63,8 @@ const VideoPlayerExample = () => {
     setLoadedRanges(loadedRanges);
   }, []);
 
-  const { currentFrame, player } = useVideoPlayer({
-    uri: video?.video_files.find((file) => file.quality === 'hd')?.link ?? null,
-    autoPlay: true,
-    isLooping: true,
-    onReadyToPlay,
-    onPlayingStatusChange,
-    onBufferingUpdate,
-  });
-
-  const videoImage = useDerivedValue(() => {
-    const frame = currentFrame.value;
-    if (!frame) {
-      return null;
-    }
-    return Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
-  });
-
-  const currentTime = useSharedValue(0);
-  useFrameCallback(() => {
-    currentTime.value = player?.currentTime ?? 0;
-  }, true);
-
-  const { width: windowWidth } = useWindowDimensions();
   const aspectRatio = video ? video.width / video.height : 16 / 9;
+  const { width: windowWidth } = useWindowDimensions();
   const videoDimensions = useMemo(
     () =>
       aspectRatio >= 1
@@ -100,6 +79,14 @@ const VideoPlayerExample = () => {
     [aspectRatio, windowWidth]
   );
 
+  const resolution = useMemo(
+    () => ({
+      width: videoDimensions.width * PixelRatio.get(),
+      height: videoDimensions.height * PixelRatio.get(),
+    }),
+    [videoDimensions]
+  );
+
   const canvasDimensions = useMemo(
     () => ({
       width: windowWidth,
@@ -107,6 +94,29 @@ const VideoPlayerExample = () => {
     }),
     [windowWidth, videoDimensions.height]
   );
+
+  const { currentFrame, player } = useVideoPlayer({
+    uri: video?.video_files.find((file) => file.quality === 'hd')?.link ?? null,
+    autoPlay: true,
+    isLooping: true,
+    onReadyToPlay,
+    onPlayingStatusChange,
+    onBufferingUpdate,
+    resolution,
+  });
+
+  const videoImage = useDerivedValue(() => {
+    const frame = currentFrame.value;
+    if (!frame) {
+      return null;
+    }
+    return Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
+  });
+
+  const currentTime = useSharedValue(0);
+  useFrameCallback(() => {
+    currentTime.value = player?.currentTime ?? 0;
+  }, true);
 
   // on android reconciliation of Image component might fails, so we need to avoid rerendering
   // for things like play/pause button change

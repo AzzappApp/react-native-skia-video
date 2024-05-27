@@ -1,4 +1,4 @@
-// @ts-expect-error - no types for react-native-skia
+// @ts-ignore
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import type { SkCanvas, Skia } from '@shopify/react-native-skia';
 import type { WorkletRuntime } from 'react-native-reanimated';
@@ -11,7 +11,7 @@ export type VideoFrame = {
    * The memory address of the native buffer.
    * @see Skia.Image.MakeImageFromNativeBuffer
    */
-  buffer: BigInt | null;
+  buffer: bigint | null;
   /**
    * The width in pixels of the frame.
    */
@@ -179,6 +179,13 @@ export type VideoCompositionItem = {
    * The duration in seconds of the item.
    */
   duration: number;
+  /**
+   * If provided, the resolution to scale the video to.
+   * If not provided, the original resolution of the video will be used.
+   * Downscaling the video can improve performance.
+   * @platform ios
+   */
+  resolution?: { width: number; height: number };
 };
 
 /**
@@ -296,9 +303,15 @@ export type RNSkiaVideoModule = {
    * Creates a video player for the specified video file.
    *
    * @param uri The path to the video file.
+   * @param resolution iOS only - If provided, the resolution to scale the video to.
+   * If not provided, the original resolution of the video will be used.
+   * Downscaling the video can improve performance.
    * @returns The video player.
    */
-  createVideoPlayer: (uri: string) => VideoPlayer;
+  createVideoPlayer: (
+    uri: string,
+    resolution?: { width: number; height: number } | null
+  ) => VideoPlayer;
   /**
    * Creates a video composition frames extractor for the specified video composition.
    * @param composition The video composition.

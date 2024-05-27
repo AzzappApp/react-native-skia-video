@@ -20,7 +20,7 @@ class JSI_EXPORT VideoPlayerHostObject : public jsi::HostObject, EventEmitter {
 public:
   VideoPlayerHostObject(jsi::Runtime& runtime,
                         std::shared_ptr<react::CallInvoker> callInvoker,
-                        NSURL* url);
+                        NSURL* url, CGSize resolution);
   ~VideoPlayerHostObject();
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
   void set(jsi::Runtime&, const jsi::PropNameID& name,

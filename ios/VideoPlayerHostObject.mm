@@ -13,12 +13,14 @@ using namespace facebook;
 
 VideoPlayerHostObject::VideoPlayerHostObject(
     jsi::Runtime& runtime, std::shared_ptr<react::CallInvoker> callInvoker,
-    NSURL* url)
+    NSURL* url, CGSize resolution)
     : EventEmitter(runtime, callInvoker) {
   playerDelegate =
       [[RNSVSkiaVideoPlayerDelegateImpl alloc] initWithHost:this
                                                     runtime:&runtime];
-  player = [[RNSVVideoPlayer alloc] initWithURL:url delegate:playerDelegate];
+  player = [[RNSVVideoPlayer alloc] initWithURL:url
+                                       delegate:playerDelegate
+                                     resolution:resolution];
 }
 
 VideoPlayerHostObject::~VideoPlayerHostObject() {
@@ -190,12 +192,18 @@ void VideoPlayerHostObject::readyToPlay(float width, float height,
 void VideoPlayerHostObject::release() {
   if (!released.test_and_set()) {
     removeAllListeners();
-    currentFrame->release();
-    currentFrame = nullptr;
-    [playerDelegate dispose];
-    playerDelegate = nullptr;
-    [player dispose];
-    player = nullptr;
+    if (currentFrame) {
+      currentFrame->release();
+      currentFrame = nullptr;
+    }
+    if (playerDelegate) {
+      [playerDelegate dispose];
+      playerDelegate = nullptr;
+    }
+    if (player) {
+      [player dispose];
+      player = nullptr;
+    }
   }
 }
 
@@ -219,7 +227,7 @@ using namespace facebook;
 - (void)readyToPlay:(NSDictionary*)assetInfos {
   float width = [(NSNumber*)assetInfos[@"width"] floatValue];
   float height = [(NSNumber*)assetInfos[@"height"] floatValue];
-  int rotation = [(NSNumber*)assetInfos[@"width"] intValue];
+  int rotation = [(NSNumber*)assetInfos[@"rotation"] intValue];
   ((RNSkiaVideo::VideoPlayerHostObject*)_host)
       ->readyToPlay(width, height, rotation);
   _host->emit("ready", [=](jsi::Runtime& runtime) -> jsi::Value {

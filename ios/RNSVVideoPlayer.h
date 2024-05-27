@@ -25,9 +25,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) BOOL isInitialized;
 @property(nonatomic, readonly) BOOL isPlaying;
 @property(nonatomic) BOOL isLooping;
+@property(nonatomic) CGSize resolution;
 
 - (instancetype)initWithURL:(NSURL*)url
-                   delegate:(id<RNSVVideoPlayerDelegate>)delegate;
+                   delegate:(id<RNSVVideoPlayerDelegate>)delegate
+                 resolution:(CGSize)resolution;
 - (nullable CVPixelBufferRef)copyPixelBufferForTime:(CMTime)time;
 - (void)pause;
 - (void)play;

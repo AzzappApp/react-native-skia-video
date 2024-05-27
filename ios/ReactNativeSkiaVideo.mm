@@ -33,12 +33,13 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
   auto RNSVModule = jsi::Object(runtime);
 
   auto createVideoPlayer = jsi::Function::createFromHostFunction(
-      runtime, jsi::PropNameID::forAscii(runtime, "createVideoPlayer"), 1,
+      runtime, jsi::PropNameID::forAscii(runtime, "createVideoPlayer"), 2,
       [bridge](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-        if (count != 1 || !arguments[0].isString()) {
-          throw jsi::JSError(runtime, "ReactNativeSkiaVideo.createVideoPlayer(."
-                                      ".) expects one arguments (string)!");
+        if (count < 1 || !arguments[0].isString()) {
+          throw jsi::JSError(runtime,
+                             "ReactNativeSkiaVideo.createVideoPlayer(."
+                             ".) expects two arguments (string, object)!");
         }
 
         NSString* urlStr;
@@ -51,11 +52,17 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
           throw jsi::JSError(
               runtime, "SkiaVideo.createRNSVPlayer(..) could not parse url");
         }
+        CGSize resolution = CGSize();
+        if (count >= 2 && arguments[1].isObject()) {
+          auto res = arguments[1].asObject(runtime);
+          resolution.width = res.getProperty(runtime, "width").asNumber();
+          resolution.height = res.getProperty(runtime, "height").asNumber();
+        }
 
         NSURL* url = [NSURL URLWithString:urlStr];
 
         auto instance = std::make_shared<RNSkiaVideo::VideoPlayerHostObject>(
-            runtime, bridge.jsCallInvoker, url);
+            runtime, bridge.jsCallInvoker, url, resolution);
         return jsi::Object::createFromHostObject(runtime, instance);
       });
   RNSVModule.setProperty(runtime, "createVideoPlayer",

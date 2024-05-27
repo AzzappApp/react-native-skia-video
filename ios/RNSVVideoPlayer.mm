@@ -23,19 +23,29 @@ static void* rateContext = &rateContext;
 }
 
 - (instancetype)initWithURL:(NSURL*)url
-                   delegate:(id<RNSVVideoPlayerDelegate>)delegate {
+                   delegate:(id<RNSVVideoPlayerDelegate>)delegate
+                 resolution:(CGSize)resolution {
   self = [super init];
   _delegate = delegate;
   _complete = NO;
   _waitingForFrame = YES;
 
   AVAsset* asset = [AVAsset assetWithURL:url];
-
+  self.resolution = resolution;
   NSDictionary* pixBuffAttributes = @{
     (id)kCVPixelBufferPixelFormatTypeKey :
-        @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+        @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange),
     (id)kCVPixelBufferMetalCompatibilityKey : @YES
   };
+  if (!CGSizeEqualToSize(CGSizeZero, resolution)) {
+    pixBuffAttributes =
+        [NSMutableDictionary dictionaryWithDictionary:pixBuffAttributes];
+    [pixBuffAttributes setValue:@(resolution.width)
+                         forKey:(id)kCVPixelBufferWidthKey];
+    [pixBuffAttributes setValue:@(resolution.height)
+                         forKey:(id)kCVPixelBufferHeightKey];
+  }
+
   _videoOutput = [[AVPlayerItemVideoOutput alloc]
       initWithPixelBufferAttributes:pixBuffAttributes];
 
@@ -256,9 +266,11 @@ static void* rateContext = &rateContext;
 - (void)dispatchReadyToPlay {
   if (!_isInitialized) {
     AVPlayerItem* currentItem = _player.currentItem;
-    CGSize size = currentItem.presentationSize;
-    CGFloat width = size.width;
-    CGFloat height = size.height;
+    CGSize resolution = CGSizeEqualToSize(self.resolution, CGSizeZero)
+                            ? currentItem.presentationSize
+                            : self.resolution;
+    CGFloat width = resolution.width;
+    CGFloat height = resolution.height;
 
     // Wait until tracks are loaded to check duration or if there are any
     // videos.

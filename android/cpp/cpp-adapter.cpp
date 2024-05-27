@@ -17,7 +17,7 @@ void install(jsi::Runtime& jsiRuntime) {
       jsiRuntime, jsi::PropNameID::forAscii(jsiRuntime, "createVideoPlayer"), 1,
       [](jsi::Runtime& runtime, const jsi::Value& thisValue,
          const jsi::Value* arguments, size_t count) -> jsi::Value {
-        if (count != 1 || !arguments[0].isString()) {
+        if (count < 1 || !arguments[0].isString()) {
           throw jsi::JSError(
               runtime,
               "SkiaVideo.createRNSVPlayer(..) expects one arguments (string)!");
