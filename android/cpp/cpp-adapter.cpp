@@ -69,7 +69,7 @@ void install(jsi::Runtime& jsiRuntime) {
         return VideoCompositionExporter::exportVideoComposition(
             runtime, arguments[0].asObject(runtime),
             arguments[1].asObject(runtime),
-            std::move(reanimated::extractWorkletRuntime(runtime, arguments[2])),
+            reanimated::extractWorkletRuntime(runtime, arguments[2]),
             reanimated::extractShareableOrThrow<reanimated::ShareableWorklet>(
                 runtime, arguments[3]),
             arguments[4].asObject(runtime).asFunction(runtime),

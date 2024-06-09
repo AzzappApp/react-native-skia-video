@@ -43,11 +43,11 @@ private:
   std::shared_ptr<reanimated::WorkletRuntime> workletRuntime;
   std::shared_ptr<reanimated::ShareableWorklet> drawFrameWorklet;
   std::function<void()> onCompleteCallback;
-  std::function<void()> onErrorCallback;
+  std::function<void(alias_ref<JObject> e)> onErrorCallback;
   sk_sp<SkSurface> surface;
 
   void start(std::function<void()> onCompleteCallback,
-             std::function<void()> onErrorCallback);
+             std::function<void(alias_ref<JObject> e)> onErrorCallback);
   void makeSkiaSharedContextCurrent();
   int renderFrame(jdouble timeUS, alias_ref<JMap<JString, VideoFrame>> frames);
   void onComplete();

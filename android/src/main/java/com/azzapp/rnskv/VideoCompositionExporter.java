@@ -2,6 +2,7 @@ package com.azzapp.rnskv;
 
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.util.Log;
 
 import com.facebook.jni.HybridData;
 import com.facebook.jni.annotations.DoNotStrip;
@@ -70,6 +71,7 @@ public class VideoCompositionExporter {
 
   private void handleError(Exception e) {
     release();
+    Log.e("ReactNativeSkiaVideo", "error while exporting", e);
     onError(e);
   }
 

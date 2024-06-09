@@ -45,10 +45,24 @@ jsi::Value VideoCompositionExporter::exportVideoComposition(
           sharedSuccessCallback->call(runtime);
         });
       },
-      [=, &runtime]() {
+      [=, &runtime](alias_ref<JObject> error) {
+        std::optional<std::string> errorMessage = std::nullopt;
+        if (error->isInstanceOf(jni::JThrowable::javaClassStatic())) {
+          auto throwable = static_ref_cast<jni::JThrowable>(error);
+          errorMessage = throwable->getMessage()->toStdString();
+        } else if (error->isInstanceOf(jni::JString::javaClassStatic())) {
+          auto string = static_ref_cast<jni::JString>(error);
+          errorMessage = error->toString();
+        }
         JNIHelpers::getCallInvoker()->invokeAsync([=, &runtime]() -> void {
           exporter->cthis()->release();
-          sharedErrorCallback->call(runtime);
+          jsi::Value error;
+          if (errorMessage.has_value()) {
+            error = jsi::String::createFromUtf8(runtime, errorMessage.value());
+          } else {
+            error = jsi::Value::null();
+          }
+          sharedErrorCallback->call(runtime, error);
         });
       });
   return jsi::Value::undefined();
@@ -90,7 +104,7 @@ void VideoCompositionExporter::registerNatives() {
 }
 
 void VideoCompositionExporter::start(std::function<void()> onComplete,
-                                     std::function<void()> onError) {
+                                     std::function<void(alias_ref<JObject> e)> onError) {
   this->onCompleteCallback = onComplete;
   this->onErrorCallback = onError;
   auto startMethod = jThis->getClass()->getMethod<void()>("start");
@@ -150,7 +164,6 @@ void VideoCompositionExporter::onComplete() {
 }
 
 void VideoCompositionExporter::onError(alias_ref<JObject> e) {
-  // TODO convert java error to js error
-  onErrorCallback();
+  onErrorCallback(e);
 }
 } // namespace RNSkiaVideo
