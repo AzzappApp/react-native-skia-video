@@ -314,19 +314,21 @@ const VideoCompositionPreview = ({
     setExporting(true);
     const outPath =
       ReactNativeBlobUtil.fs.dirs.CacheDir + '/' + createId() + '.mp4';
-    exportVideoComposition(
-      videoComposition,
-      {
-        outPath,
-        bitRate: 3500000,
-        frameRate: 60,
-        width: 1080,
-        height: 1080,
-      },
-      drawFrame
-    ).then(() => {
-      setExportedPath(outPath);
-    }, console.error);
+    setTimeout(() => {
+      exportVideoComposition(
+        videoComposition,
+        {
+          outPath,
+          bitRate: 3500000,
+          frameRate: 60,
+          width: 1080,
+          height: 1080,
+        },
+        drawFrame
+      ).then(() => {
+        setExportedPath(outPath);
+      }, console.error);
+    }, 100);
   }, [videoComposition]);
 
   const { width: windowWidth } = useWindowDimensions();
