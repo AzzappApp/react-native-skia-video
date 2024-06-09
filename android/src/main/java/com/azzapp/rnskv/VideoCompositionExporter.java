@@ -8,6 +8,7 @@ import com.facebook.jni.HybridData;
 import com.facebook.jni.annotations.DoNotStrip;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -33,9 +34,17 @@ public class VideoCompositionExporter {
 
   private int currentFrame = 0;
 
-  private final Map<VideoComposition.Item, Boolean> awaitedItems = new HashMap<>();
+  public boolean decoding = true;
+
+  private final Map<VideoComposition.Item, Long> itemsTimes = new HashMap<>();
+
+  private final Set<VideoComposition.Item> itemsEnded = new HashSet<>();
+
+  private final Map<String, Long> renderedTimes = new HashMap<>();
 
   private HandlerThread exportThread = null;
+
+  private Handler handler;
 
   /**
    * Creates a new video composition exporter.
@@ -60,6 +69,7 @@ public class VideoCompositionExporter {
     mHybridData = data;
     this.composition = composition;
     this.frameRate = frameRate;
+
     decoder = new VideoCompositionDecoder(composition);
     encoder = new VideoEncoder(outPath, width, height, frameRate, bitRate);
   }
@@ -70,8 +80,8 @@ public class VideoCompositionExporter {
   }
 
   private void handleError(Exception e) {
+    Log.e("ReactNativeSkiaVideo", "Error while exporting", e);
     release();
-    Log.e("ReactNativeSkiaVideo", "error while exporting", e);
     onError(e);
   }
 
@@ -89,7 +99,7 @@ public class VideoCompositionExporter {
   public void start() {
     exportThread = new HandlerThread("ReactNativeSkiaVideo-ExportThread");
     exportThread.start();
-    Handler handler = new Handler(exportThread.getLooper());
+    handler = new Handler(exportThread.getLooper());
     handler.post(() -> {
       try {
         makeSkiaSharedContextCurrent();
@@ -99,37 +109,83 @@ public class VideoCompositionExporter {
         }
         encoder.prepare(sharedContext);
         decoder.prepare();
-        decoder.setOnItemImageAvailableListener(this::imageAvailable);
+        decoder.setOnErrorListener(this::handleError);
+        decoder.setOnFrameAvailableListener(this::onFrameAvailable);
+        decoder.setOnItemEndReachedListener(this::onItemEndReached);
+        decoder.setOnItemImageAvailableListener(this::onItemImageAvailable);
+        decoder.start();
+        checkIfFrameDecoded();
       } catch (Exception e) {
         handleError(e);
         return;
       }
-      decodeNextFrame();
     });
   }
 
-  private void decodeNextFrame() {
-    long currentTime = TimeHelpers.secToUs((double) currentFrame / frameRate);
-    Set<VideoComposition.Item> updatedItems;
-    try {
-      updatedItems = decoder.advance(currentTime, currentFrame == 0);
-    } catch (Exception e) {
-      handleError(e);
-      return;
-    }
-    if (updatedItems.size() == 0) {
-      writeFrame();
-    } else {
-      for (VideoComposition.Item item : updatedItems) {
-        awaitedItems.put(item, true);
-      }
+  private void onFrameAvailable(VideoComposition.Item item, long presentationTimeUs) {
+    itemsTimes.put(item, presentationTimeUs);
+    if (decoding) {
+      checkIfFrameDecoded();
     }
   }
 
-  private void imageAvailable(VideoComposition.Item item) {
-    awaitedItems.put(item, false);
-    for (Boolean waiting : awaitedItems.values()) {
-      if (waiting) {
+  private void onItemEndReached(VideoComposition.Item item) {
+    itemsEnded.add(item);
+    if (decoding) {
+      checkIfFrameDecoded();
+    }
+  }
+
+  private void checkIfFrameDecoded() {
+    long currentTimeUs = TimeHelpers.secToUs((double) currentFrame / frameRate);
+    boolean allItemsReady = true;
+    for (VideoComposition.Item item : composition.getItems()) {
+      if (!itemsTimes.containsKey(item)) {
+        allItemsReady = false;
+        continue;
+      }
+      if (itemsEnded.contains(item)) {
+        continue;
+      }
+      long itemCurrentTimeUs = itemsTimes.get(item);
+      long startTimeUs = TimeHelpers.secToUs(item.getStartTime());
+      long compositionStartTimeUs = TimeHelpers.secToUs(item.getCompositionStartTime());
+      if (itemCurrentTimeUs - startTimeUs < currentTimeUs - compositionStartTimeUs) {
+        itemsTimes.get(itemCurrentTimeUs);
+        allItemsReady = false;
+      }
+    }
+    Map<String, Long> renderedTimes = decoder.render(currentTimeUs);
+    renderedTimes.forEach((itemId, time) -> {
+      if (time != null) {
+        this.renderedTimes.put(itemId, time);
+      }
+    });
+    if (allItemsReady) {
+      decoding = false;
+      writeFrameIfReady();
+    }
+  }
+
+  private void onItemImageAvailable(VideoComposition.Item item) {
+    if (!decoding) {
+      writeFrameIfReady();
+    }
+  }
+
+  private void writeFrameIfReady() {
+    Map<String, VideoFrame> videoFrames = decoder.getUpdatedVideoFrames();
+    for (VideoComposition.Item item : composition.getItems()) {
+      VideoFrame videoFrame = videoFrames.getOrDefault(item.getId(), null);
+      if (videoFrame == null) {
+        return;
+      }
+      Long itemFrameTime = renderedTimes.getOrDefault(item.getId(), null);
+      if (itemFrameTime == null) {
+        continue;
+      }
+      long videoFrameTime = TimeHelpers.nsecToUs(videoFrame.getTimestamp());
+      if (Math.abs(itemFrameTime - videoFrameTime) > 1000) {
         return;
       }
     }
@@ -144,7 +200,9 @@ public class VideoCompositionExporter {
     encoder.writeFrame(TimeHelpers.secToUs(time), texture, eos);
     if (!eos) {
       currentFrame += 1;
-      decodeNextFrame();
+      decoding = true;
+      renderedTimes.clear();
+      checkIfFrameDecoded();
     } else {
       handleComplete();
     }

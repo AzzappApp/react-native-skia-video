@@ -1,27 +1,18 @@
 package com.azzapp.rnskv;
 
-import android.graphics.ImageFormat;
-import android.hardware.HardwareBuffer;
 import android.media.Image;
 import android.media.ImageReader;
-import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
 /**
- * A class that previews a video composition.
+ * A class to decode a video composition and extract frames from the video items.
  */
 public class VideoCompositionDecoder {
-
 
   private final VideoComposition composition;
 
@@ -33,15 +24,16 @@ public class VideoCompositionDecoder {
 
   private OnItemImageAvailableListener onItemImageAvailableListener;
 
-  private final Map<
-    VideoComposition.Item,
-    List<VideoCompositionItemDecoder.Frame>
-    > pendingFrames = new HashMap<>();
+  private OnFrameAvailableListener onFrameAvailableListener;
+
+  private OnErrorListener onErrorListener;
+
+  private OnItemEndReachedListener onItemEndReachedListener;
 
   /**
-   * Create a new VideoCompositionFramesExtractor.
+   * Creates a new video composition decoder.
    *
-   * @param composition the video composition to preview
+   * @param composition The video composition to decode.
    */
   public VideoCompositionDecoder(VideoComposition composition) {
     this.composition = composition;
@@ -49,10 +41,30 @@ public class VideoCompositionDecoder {
     imageReaders = new HashMap<>();
     composition.getItems().forEach(item -> {
       VideoCompositionItemDecoder decoder = new VideoCompositionItemDecoder(item);
+      decoder.setOnErrorListener(error -> {
+        if (onErrorListener != null) {
+          onErrorListener.onError(error);
+        }
+      });
+
+      decoder.setOnFrameAvailableListener(presentationTimeUs -> {
+        if (onFrameAvailableListener != null) {
+          onFrameAvailableListener.onFrameAvailable(item, presentationTimeUs);
+        }
+      });
+
+      decoder.setOnEndReachedListener(() -> {
+        if (onItemEndReachedListener != null) {
+          onItemEndReachedListener.onItemEndReached(item);
+        }
+      });
       decoders.put(item, decoder);
     });
   }
 
+  /**
+   * Prepares the items decoders and the image readers.
+   */
   public void prepare() {
     Handler handler = new Handler(Objects.requireNonNull(Looper.myLooper()));
     decoders.values().forEach(decoder -> {
@@ -60,17 +72,7 @@ public class VideoCompositionDecoder {
         decoder.prepare();
         ImageReader imageReader;
         VideoComposition.Item item = decoder.getItem();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-          imageReader = ImageReader.newInstance(
-            decoder.getVideoWidth(),
-            decoder.getVideoHeight(),
-            ImageFormat.PRIVATE, 2,
-            HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE
-          );
-        } else {
-          imageReader = ImageReader.newInstance(
-            decoder.getVideoWidth(), decoder.getVideoHeight(), ImageFormat.PRIVATE, 2);
-        }
+        imageReader = ImageReaderHelpers.createImageReader(decoder.getVideoWidth(), decoder.getVideoHeight());
         imageReader.setOnImageAvailableListener(reader -> {
           if (onItemImageAvailableListener != null) {
             onItemImageAvailableListener.onItemImageAvailable(item);
@@ -78,100 +80,68 @@ public class VideoCompositionDecoder {
         }, handler);
         imageReaders.put(item, imageReader);
         decoder.setSurface(imageReader.getSurface());
-      } catch (IOException e) {
+      } catch (Exception e) {
         throw new RuntimeException(e);
       }
     });
   }
 
-  public void setOnItemImageAvailableListener(
-    OnItemImageAvailableListener onItemImageAvailableListener) {
+  /**
+   * Starts the decoders.
+   */
+  public void start() {
+    decoders.values().forEach(VideoCompositionItemDecoder::start);
+  }
+
+  /**
+   * Sets the listener to be called when an image is available.
+   * @param onItemImageAvailableListener The listener to be called.
+   */
+  public void setOnItemImageAvailableListener(OnItemImageAvailableListener onItemImageAvailableListener) {
     this.onItemImageAvailableListener = onItemImageAvailableListener;
   }
 
-  /* Deltat value that we use to keep input buffer with an advance of time to be sure that decoders
-   * Input buffer contains enough data
+  /**
+   * Sets the listener to be called when an error occurs.
+   * @param onErrorListener The listener to be called.
    */
-  private static final long INPUT_DELTA = 500000L;
-
-  public Set<VideoComposition.Item> advance(long currentPosition, boolean forceRendering)
-    throws IOException, InterruptedException {
-    for (VideoCompositionItemDecoder itemDecoder : decoders.values()) {
-      VideoComposition.Item item = itemDecoder.getItem();
-      long compositionStartTime = TimeHelpers.secToUs(item.getCompositionStartTime());
-      long startTime = TimeHelpers.secToUs(item.getStartTime());
-      long duration = TimeHelpers.secToUs(item.getDuration());
-      long compositionDuration = TimeHelpers.secToUs(composition.getDuration());
-      if (forceRendering || (
-        compositionStartTime <= currentPosition
-          && currentPosition <= compositionStartTime + duration + INPUT_DELTA &&
-          currentPosition <= compositionDuration + INPUT_DELTA)) {
-        while (true) {
-          long presentationTimeUs = itemDecoder.getInputSamplePresentationTimeUS();
-          if ((forceRendering && (presentationTimeUs >= startTime + INPUT_DELTA)) ||
-            presentationTimeUs >= currentPosition - compositionStartTime + startTime + INPUT_DELTA) {
-            break;
-          }
-          boolean queued = itemDecoder.queueSampleToCodec();
-          if (!queued) {
-            break;
-          }
-        }
-
-        while (true) {
-          VideoCompositionItemDecoder.Frame frame = itemDecoder.dequeueOutputBuffer();
-          if (frame == null) {
-            break;
-          }
-          List<VideoCompositionItemDecoder.Frame> itemPendingFrames =
-            pendingFrames.computeIfAbsent(item, k -> new ArrayList<>());
-          itemPendingFrames.add(frame);
-        }
-      }
-    }
-
-    Set<VideoComposition.Item> updatedItems = new HashSet<>();
-    for (
-      Map.Entry<VideoComposition.Item, List<VideoCompositionItemDecoder.Frame>> entry :
-      pendingFrames.entrySet()) {
-      VideoComposition.Item item = entry.getKey();
-      List<VideoCompositionItemDecoder.Frame> itemFrames = entry.getValue();
-      ArrayList<VideoCompositionItemDecoder.Frame> framesToRender = new ArrayList<>();
-      ArrayList<VideoCompositionItemDecoder.Frame> framesToRelease = new ArrayList<>();
-
-      long compositionStartTime = TimeHelpers.secToUs(item.getCompositionStartTime());
-      long startTime = TimeHelpers.secToUs(item.getStartTime());
-      long duration = TimeHelpers.secToUs(item.getDuration());
-      long compositionDuration = TimeHelpers.secToUs(composition.getDuration());
-      long itemPosition = Math.min(
-        startTime + currentPosition - compositionStartTime,
-        startTime + duration
-      );
-      itemPosition = Math.min(startTime + compositionDuration, itemPosition);
-
-      boolean force = forceRendering;
-      List<VideoCompositionItemDecoder.Frame> itemFramesCopy = new ArrayList<>(itemFrames);
-      for (VideoCompositionItemDecoder.Frame frame : itemFramesCopy) {
-        long presentationTimeUS = frame.getPresentationTimeUs();
-        if (force || presentationTimeUS <= itemPosition) {
-          if (presentationTimeUS < startTime) {
-            framesToRelease.add(frame);
-          } else {
-            framesToRender.add(frame);
-            force = false;
-            updatedItems.add(item);
-          }
-        }
-      }
-      itemFrames.removeAll(framesToRelease);
-      framesToRelease.forEach(VideoCompositionItemDecoder.Frame::release);
-
-      itemFrames.removeAll(framesToRender);
-      framesToRender.forEach(VideoCompositionItemDecoder.Frame::render);
-    }
-    return updatedItems;
+  public void setOnErrorListener(OnErrorListener onErrorListener) {
+    this.onErrorListener = onErrorListener;
   }
 
+  /**
+   * Sets the listener to be called when a frame has been decoded.
+   * @param onFrameAvailableListener The listener to be called.
+   */
+  public void setOnFrameAvailableListener(OnFrameAvailableListener onFrameAvailableListener) {
+    this.onFrameAvailableListener = onFrameAvailableListener;
+  }
+
+  /**
+   * Sets the listener to be called when an item reaches its end.
+   * @param onItemEndReachedListener The listener to be called.
+   */
+  public void setOnItemEndReachedListener(OnItemEndReachedListener onItemEndReachedListener) {
+    this.onItemEndReachedListener = onItemEndReachedListener;
+  }
+
+  /**
+   * Renders the video composition at the given position.
+   * @param currentPositionUs The current position in microseconds.
+   * @return A map with the rendered times for each item.
+   */
+  public synchronized Map<String, Long> render(long currentPositionUs) {
+    Map<String, Long> renderedTimes = new HashMap<>();
+    decoders.forEach((item, decoder) -> {
+      renderedTimes.put(item.getId(), decoder.render(currentPositionUs));
+    });
+    return renderedTimes;
+  }
+
+  /**
+   * Gets the updated video frames.
+   * @return A map with the updated video frames.
+   */
   public Map<String, VideoFrame> getUpdatedVideoFrames() {
     for (VideoComposition.Item item : composition.getItems()) {
       ImageReader imageReader = imageReaders.get(item);
@@ -198,26 +168,52 @@ public class VideoCompositionDecoder {
     return videoFrames;
   }
 
-  public void seekTo(long position) {
-    pendingFrames.values().forEach(frames ->
-      frames.forEach(VideoCompositionItemDecoder.Frame::release));
-    pendingFrames.clear();
+  /**
+   * Seeks to the given position.
+   * @param position The position to seek to in microseconds.
+   */
+  synchronized public void seekTo(long position) {
     decoders.values().forEach(itemDecoder -> itemDecoder.seekTo(position));
   }
 
-  public void release() {
-    pendingFrames.values().forEach(frames ->
-      frames.forEach(VideoCompositionItemDecoder.Frame::release));
-    pendingFrames.clear();
+  /**
+   * Releases the resources.
+   */
+  synchronized public void release() {
     decoders.values().forEach(VideoCompositionItemDecoder::release);
     decoders.clear();
+    videoFrames.values().forEach(VideoFrame::release);
+    videoFrames.clear();
     imageReaders.values().forEach(ImageReader::close);
     imageReaders.clear();
-    videoFrames.values().forEach(frame -> ((HardwareBuffer) frame.getHardwareBuffer()).close());
   }
 
+  /**
+   * Listener to be called when an image is available.
+   */
   public interface OnItemImageAvailableListener {
     void onItemImageAvailable(VideoComposition.Item item);
+  }
+
+  /**
+   * Listener to be called when an item reaches its end.
+   */
+  public interface OnItemEndReachedListener {
+    void onItemEndReached(VideoComposition.Item item);
+  }
+
+  /**
+   * Listener to be called when a frame is available.
+   */
+  public interface OnFrameAvailableListener {
+    void onFrameAvailable(VideoComposition.Item item, long presentationTimeUs);
+  }
+
+  /**
+   * Listener to be called when an error occurs.
+   */
+  public interface OnErrorListener {
+    void onError(Exception e);
   }
 }
 

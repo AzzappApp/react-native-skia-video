@@ -218,6 +218,7 @@ public class VideoCompositionFramesExtractor {
         isEOS = false;
         seekInternal(0);
       }
+      decoder.start();
       startTime = microTime() - pausePosition;
       handler.removeMessages(PLAYBACK_LOOP);
       loopInternal(true);
@@ -245,7 +246,7 @@ public class VideoCompositionFramesExtractor {
           pauseInternal();
         }
       } else {
-        decoder.advance(currentPosition, force);
+        decoder.render(currentPosition);
       }
 
       if (!paused) {

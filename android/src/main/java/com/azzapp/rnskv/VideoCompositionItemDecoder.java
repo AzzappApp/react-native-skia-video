@@ -3,35 +3,34 @@ package com.azzapp.rnskv;
 import android.media.MediaCodec;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
-import android.util.Log;
 import android.view.Surface;
+
+import androidx.annotation.NonNull;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Stack;
 
 /**
- * A class that decodes a video item from a video composition.
+ * A class that decodes a video item from a video composition asynchronously.
  */
-public class VideoCompositionItemDecoder {
+public class VideoCompositionItemDecoder extends MediaCodec.Callback {
 
-  private VideoComposition.Item item;
+  private final VideoComposition.Item item;
 
   private MediaExtractor extractor;
 
-  private MediaCodec decoder;
+  private MediaCodec codec;
 
   private MediaFormat format;
 
-  private MediaCodec.BufferInfo bufferInfo;
+  private boolean inputEOS = false;
 
-  private long inputSamplePresentationTimeUS = 0;
+  private boolean hasRenderedFrame = false;
 
-  private Boolean inputEOS = false;
-
-  private long outputPresentationTimeTimeUS = 0;
-
-  private Boolean outputEOS = false;
+  private boolean itemEndReached = false;
 
   private int videoWidth;
 
@@ -39,11 +38,25 @@ public class VideoCompositionItemDecoder {
 
   private int rotation;
 
-  private Boolean prepared = false;
+  private boolean prepared = false;
 
-  private Boolean configured = false;
+  private boolean configured = false;
+
+  private boolean started = false;
+
+  private boolean released = false;
 
   private Surface surface;
+
+  private final Stack<Frame> freeFrames = new Stack<>();
+
+  private final List<Frame> pendingFrames = new ArrayList<>();
+
+  private OnErrorListener onErrorListener;
+
+  private OnEndReachedListener onEndReachedListener;
+
+  private OnFrameAvailableListener onFrameAvailableListener;
 
   /**
    * Create a new VideoCompositionItemDecoder.
@@ -59,7 +72,10 @@ public class VideoCompositionItemDecoder {
    *
    * @throws IOException if the decoder cannot be prepared
    */
-  public void prepare() throws IOException {
+  synchronized public void prepare() throws IOException {
+    if (prepared) {
+      return;
+    }
     extractor = new MediaExtractor();
     extractor.setDataSource(item.getPath());
     int trackIndex = selectTrack(extractor);
@@ -71,19 +87,28 @@ public class VideoCompositionItemDecoder {
     if (mime == null) {
       throw new IOException("Could not determine file mime type");
     }
-    decoder = MediaCodec.createDecoderByType(mime);
+    codec = MediaCodec.createDecoderByType(mime);
     extractor.selectTrack(trackIndex);
     if (item.getStartTime() != 0) {
       extractor.seekTo(
         TimeHelpers.secToUs(item.getStartTime()), MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
     }
-
     videoWidth = format.getInteger(MediaFormat.KEY_WIDTH);
     videoHeight = format.getInteger(MediaFormat.KEY_HEIGHT);
     rotation = format.containsKey(MediaFormat.KEY_ROTATION) ? format.getInteger(MediaFormat.KEY_ROTATION) : 0;
-    bufferInfo = new MediaCodec.BufferInfo();
     prepared = true;
     configure();
+  }
+
+  /**
+   * Start the decoder
+   */
+  synchronized public void start() {
+    if (!prepared || !configured || started) {
+      return;
+    }
+    codec.start();
+    started = true;
   }
 
   /**
@@ -96,12 +121,17 @@ public class VideoCompositionItemDecoder {
     configure();
   }
 
-  private synchronized void configure() {
-    if (prepared && surface != null && !configured) {
-      decoder.configure(format, surface, null, 0);
-      decoder.start();
-      configured = true;
-    }
+
+  public void setOnErrorListener(OnErrorListener onErrorListener) {
+    this.onErrorListener = onErrorListener;
+  }
+
+  public void setOnFrameAvailableListener(OnFrameAvailableListener onFrameAvailableListener) {
+    this.onFrameAvailableListener = onFrameAvailableListener;
+  }
+
+  public void setOnEndReachedListener(OnEndReachedListener onEndReachedListener) {
+    this.onEndReachedListener = onEndReachedListener;
   }
 
   /**
@@ -132,25 +162,111 @@ public class VideoCompositionItemDecoder {
     return rotation;
   }
 
-  /**
-   * @return true if the output buffer reached the end of stream
-   */
-  public boolean isOutputEOS() {
-    return outputEOS;
+  @Override
+  synchronized public void onInputBufferAvailable(MediaCodec codec, int index) {
+    if (!prepared || !configured || released) {
+      return;
+    }
+
+    if (inputEOS || itemEndReached) {
+      this.codec.queueInputBuffer(index, 0, 0, 0,
+        MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+      return;
+    }
+
+    ByteBuffer inputBuffer = this.codec.getInputBuffer(index);
+    if (inputBuffer == null) {
+      return;
+    }
+
+    int sampleSize = extractor.readSampleData(inputBuffer, 0);
+    if (sampleSize <= 0) {
+      this.codec.queueInputBuffer(index, 0, 0, 0,
+        MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+      return;
+    }
+    this.codec.queueInputBuffer(
+      index,
+      0,
+      sampleSize,
+      extractor.getSampleTime(),
+      extractor.getSampleFlags()
+    );
+    extractor.advance();
+    inputEOS = extractor.getSampleTime() == -1;
   }
 
-  /**
-   * @return the presentation time of the output buffer in microseconds
-   */
-  public long getOutputPresentationTimeTimeUS() {
-    return outputPresentationTimeTimeUS;
+  @Override
+  synchronized public void onOutputBufferAvailable(MediaCodec codec, int index, MediaCodec.BufferInfo info) {
+    if (released) {
+      return;
+    }
+    boolean outputEOS = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+    boolean sampleOutOfBounds =
+      info.presentationTimeUs > TimeHelpers.secToUs(item.getStartTime() + item.getDuration());
+    boolean sampleBeforeStartTime =
+      info.presentationTimeUs < TimeHelpers.secToUs(item.getStartTime());
+
+    if (!itemEndReached && info.size != 0 && !sampleOutOfBounds && !sampleBeforeStartTime) {
+      ByteBuffer buffer = this.codec.getOutputBuffer(index);
+      buffer.position(info.offset);
+      buffer.limit(info.offset + info.size);
+
+      Frame frame = getFreeFrame();
+      frame.outputBufferIndex = index;
+      frame.presentationTimeUs = info.presentationTimeUs;
+      pendingFrames.add(frame);
+      if (onFrameAvailableListener != null) {
+        onFrameAvailableListener.onFrameAvailable(frame.presentationTimeUs);
+      }
+    } else {
+      codec.releaseOutputBuffer(index, false);
+    }
+
+    itemEndReached = outputEOS || sampleOutOfBounds;
+    if (itemEndReached) {
+      if (onEndReachedListener != null) {
+        onEndReachedListener.onEndReached();
+      }
+    }
   }
 
-  /**
-   * @return the presentation time of the input sample in microseconds
-   */
-  public long getInputSamplePresentationTimeUS() {
-    return inputSamplePresentationTimeUS;
+  @Override
+  public void onError(MediaCodec codec, MediaCodec.CodecException e) {
+    if (onErrorListener != null) {
+      onErrorListener.onError(e);
+    }
+  }
+
+  @Override
+  public void onOutputFormatChanged(@NonNull MediaCodec codec, @NonNull MediaFormat format) {
+    videoWidth = format.getInteger(MediaFormat.KEY_WIDTH);
+    videoHeight = format.getInteger(MediaFormat.KEY_HEIGHT);
+    rotation = format.containsKey(MediaFormat.KEY_ROTATION) ? format.getInteger(MediaFormat.KEY_ROTATION) : 0;
+  }
+
+  synchronized public Long render(long compositionTimeUs) {
+    if (pendingFrames.isEmpty()) {
+      return null;
+    }
+    long compositionStartTimeUs = TimeHelpers.secToUs(item.getCompositionStartTime());
+    long startTimeUs = TimeHelpers.secToUs(item.getStartTime());
+
+    List<Frame> framesToRenders = new ArrayList<>();
+    for (Frame frame : pendingFrames) {
+      if (frame.presentationTimeUs - startTimeUs < compositionTimeUs - compositionStartTimeUs || !hasRenderedFrame) {
+        framesToRenders.add(frame);
+        hasRenderedFrame = true;
+      }
+    }
+    if (framesToRenders.isEmpty()) {
+      return null;
+    }
+    framesToRenders.forEach(frame -> codec.releaseOutputBuffer(frame.outputBufferIndex, true));
+    freeFrames.addAll(framesToRenders);
+    pendingFrames.removeAll(framesToRenders);
+
+    return framesToRenders.get(framesToRenders.size() - 1).presentationTimeUs;
   }
 
   /**
@@ -158,127 +274,43 @@ public class VideoCompositionItemDecoder {
    *
    * @param time the time in microseconds to seek to
    */
-  public void seekTo(long time) {
-    decoder.flush();
+  synchronized public void seekTo(long time) {
+    pendingFrames.clear();
+    codec.flush();
     long seekTime = time + TimeHelpers.secToUs(item.getStartTime());
-    extractor.seekTo(seekTime,
-      MediaExtractor.SEEK_TO_CLOSEST_SYNC);
-    inputSamplePresentationTimeUS = 0;
-    outputPresentationTimeTimeUS = -1;
-    outputEOS = false;
+    extractor.seekTo(seekTime, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
+    itemEndReached = false;
+    hasRenderedFrame = false;
     inputEOS = false;
-  }
-
-  /**
-   * Queue a sample to the codec.
-   *
-   * @return true if the sample has been queued
-   */
-  public boolean queueSampleToCodec() {
-    return queueSampleToCodec(0);
-  }
-
-  public boolean queueSampleToCodec(long timeoutUS) {
-    if (inputEOS || !prepared || !configured) {
-      return false;
+    if (started) {
+      codec.start();
     }
-
-    int inputBufIndex = decoder.dequeueInputBuffer(timeoutUS);
-    if (inputBufIndex < 0) {
-      return false;
-    }
-    boolean sampleQueued = false;
-    ByteBuffer inputBuffer = decoder.getInputBuffer(inputBufIndex);
-    if (inputBuffer == null) {
-      return false;
-    }
-    int sampleSize = extractor.readSampleData(inputBuffer, 0);
-    long presentationTimeUs = 0;
-
-    if (sampleSize < 0) {
-      inputEOS = true;
-      sampleSize = 0;
-    } else {
-      presentationTimeUs = extractor.getSampleTime();
-      sampleQueued = true;
-    }
-
-    decoder.queueInputBuffer(
-      inputBufIndex,
-      0,
-      sampleSize,
-      presentationTimeUs,
-      inputEOS ? MediaCodec.BUFFER_FLAG_END_OF_STREAM : 0
-    );
-
-    inputSamplePresentationTimeUS = 0;
-    if (!inputEOS) {
-      extractor.advance();
-    }
-    return sampleQueued;
-  }
-
-
-  /**
-   * Dequeue the output buffer, optionally forcing the dequeue
-   *
-   * @return the frame representing the decoded output buffer sample or null if no output buffer is ready
-   */
-  public Frame dequeueOutputBuffer() {
-    return dequeueOutputBuffer(0);
-  }
-
-  public Frame dequeueOutputBuffer(int timeout) {
-    if (outputEOS || !prepared || !configured) {
-      return null;
-    }
-    int outputBufferIndex = decoder.dequeueOutputBuffer(bufferInfo, timeout);
-    outputEOS = outputBufferIndex >= 0 && (bufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
-    if (outputBufferIndex < 0) {
-      if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-        return dequeueOutputBuffer(timeout);
-      }
-      return null;
-    }
-    outputPresentationTimeTimeUS = bufferInfo.presentationTimeUs;
-    Frame frame = getFreeFrame();
-    frame.outputBufferIndex = outputBufferIndex;
-    frame.presentationTimeUs = outputPresentationTimeTimeUS;
-    frame.decoder = this;
-    frame.released = false;
-    return frame;
-  }
-
-  private final Stack<Frame> freeFrames = new Stack<>();
-
-  private Frame getFreeFrame() {
-    return freeFrames.empty() ? new Frame() : freeFrames.pop();
-  }
-
-  private void renderFrame(Frame frame) {
-    decoder.releaseOutputBuffer(frame.outputBufferIndex, true);
-    freeFrames.add(frame);
-  }
-
-  private void releaseFrame(Frame frame) {
-    decoder.releaseOutputBuffer(frame.outputBufferIndex, false);
-    freeFrames.add(frame);
   }
 
   /**
    * Release the decoder.
    */
-  public void release() {
-    if (extractor != null) {
-      extractor.release();
+  synchronized public void release() {
+    if (!released) {
+      released = true;
+      if (extractor != null) {
+        extractor.release();
+      }
+      if (codec != null) {
+        codec.release();
+      }
     }
-    if (decoder != null) {
-      decoder.release();
+  }
+
+  private synchronized void configure() {
+    if (prepared && surface != null && !configured) {
+      codec.setCallback(this);
+      codec.configure(format, surface, null, 0);
+      configured = true;
     }
   }
 
   private static int selectTrack(MediaExtractor extractor) {
-    // Select the first video track we find, ignore the rest.
     int numTracks = extractor.getTrackCount();
     for (int i = 0; i < numTracks; i++) {
       MediaFormat format = extractor.getTrackFormat(i);
@@ -290,44 +322,27 @@ public class VideoCompositionItemDecoder {
     return -1;
   }
 
+  private Frame getFreeFrame() {
+    return freeFrames.empty() ? new Frame() : freeFrames.pop();
+  }
+
+  public interface OnErrorListener {
+    void onError(Exception error);
+  }
+
+  public interface OnFrameAvailableListener {
+    void onFrameAvailable(long presentationTimeUs);
+  }
+
+  public interface OnEndReachedListener {
+    void onEndReached();
+  }
+
   /**
    * A frame representing a decoded output buffer sample.
    */
-  public static class Frame {
+  private static class Frame {
     private int outputBufferIndex;
-
     private long presentationTimeUs;
-
-    private VideoCompositionItemDecoder decoder;
-
-    private boolean released = false;
-
-    /**
-     * @return the presentation time of the frame in microseconds
-     */
-    public long getPresentationTimeUs() {
-      return presentationTimeUs;
-    }
-
-    /**
-     * Render the frame to the surface associated with the decoder.
-     */
-    public void render() {
-      if (released) {
-        throw new RuntimeException("Trying to render 2 time the same frame");
-      }
-      decoder.renderFrame(this);
-      released = true;
-    }
-
-    /**
-     * Release the frame without rendering it.
-     */
-    public void release() {
-      if (!released) {
-        decoder.releaseFrame(this);
-        released = true;
-      }
-    }
   }
 }
