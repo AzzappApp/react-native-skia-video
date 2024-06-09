@@ -162,12 +162,12 @@ public class VideoPlayer {
         width,
         height,
         ImageFormat.PRIVATE,
-        2,
+        3,
         HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE
       );
     } else {
       imageReader = ImageReader.newInstance(width, height,
-        ImageFormat.PRIVATE, 2);
+        ImageFormat.PRIVATE, 3);
     }
     player.setVideoSurface(imageReader.getSurface());
   }
@@ -271,7 +271,8 @@ public class VideoPlayer {
     if (currentFrame != null) {
       currentFrame.release();
     }
-    return nexFrame;
+    currentFrame = nexFrame;
+    return currentFrame;
   }
 
   /**
