@@ -46,7 +46,9 @@ public class VideoPlayer {
 
   private ImageReader imageReader;
 
-  private HardwareBuffer currentBuffer;
+  private int rotationDegrees;
+
+  private VideoFrame currentFrame;
 
   private boolean released = false;
 
@@ -88,7 +90,8 @@ public class VideoPlayer {
               isInitialized = true;
               duration = player.getDuration();
               Format videoFormat = player.getVideoFormat();
-              createImageReader(videoFormat);
+              createImageReader(videoFormat.width, videoFormat.height);
+              rotationDegrees = videoFormat.rotationDegrees;
               updateCurrentPosition();
 
               dispatchEventIfNoReleased("ready", new int[] {
@@ -153,17 +156,17 @@ public class VideoPlayer {
     mainHandler.postDelayed(() -> { updateCurrentPosition(); }, 50);
   }
 
-  private void createImageReader(Format format) {
+  private void createImageReader(int width, int height) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       imageReader = ImageReader.newInstance(
-        format.width,
-        format.height,
+        width,
+        height,
         ImageFormat.PRIVATE,
         2,
         HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE
       );
     } else {
-      imageReader = ImageReader.newInstance(format.width, format.height,
+      imageReader = ImageReader.newInstance(width, height,
         ImageFormat.PRIVATE, 2);
     }
     player.setVideoSurface(imageReader.getSurface());
@@ -260,23 +263,15 @@ public class VideoPlayer {
     if (image == null) {
       return null;
     }
-    HardwareBuffer buffer = image.getHardwareBuffer();
-    image.close();
-    if (buffer == null) {
+    VideoFrame nexFrame = VideoFrame.create(image, rotationDegrees);
+    if (nexFrame == null) {
+      image.close();
       return null;
     }
-    if (currentBuffer != null) {
-      currentBuffer.close();
+    if (currentFrame != null) {
+      currentFrame.release();
     }
-    currentBuffer = buffer;
-
-    Format format = player.getVideoFormat();
-    return new VideoFrame(
-      currentBuffer,
-      format.width,
-      format.height,
-      format.rotationDegrees
-    );
+    return nexFrame;
   }
 
   /**
@@ -284,9 +279,9 @@ public class VideoPlayer {
    */
   public void release() {
     released = true;
-    if (currentBuffer != null) {
-      currentBuffer.close();
-      currentBuffer = null;
+    if (currentFrame != null) {
+      currentFrame.release();
+      currentFrame = null;
     }
     if (imageReader != null) {
       imageReader.close();

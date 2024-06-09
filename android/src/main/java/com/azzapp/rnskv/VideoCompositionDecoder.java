@@ -183,22 +183,17 @@ public class VideoCompositionDecoder {
       if (image == null) {
         continue;
       }
-      HardwareBuffer hardwareBuffer = image.getHardwareBuffer();
-      image.close();
-      if (hardwareBuffer == null) {
+      VideoFrame nextFrame = VideoFrame.create(image, decoder.getRotation());
+      if (nextFrame == null) {
+        image.close();
         continue;
       }
       String id = item.getId();
       VideoFrame currentFrame = videoFrames.get(id);
       if (currentFrame != null) {
-        currentFrame.getBuffer().close();
+        currentFrame.release();
       }
-      videoFrames.put(id, new VideoFrame(
-        hardwareBuffer,
-        decoder.getVideoWidth(),
-        decoder.getVideoHeight(),
-        decoder.getRotation()
-      ));
+      videoFrames.put(id, nextFrame);
     }
     return videoFrames;
   }
