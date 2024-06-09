@@ -269,6 +269,7 @@ void RNSkiaVideo::exportVideoComposition(
     if (error) {
       releaseResources();
       onError(error);
+      return;
     }
   }
 
