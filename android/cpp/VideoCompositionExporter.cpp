@@ -103,8 +103,9 @@ void VideoCompositionExporter::registerNatives() {
        makeNativeMethod("onError", VideoCompositionExporter::onError)});
 }
 
-void VideoCompositionExporter::start(std::function<void()> onComplete,
-                                     std::function<void(alias_ref<JObject> e)> onError) {
+void VideoCompositionExporter::start(
+    std::function<void()> onComplete,
+    std::function<void(alias_ref<JObject> e)> onError) {
   this->onCompleteCallback = onComplete;
   this->onErrorCallback = onError;
   auto startMethod = jThis->getClass()->getMethod<void()>("start");
