@@ -240,9 +240,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
 
   @Override
   public void onOutputFormatChanged(@NonNull MediaCodec codec, @NonNull MediaFormat format) {
-    videoWidth = format.getInteger(MediaFormat.KEY_WIDTH);
-    videoHeight = format.getInteger(MediaFormat.KEY_HEIGHT);
-    rotation = format.containsKey(MediaFormat.KEY_ROTATION) ? format.getInteger(MediaFormat.KEY_ROTATION) : 0;
+    // Do nothing
   }
 
   synchronized public Long render(long compositionTimeUs) {
