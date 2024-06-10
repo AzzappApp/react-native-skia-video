@@ -33,6 +33,8 @@ public class VideoComposition {
     private double compositionStartTime;
     private double startTime;
     private double duration;
+    private int width = -1;
+    private int height = -1;
 
     public Item() {
     }
@@ -69,6 +71,14 @@ public class VideoComposition {
 
     public double getDuration() {
       return duration;
+    }
+
+    public int getWidth() {
+      return width;
+    }
+
+    public int getHeight() {
+      return height;
     }
   }
 }

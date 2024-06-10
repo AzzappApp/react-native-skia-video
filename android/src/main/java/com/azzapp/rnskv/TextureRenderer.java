@@ -1,5 +1,6 @@
 package com.azzapp.rnskv;
 
+import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 
 import java.nio.FloatBuffer;
@@ -17,8 +18,9 @@ public class TextureRenderer {
       varying vec2 vTexCoords;
       void main() {
       gl_Position = aFramePosition;
-      vTexCoords = (uTexTransform * aTexCoords).xy;
-      }""";
+        vTexCoords = (uTexTransform * aTexCoords).xy;
+      }
+    """;
 
   private static final String FRAGMENT_SHADER =
     """
@@ -26,8 +28,20 @@ public class TextureRenderer {
       uniform sampler2D uTexSampler;
       varying vec2 vTexCoords;
       void main() {
-      gl_FragColor = texture2D(uTexSampler, vTexCoords);
-      }""";
+        gl_FragColor = texture2D(uTexSampler, vTexCoords);
+      }
+    """;
+
+  private static final String FRAGMENT_SHADER_EXTERNAL =
+    """
+      #extension GL_OES_EGL_image_external : require
+      precision highp float;
+      uniform samplerExternalOES uTexSampler;
+      varying vec2 vTexCoords;
+      void main() {
+        gl_FragColor = texture2D(uTexSampler, vTexCoords);
+      }
+    """;
 
   private static final FloatBuffer POS_VERTICES = EGLUtils.createFloatBuffer(
     -1f, -1f, 0f, 1f,
@@ -53,13 +67,21 @@ public class TextureRenderer {
 
   private final int uTexSamplerLoc;
 
+  boolean external = false;
+
+
+  public TextureRenderer() {
+    this(false);
+  }
+
   /**
    * Create a new TextureRenderer.
    */
-  public TextureRenderer() {
+  public TextureRenderer(boolean external) {
+    this.external = external;
     program = EGLUtils.createProgram(
       VERTEX_SHADER,
-      FRAGMENT_SHADER
+      external ? FRAGMENT_SHADER_EXTERNAL : FRAGMENT_SHADER
     );
 
     aFramePositionLoc = GLES20.glGetAttribLocation(
@@ -109,7 +131,8 @@ public class TextureRenderer {
     GLES20.glUniformMatrix4fv(uTexTransformLoc, 1, false, transformMatrix, 0);
 
     GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId);
+    GLES20.glBindTexture(
+      external ? GLES11Ext.GL_TEXTURE_EXTERNAL_OES : GLES20.GL_TEXTURE_2D, textureId);
     GLES20.glUniform1i(uTexSamplerLoc, 0);
 
     GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);

@@ -74,6 +74,18 @@ VideoComposition::fromJSIObject(jsi::Runtime& runtime,
     auto duration = jsItem.getProperty(runtime, "duration").asNumber();
     auto item = VideoCompositionItem::create(id, path, compositionStartTime,
                                              startTime, duration);
+
+    if (jsItem.hasProperty(runtime, "resolution")) {
+      auto resProp = jsItem.getProperty(runtime, "resolution");
+      if (resProp.isObject()) {
+        auto res = resProp.asObject(runtime);
+        auto itemCls = VideoCompositionItem::javaClassStatic();
+        item->setFieldValue(itemCls->getField<jint>("width"),
+                            (int)res.getProperty(runtime, "width").asNumber());
+        item->setFieldValue(itemCls->getField<jint>("height"),
+                            (int)res.getProperty(runtime, "height").asNumber());
+      }
+    }
     items->add(item);
   }
   return VideoComposition::create(duration, items);

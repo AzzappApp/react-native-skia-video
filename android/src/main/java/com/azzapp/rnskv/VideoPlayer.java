@@ -1,12 +1,14 @@
 package com.azzapp.rnskv;
 
 import android.graphics.ImageFormat;
+import android.graphics.PixelFormat;
 import android.hardware.HardwareBuffer;
 import android.media.Image;
 import android.media.ImageReader;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Looper;
 
 import androidx.annotation.NonNull;
@@ -46,6 +48,10 @@ public class VideoPlayer {
 
   private ImageReader imageReader;
 
+  private HandlerThread downScalerThread;
+
+  private VideoOutputDownScaler outputDownScaler;
+
   private int rotationDegrees;
 
   private VideoFrame currentFrame;
@@ -58,7 +64,7 @@ public class VideoPlayer {
    * Create a new VideoPlayer with the given URI
    */
   @UnstableApi
-  public VideoPlayer(String uriStr, NativeEventDispatcher eventDispatcher)  {
+  public VideoPlayer(String uriStr, int width, int height, NativeEventDispatcher eventDispatcher) {
     this.eventDispatcher = eventDispatcher;
     mainHandler.post(() -> {
       if (released) {
@@ -71,6 +77,7 @@ public class VideoPlayer {
 
       player.addListener(new Player.Listener() {
         private boolean isBuffering = false;
+
         public void setBuffering(boolean buffering) {
           if (isBuffering != buffering) {
             isBuffering = buffering;
@@ -90,14 +97,32 @@ public class VideoPlayer {
               isInitialized = true;
               duration = player.getDuration();
               Format videoFormat = player.getVideoFormat();
-              createImageReader(videoFormat.width, videoFormat.height);
-              rotationDegrees = videoFormat.rotationDegrees;
-              updateCurrentPosition();
 
-              dispatchEventIfNoReleased("ready", new int[] {
-                videoFormat.width, videoFormat.height, videoFormat.rotationDegrees});
+              rotationDegrees = videoFormat.rotationDegrees;
+
+              if (width > 0 && height > 0) {
+                imageReader = ImageReaderHelpers.createImageReader(
+                  PixelFormat.RGBA_8888, width, height);
+                downScalerThread = new HandlerThread("ReactNativeSkiaVideo-DownScaler-Thread");
+                downScalerThread.start();
+                Handler handler = new Handler(downScalerThread.getLooper());
+                handler.post(() -> {
+                  outputDownScaler = new VideoOutputDownScaler(
+                    imageReader.getSurface(), width, height
+                  );
+                  mainHandler.post(() -> {
+                    player.setVideoSurface(outputDownScaler.getInputSurface());
+                    handleReady(videoFormat);
+                  });
+                });
+              } else {
+                imageReader = ImageReaderHelpers.createImageReader(
+                  ImageFormat.PRIVATE, videoFormat.width, videoFormat.height);
+                player.setVideoSurface(imageReader.getSurface());
+                handleReady(videoFormat);
+              }
             }
-            if(isSeeking) {
+            if (isSeeking) {
               isSeeking = false;
               dispatchEventIfNoReleased("seekComplete", null);
             }
@@ -136,6 +161,13 @@ public class VideoPlayer {
   }
 
   long previousBufferedPosition = 0;
+
+  private void handleReady(Format videoFormat) {
+    updateCurrentPosition();
+    dispatchEventIfNoReleased("ready", new int[]{
+      videoFormat.width, videoFormat.height, videoFormat.rotationDegrees});
+  }
+
   private void dispatchBufferingUpdate() {
     if (released || player == null) {
       return;
@@ -145,31 +177,19 @@ public class VideoPlayer {
       previousBufferedPosition = bufferedPosition;
       dispatchEventIfNoReleased("bufferingUpdate", bufferedPosition);
     }
-    mainHandler.postDelayed(() -> { dispatchBufferingUpdate(); }, 500);
+    mainHandler.postDelayed(() -> {
+      dispatchBufferingUpdate();
+    }, 500);
   }
 
   private void updateCurrentPosition() {
     if (released || player == null) {
       return;
     }
-    this.currentPosition =  player.getCurrentPosition();
-    mainHandler.postDelayed(() -> { updateCurrentPosition(); }, 50);
-  }
-
-  private void createImageReader(int width, int height) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      imageReader = ImageReader.newInstance(
-        width,
-        height,
-        ImageFormat.PRIVATE,
-        3,
-        HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE
-      );
-    } else {
-      imageReader = ImageReader.newInstance(width, height,
-        ImageFormat.PRIVATE, 3);
-    }
-    player.setVideoSurface(imageReader.getSurface());
+    this.currentPosition = player.getCurrentPosition();
+    mainHandler.postDelayed(() -> {
+      updateCurrentPosition();
+    }, 50);
   }
 
   /**
@@ -224,6 +244,7 @@ public class VideoPlayer {
 
   /**
    * Set the volume of the video
+   *
    * @param value the volume to set between 0 and 1
    */
   public void setVolume(float value) {
@@ -240,6 +261,7 @@ public class VideoPlayer {
 
   /**
    * Set whether the video should loop
+   *
    * @param value whether the video should loop
    */
   public void setIsLooping(boolean value) {
@@ -249,6 +271,7 @@ public class VideoPlayer {
 
   /**
    * Decode the next frame of the video
+   *
    * @return whether the frame was decoded successfully
    */
   @UnstableApi
@@ -287,6 +310,13 @@ public class VideoPlayer {
     if (imageReader != null) {
       imageReader.close();
       imageReader = null;
+    }
+    if (outputDownScaler != null) {
+      outputDownScaler.release();
+    }
+    if (downScalerThread != null) {
+      downScalerThread.quit();
+      downScalerThread = null;
     }
     mainHandler.post(() -> {
       if (player != null) {

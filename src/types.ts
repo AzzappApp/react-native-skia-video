@@ -183,7 +183,6 @@ export type VideoCompositionItem = {
    * If provided, the resolution to scale the video to.
    * If not provided, the original resolution of the video will be used.
    * Downscaling the video can improve performance.
-   * @platform ios
    */
   resolution?: { width: number; height: number };
 };
@@ -303,7 +302,7 @@ export type RNSkiaVideoModule = {
    * Creates a video player for the specified video file.
    *
    * @param uri The path to the video file.
-   * @param resolution iOS only - If provided, the resolution to scale the video to.
+   * @param resolution If provided, the resolution to scale the video to.
    * If not provided, the original resolution of the video will be used.
    * Downscaling the video can improve performance.
    * @returns The video player.

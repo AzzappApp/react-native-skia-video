@@ -24,7 +24,6 @@ type UseVideoPlayerOptions = {
    * If not provided, the original resolution of the video will be used.
    * Downscaling the video can improve performance.
    * Changing the resolution after the video player will lead to re-creating the video player.
-   * @platform ios
    */
   resolution?: { width: number; height: number } | null;
   /**

@@ -26,12 +26,6 @@ public class VideoEncoder {
 
   public static final int DEFAULT_I_FRAME_INTERVAL_SECONDS = 1;
 
-  private static final float[] IDENTITY_MATRIX = new float[16];
-
-  static {
-    Matrix.setIdentityM(IDENTITY_MATRIX, 0);
-  }
-
   private final String outputPath;
 
   private final int width;
@@ -128,7 +122,7 @@ public class VideoEncoder {
     GLES20.glClearColor(0, 0, 0, 0);
     GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
     GLES20.glViewport(0, 0, width, height);
-    textureRenderer.draw(texture, IDENTITY_MATRIX);
+    textureRenderer.draw(texture, EGLUtils.IDENTITY_MATRIX);
     eglResourcesHolder.setPresentationTime(timeUS * 1000);
     if (!eglResourcesHolder.swapBuffers()) {
       throw new RuntimeException("eglSwapBuffer failed");

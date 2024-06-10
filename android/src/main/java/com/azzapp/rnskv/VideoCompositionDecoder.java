@@ -1,11 +1,16 @@
 package com.azzapp.rnskv;
 
+import android.graphics.ImageFormat;
+import android.graphics.PixelFormat;
 import android.media.Image;
 import android.media.ImageReader;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -17,6 +22,8 @@ public class VideoCompositionDecoder {
   private final VideoComposition composition;
 
   private final HashMap<VideoComposition.Item, VideoCompositionItemDecoder> decoders;
+
+  private final List<VideoOutputDownScaler> videoOutputDownScalers;
 
   private final HashMap<VideoComposition.Item, ImageReader> imageReaders;
 
@@ -38,6 +45,7 @@ public class VideoCompositionDecoder {
   public VideoCompositionDecoder(VideoComposition composition) {
     this.composition = composition;
     decoders = new HashMap<>();
+    videoOutputDownScalers = new ArrayList<>();
     imageReaders = new HashMap<>();
     composition.getItems().forEach(item -> {
       VideoCompositionItemDecoder decoder = new VideoCompositionItemDecoder(item);
@@ -70,16 +78,34 @@ public class VideoCompositionDecoder {
     decoders.values().forEach(decoder -> {
       try {
         decoder.prepare();
-        ImageReader imageReader;
+
         VideoComposition.Item item = decoder.getItem();
-        imageReader = ImageReaderHelpers.createImageReader(decoder.getVideoWidth(), decoder.getVideoHeight());
+        boolean shouldDownScale = item.getWidth() > 0 && item.getHeight() > 0;
+
+        ImageReader imageReader = shouldDownScale
+          ? ImageReaderHelpers.createImageReader(
+              PixelFormat.RGBA_8888, item.getWidth() , item.getHeight())
+          : ImageReaderHelpers.createImageReader(
+              ImageFormat.PRIVATE, decoder.getVideoWidth(), decoder.getVideoHeight());
+
         imageReader.setOnImageAvailableListener(reader -> {
           if (onItemImageAvailableListener != null) {
             onItemImageAvailableListener.onItemImageAvailable(item);
           }
         }, handler);
         imageReaders.put(item, imageReader);
-        decoder.setSurface(imageReader.getSurface());
+
+        if (shouldDownScale) {
+          VideoOutputDownScaler videoOutputDownScaler = new VideoOutputDownScaler(
+            imageReader.getSurface(),
+            item.getWidth(),
+            item.getHeight()
+          );
+          videoOutputDownScalers.add(videoOutputDownScaler);
+          decoder.setSurface(videoOutputDownScaler.getInputSurface());
+        } else {
+          decoder.setSurface(imageReader.getSurface());
+        }
       } catch (Exception e) {
         throw new RuntimeException(e);
       }
@@ -186,6 +212,8 @@ public class VideoCompositionDecoder {
     videoFrames.clear();
     imageReaders.values().forEach(ImageReader::close);
     imageReaders.clear();
+    videoOutputDownScalers.forEach(VideoOutputDownScaler::release);
+    videoOutputDownScalers.clear();
   }
 
   /**

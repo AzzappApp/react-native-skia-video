@@ -15,7 +15,8 @@ class JSI_EXPORT VideoPlayerHostObject : public jsi::HostObject,
                                          JEventReceiver,
                                          EventEmitter {
 public:
-  VideoPlayerHostObject(jsi::Runtime& runtime, const std::string& uri);
+  VideoPlayerHostObject(jsi::Runtime& runtime, const std::string& uri,
+                        int width, int height);
   ~VideoPlayerHostObject();
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
   void set(jsi::Runtime&, const jsi::PropNameID& name,

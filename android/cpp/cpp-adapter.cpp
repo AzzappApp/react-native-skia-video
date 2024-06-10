@@ -14,17 +14,25 @@ void install(jsi::Runtime& jsiRuntime) {
 
   auto RNSVModule = jsi::Object(jsiRuntime);
   auto createVideoPlayer = jsi::Function::createFromHostFunction(
-      jsiRuntime, jsi::PropNameID::forAscii(jsiRuntime, "createVideoPlayer"), 1,
+      jsiRuntime, jsi::PropNameID::forAscii(jsiRuntime, "createVideoPlayer"), 2,
       [](jsi::Runtime& runtime, const jsi::Value& thisValue,
          const jsi::Value* arguments, size_t count) -> jsi::Value {
         if (count < 1 || !arguments[0].isString()) {
-          throw jsi::JSError(
-              runtime,
-              "SkiaVideo.createRNSVPlayer(..) expects one arguments (string)!");
+          throw jsi::JSError(runtime,
+                             "ReactNativeSkiaVideo.createVideoPlayer(..) "
+                             "expects two arguments (string, object)!");
         }
 
+        int width = -1;
+        int height = -1;
+        if (count >= 2 && arguments[1].isObject()) {
+          auto res = arguments[1].asObject(runtime);
+          width = res.getProperty(runtime, "width").asNumber();
+          height = res.getProperty(runtime, "height").asNumber();
+        }
         auto instance = std::make_shared<VideoPlayerHostObject>(
-            runtime, arguments[0].asString(runtime).utf8(runtime));
+            runtime, arguments[0].asString(runtime).utf8(runtime), width,
+            height);
 
         return jsi::Object::createFromHostObject(runtime, instance);
       });

@@ -3,6 +3,7 @@ package com.azzapp.rnskv;
 import android.graphics.Bitmap;
 import android.opengl.GLES20;
 import android.opengl.GLU;
+import android.opengl.Matrix;
 import android.util.Log;
 
 import java.nio.ByteBuffer;
@@ -20,6 +21,13 @@ public class EGLUtils {
    * The EGL constant for the recordable attribute.
    */
   public static final int EGL_RECORDABLE_ANDROID = 0x3142;
+
+
+  public static final float[] IDENTITY_MATRIX = new float[16];
+
+  static {
+    Matrix.setIdentityM(IDENTITY_MATRIX, 0);
+  }
 
   /**
    * Create an OpenGL program from the given vertex and fragment shaders.
