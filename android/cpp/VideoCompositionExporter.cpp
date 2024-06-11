@@ -124,6 +124,30 @@ void VideoCompositionExporter::start(
 void VideoCompositionExporter::makeSkiaSharedContextCurrent() {
   if (surface == nullptr) {
     surface = SkiaOpenGLSurfaceFactory::makeOffscreenSurface(width, height);
+    jsiCanvas = std::make_shared<JsiSkCanvas>(
+        JNIHelpers::getSkiaPlatformContext(), surface->getCanvas());
+
+    jsiCanvasProxy =
+        std::make_shared<jsi::Object>(workletRuntime->getJSIRuntime());
+    auto& jsiCanvasMap = jsiCanvas->getExportedFunctionMap();
+    for (auto& entry : jsiCanvasMap) {
+      auto propName = entry.first;
+      auto func = std::bind(entry.second, jsiCanvas, std::placeholders::_1,
+                            std::placeholders::_2, std::placeholders::_3,
+                            std::placeholders::_4);
+      jsiCanvasProxy->setProperty(
+          workletRuntime->getJSIRuntime(), propName.c_str(),
+          jsi::Function::createFromHostFunction(
+              workletRuntime->getJSIRuntime(),
+              jsi::PropNameID::forUtf8(workletRuntime->getJSIRuntime(),
+                                       propName),
+              0,
+              [=](jsi::Runtime& runtime, const jsi::Value& thisValue,
+                  const jsi::Value* arguments, size_t count) -> jsi::Value {
+                return func(workletRuntime->getJSIRuntime(), thisValue,
+                            arguments, count);
+              }));
+    }
   }
   SkiaOpenGLHelper::makeCurrent(
       &ThreadContextHolder::ThreadSkiaOpenGLContext,
@@ -146,11 +170,9 @@ int VideoCompositionExporter::renderFrame(
                        std::move(jsFrame));
   }
   surface->getCanvas()->clear(SkColors::kTransparent);
-  auto skCanvas = jsi::Object::createFromHostObject(
-      workletRuntime->getJSIRuntime(),
-      std::make_shared<JsiSkCanvas>(JNIHelpers::getSkiaPlatformContext(),
-                                    surface->getCanvas()));
-  workletRuntime->runGuarded(drawFrameWorklet, skCanvas, currentTime, result);
+
+  auto canvasProxy = jsiCanvasProxy.get();
+  workletRuntime->runGuarded(drawFrameWorklet, *canvasProxy, currentTime, result);
 
   GrAsDirectContext(surface->recordingContext())->flushAndSubmit();
   GrBackendTexture texture = SkSurfaces::GetBackendTexture(
@@ -165,8 +187,10 @@ int VideoCompositionExporter::renderFrame(
 }
 
 void VideoCompositionExporter::release() {
-  surface = nullptr;
   jThis = nullptr;
+  surface = nullptr;
+  jsiCanvas = nullptr;
+  jsiCanvasProxy = nullptr;
 }
 
 void VideoCompositionExporter::onComplete() {

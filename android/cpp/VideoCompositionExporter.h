@@ -1,6 +1,7 @@
 #pragma once
 
 #include <GLES/egl.h>
+#include <JsiSkCanvas.h>
 #include <SkSurface.h>
 #include <WorkletRuntime.h>
 #include <fbjni/fbjni.h>
@@ -46,6 +47,8 @@ private:
   std::function<void()> onCompleteCallback;
   std::function<void(alias_ref<JObject> e)> onErrorCallback;
   sk_sp<SkSurface> surface;
+  std::shared_ptr<RNSkia::JsiSkCanvas> jsiCanvas;
+  std::shared_ptr<jsi::Object> jsiCanvasProxy;
 
   void start(std::function<void()> onCompleteCallback,
              std::function<void(alias_ref<JObject> e)> onErrorCallback);
