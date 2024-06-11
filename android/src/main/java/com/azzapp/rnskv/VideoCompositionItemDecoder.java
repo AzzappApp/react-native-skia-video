@@ -296,6 +296,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
       }
       if (codec != null) {
         codec.release();
+        codec = null;
       }
     }
   }

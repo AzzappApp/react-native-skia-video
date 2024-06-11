@@ -27,11 +27,18 @@ jsi::Value VideoCompositionExporter::exportVideoComposition(
   int height = options.getProperty(runtime, "height").asNumber();
   int frameRate = options.getProperty(runtime, "frameRate").asNumber();
   int bitRate = options.getProperty(runtime, "bitRate").asNumber();
+  std::optional<std::string> encoderName = std::nullopt;
+  if (options.hasProperty(runtime, "encoderName")) {
+    auto value = options.getProperty(runtime, "encoderName");
+    if (value.isString()) {
+      encoderName = value.asString(runtime).utf8(runtime);
+    }
+  }
 
   global_ref<VideoCompositionExporter::JavaPart> exporter =
       VideoCompositionExporter::create(composition, outPath, width, height,
-                                       frameRate, bitRate, workletRuntime,
-                                       drawFrame);
+                                       frameRate, bitRate, encoderName,
+                                       workletRuntime, drawFrame);
 
   auto sharedSuccessCallback =
       std::make_shared<jsi::Function>(std::move(onSuccess));
@@ -71,13 +78,15 @@ jsi::Value VideoCompositionExporter::exportVideoComposition(
 global_ref<VideoCompositionExporter::JavaPart> VideoCompositionExporter::create(
     alias_ref<RNSkiaVideo::VideoComposition> composition, std::string& outPath,
     int width, int height, int frameRate, int bitRate,
+    std::optional<std::string> encoderName,
     std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
     std::shared_ptr<reanimated::ShareableWorklet> drawFrame) {
 
   auto hybridData = makeHybridData(std::make_unique<VideoCompositionExporter>(
       width, height, workletRuntime, drawFrame));
-  auto jExporter = newObjectJavaArgs(hybridData, composition, outPath, width,
-                                     height, frameRate, bitRate);
+  auto jExporter = newObjectJavaArgs(
+      hybridData, composition, outPath, width, height, frameRate, bitRate,
+      encoderName.has_value() ? encoderName.value() : nullptr);
 
   auto globalExporter = make_global(jExporter);
   jExporter->cthis()->jThis = globalExporter;

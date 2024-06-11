@@ -12,6 +12,8 @@ import {
   View,
   ActivityIndicator,
   Text,
+  Platform,
+  Alert,
 } from 'react-native';
 import {
   createNativeStackNavigator,
@@ -19,6 +21,7 @@ import {
 } from '@react-navigation/native-stack';
 import {
   exportVideoComposition,
+  getValidEncoderConfigurations,
   useVideoCompositionPlayer,
 } from '@azzapp/react-native-skia-video';
 import {
@@ -310,24 +313,54 @@ const VideoCompositionPreview = ({
     if (!videoComposition) {
       return;
     }
-
     setExporting(true);
-    const outPath =
-      ReactNativeBlobUtil.fs.dirs.CacheDir + '/' + createId() + '.mp4';
+
+    // We need to wait a bit to let the UI unmount the player
+    // before starting the export, especially on Android where
+    // Some codec will crash if graphic memory is saturated
     setTimeout(() => {
+      const requestedConfigs = {
+        bitRate: 12000000,
+        frameRate: 60,
+        width: 1920,
+        height: 1920,
+      };
+
+      const validConfigs =
+        Platform.OS === 'android'
+          ? getValidEncoderConfigurations(
+              requestedConfigs.width,
+              requestedConfigs.height,
+              requestedConfigs.frameRate,
+              requestedConfigs.bitRate
+            )
+          : [requestedConfigs];
+      if (!validConfigs || validConfigs.length === 0) {
+        Alert.alert("Couldn't find a valid encoder configuration");
+        setExporting(false);
+        return;
+      }
+
+      const encoderConfigs = validConfigs[0]!;
+
+      const outPath =
+        ReactNativeBlobUtil.fs.dirs.CacheDir + '/' + createId() + '.mp4';
       exportVideoComposition(
         videoComposition,
         {
           outPath,
-          bitRate: 3500000,
-          frameRate: 60,
-          width: 1080,
-          height: 1080,
+          ...encoderConfigs,
         },
         drawFrame
-      ).then(() => {
-        setExportedPath(outPath);
-      }, console.error);
+      ).then(
+        () => {
+          setExportedPath(outPath);
+        },
+        (error) => {
+          Alert.alert('Error exporting video', error.message);
+          setExporting(false);
+        }
+      );
     }, 100);
   }, [videoComposition]);
 

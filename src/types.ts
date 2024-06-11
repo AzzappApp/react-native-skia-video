@@ -295,6 +295,11 @@ export type ExportOptions = {
    * The bit rate of the exported video in bits per second.
    */
   bitRate: number;
+  /**
+   * The encoder name to use for the export.
+   * @platform android
+   */
+  encoderName?: string | null;
 };
 
 export type RNSkiaVideoModule = {
@@ -330,4 +335,69 @@ export type RNSkiaVideoModule = {
     onCompletion: () => void,
     onError: (error: any) => void
   ) => Promise<void>;
+
+  /**
+   * Returns the decoding capabilities of the current platform for the specified mimetype.
+   *
+   * @platform android
+   * @param mimetype The mimetype of the video.
+   */
+  getDecodingCapabilitiesFor(mimetype: string): {
+    /**
+     * The maximum number of instances that can be decoded simultaneously.
+     */
+    maxInstances: number;
+    /**
+     * The maximum width of the frame that the decoder will produce.
+     */
+    maxWidth: number;
+    /**
+     * The maximum height of the frame that the decoder will produce.
+     */
+    maxHeight: number;
+  } | null;
+
+  /**
+   * Given a set of encoder configurations,
+   * returns the closest supported configurations by the platform encoders.
+   *
+   * @param width The width of the video.
+   * @param height The height of the video.
+   * @param frameRate The frame rate of the video in frames per second.
+   * @param bitRate The bit rate of the video in bits per second.
+   */
+  getValidEncoderConfigurations(
+    width: number,
+    height: number,
+    frameRate: number,
+    bitRate: number
+  ):
+    | {
+        /**
+         * The name of the encoder.
+         * can be reused in the `exportVideoComposition` method.
+         */
+        encoderName: string;
+        /**
+         * Wether the encoder supports hardware acceleration.
+         */
+        hardwareAccelerated: boolean;
+        /**
+         * The width of the video.
+         */
+        width: number;
+        /**
+         * The height of the video.
+         */
+        height: number;
+        /**
+         * The frame rate of the video in frames per second.
+         */
+        frameRate: number;
+        /**
+         * The bit rate of the video in bits per second.
+         */
+        bitRate: number;
+      }[]
+    | null;
 };

@@ -1,4 +1,5 @@
 #include "NativeEventDispatcher.h"
+#include "VideoCapabilities.h"
 #include "VideoCompositionExporter.h"
 #include "VideoCompositionFramesExtractorHostObject.h"
 #include "VideoPlayerHostObject.h"
@@ -85,6 +86,76 @@ void install(jsi::Runtime& jsiRuntime) {
       });
   RNSVModule.setProperty(jsiRuntime, "exportVideoComposition",
                          std::move(exportVideoComposition));
+
+  auto getDecodingCapabilitiesFor = jsi::Function::createFromHostFunction(
+      jsiRuntime,
+      jsi::PropNameID::forAscii(jsiRuntime, "getDecodingCapabilitiesFor"), 1,
+      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+         const jsi::Value* arguments, size_t count) -> jsi::Value {
+        auto mimetype = arguments[0].asString(runtime).utf8(runtime);
+
+        auto decoderInfo =
+            VideoCapabilities::getDecodingCapabilitiesFor(mimetype);
+        if (decoderInfo == nullptr) {
+          return jsi::Value::null();
+        }
+        auto result = jsi::Object(runtime);
+        result.setProperty(runtime, "maxInstances",
+                           jsi::Value(decoderInfo->getMaxInstances()));
+        result.setProperty(runtime, "maxWidth",
+                           jsi::Value(decoderInfo->getMaxWidth()));
+        result.setProperty(runtime, "maxHeight",
+                           jsi::Value(decoderInfo->getMaxHeight()));
+
+        return result;
+      });
+
+  RNSVModule.setProperty(jsiRuntime, "getDecodingCapabilitiesFor",
+                         std::move(getDecodingCapabilitiesFor));
+
+  auto getValidEncoderConfigurations = jsi::Function::createFromHostFunction(
+      jsiRuntime,
+      jsi::PropNameID::forAscii(jsiRuntime, "getDecodingCapabilitiesFor"), 4,
+      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+         const jsi::Value* arguments, size_t count) -> jsi::Value {
+        int width = arguments[0].asNumber();
+        int height = arguments[1].asNumber();
+        int framerate = arguments[2].asNumber();
+        int bitrate = arguments[3].asNumber();
+
+        auto encoderInfos = VideoCapabilities::getValidEncoderConfigurations(
+            width, height, framerate, bitrate);
+
+        if (encoderInfos == nullptr) {
+          return jsi::Value::null();
+        }
+        auto result = jsi::Array(runtime, encoderInfos->size());
+        size_t i = 0;
+        for (const auto& encoderInfo : *encoderInfos) {
+          auto jsObject = jsi::Object(runtime);
+          jsObject.setProperty(runtime, "encoderName",
+                               jsi::String::createFromUtf8(
+                                   runtime, encoderInfo->getEncoderName()));
+          jsObject.setProperty(
+              runtime, "hardwareAccelerated",
+              jsi::Value(encoderInfo->getHardwareAccelerated()));
+          jsObject.setProperty(runtime, "width",
+                               jsi::Value(encoderInfo->getWidth()));
+          jsObject.setProperty(runtime, "height",
+                               jsi::Value(encoderInfo->getHeight()));
+          jsObject.setProperty(runtime, "frameRate",
+                               jsi::Value(encoderInfo->getFrameRate()));
+          jsObject.setProperty(runtime, "bitRate",
+                               jsi::Value(encoderInfo->getBitrate()));
+
+          result.setValueAtIndex(runtime, i, jsObject);
+          i++;
+        }
+        return result;
+      });
+
+  RNSVModule.setProperty(jsiRuntime, "getValidEncoderConfigurations",
+                         std::move(getValidEncoderConfigurations));
 
   jsiRuntime.global().setProperty(jsiRuntime, "RNSkiaVideo",
                                   std::move(RNSVModule));

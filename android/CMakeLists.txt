@@ -43,6 +43,8 @@ add_library(${PACKAGE_NAME}
         cpp/VideoCompositionFramesExtractorHostObject.cpp
         cpp/VideoPlayerHostObject.h
         cpp/VideoPlayerHostObject.cpp
+        cpp/VideoCapabilities.h
+        cpp/VideoCapabilities.cpp
         cpp/VideoComposition.h
         cpp/VideoComposition.cpp
         cpp/VideoCompositionExporter.h
