@@ -19,6 +19,7 @@ public:
   static global_ref<VideoCompositionExporter::JavaPart>
   create(alias_ref<VideoComposition> composition, std::string& outPath,
          int width, int height, int frameRate, int bitRate,
+         std::optional<std::string> encoderName,
          std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
          std::shared_ptr<reanimated::ShareableWorklet> drawFrame);
 

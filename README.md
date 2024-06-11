@@ -12,7 +12,7 @@ npm install @azzapp/react-native-skia-video
 
 ## Usage
 
-## VideoPlayer
+### VideoPlayer
 
 The `useVideoPlayer` is a custom React hook used in the context of a video player component. This hook encapsulates the logic for playing, pausing, and controlling video playback. It returns a [Reanimated](https://docs.swmansion.com/react-native-reanimated/) shared value that holds the current frame of the playing video.
 
@@ -41,7 +41,7 @@ const MyVideoPlayer = ({ uri, width, height }) =>{
 
 ```
 
-## VideoComposition
+### VideoComposition
 
 This library offers a mechanism for previewing and exporting videos created by compositing frames from other videos, utilizing the React Native Skia imperative API.
 
@@ -123,6 +123,20 @@ exportVideoComposition(
 ```
 
 > Please note that the Video Composition system currently does not support sound.
+
+
+### Video Capabilities (Android only)
+
+On android you might needs to check the video capabilities of your device before exporting a video. This library provides 2 android specific functions for this purpose : 
+
+#### getDecodingCapabilitiesFor(mimetype: string)
+
+This function will returns the decoding capabilities of this device for the given mime type (most of the time you should check `video/avc`).
+
+#### getValidEncoderConfigurations(width: number, height: number, frameRate: number, bitRate: number)
+
+This function will returns a list of valid configuration in regards of your device encoding capabilities with the corresponding encoder.
+If the provided parameters are not supported the returned configurations will be overridden with valid parameters (by decreasing, resolution, framerate or bitrate) while keeping the same aspect ratio.
 
 
 ## Contributing

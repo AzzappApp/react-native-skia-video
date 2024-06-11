@@ -1,4 +1,4 @@
-import { View, Button } from 'react-native';
+import { View, Button, Platform, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import {
   createNativeStackNavigator,
@@ -6,6 +6,8 @@ import {
 } from '@react-navigation/native-stack';
 import VideoPlayerExample from './VideoPlayerExample';
 import VideoCompositionExample from './VideoCompositionExample';
+import { useEffect, useState } from 'react';
+import { getDecodingCapabilitiesFor } from '@azzapp/react-native-skia-video';
 
 type RootStackParamList = {
   Home: undefined;
@@ -16,6 +18,18 @@ type RootStackParamList = {
 function HomeScreen({
   navigation,
 }: NativeStackScreenProps<RootStackParamList>) {
+  const [supportedDecoder, setSupportedDecoder] = useState<string | null>(null);
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      const decodingCapabilities = getDecodingCapabilitiesFor('video/avc');
+      setSupportedDecoder(
+        decodingCapabilities
+          ? `Resolution:${decodingCapabilities.maxWidth}x${decodingCapabilities.maxHeight}` +
+              `\nMaxPlayer : ${decodingCapabilities.maxInstances}`
+          : 'No decoder found for video/avc'
+      );
+    }
+  }, []);
   return (
     <View
       style={{
@@ -33,6 +47,7 @@ function HomeScreen({
         title="Video Composition Example"
         onPress={() => navigation.push('VideoComposition')}
       />
+      {supportedDecoder && <Text>Supported Decoder: {supportedDecoder}</Text>}
     </View>
   );
 }

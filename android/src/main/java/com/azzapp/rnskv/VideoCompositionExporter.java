@@ -64,14 +64,15 @@ public class VideoCompositionExporter {
     int width,
     int height,
     int frameRate,
-    int bitRate
+    int bitRate,
+    String encoderName
   ) {
     mHybridData = data;
     this.composition = composition;
     this.frameRate = frameRate;
 
     decoder = new VideoCompositionDecoder(composition);
-    encoder = new VideoEncoder(outPath, width, height, frameRate, bitRate);
+    encoder = new VideoEncoder(outPath, width, height, frameRate, bitRate, encoderName);
   }
 
   private void handleComplete() {

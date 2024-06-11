@@ -5,7 +5,6 @@ import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
 import android.opengl.GLES20;
-import android.opengl.Matrix;
 import android.util.Log;
 import android.view.Surface;
 
@@ -22,7 +21,7 @@ public class VideoEncoder {
 
   private static final String TAG = "VideoEncoder";
 
-  private static final String MIME_TYPE = "video/avc";    // H.264 Advanced Video Coding
+  public static final String MIME_TYPE = "video/avc";    // H.264 Advanced Video Coding
 
   public static final int DEFAULT_I_FRAME_INTERVAL_SECONDS = 1;
 
@@ -35,6 +34,8 @@ public class VideoEncoder {
   private final int frameRate;
 
   private final int bitRate;
+
+  private String encoderName;
 
   private MediaCodec encoder;
 
@@ -50,7 +51,7 @@ public class VideoEncoder {
 
   private boolean muxerStarted;
 
-  private MediaCodec.BufferInfo bufferInfo;
+  private final MediaCodec.BufferInfo bufferInfo;
 
 
   /**
@@ -67,45 +68,41 @@ public class VideoEncoder {
     int width,
     int height,
     int frameRate,
-    int bitRate
+    int bitRate,
+    String encoderName
   ) {
     this.outputPath = outputPath;
     this.width = width;
     this.height = height;
     this.frameRate = frameRate;
     this.bitRate = bitRate;
+    this.encoderName = encoderName;
+    bufferInfo = new MediaCodec.BufferInfo();
   }
 
   /**
    * Configures encoder and muxer state, and prepares the input Surface.
    */
   public void prepare(EGLContext sharedContext) throws IOException {
-    bufferInfo = new MediaCodec.BufferInfo();
+    encoder = encoderName != null
+      ? MediaCodec.createByCodecName(encoderName)
+      : MediaCodec.createEncoderByType(MIME_TYPE);
 
     MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, width, height);
-
-    // Set some properties.  Failing to specify some of these can cause the MediaCodec
-    // configure() call to throw an unhelpful exception.
     format.setInteger(MediaFormat.KEY_COLOR_FORMAT,
       MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
     format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
     format.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate);
     format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, DEFAULT_I_FRAME_INTERVAL_SECONDS);
 
-    encoder = MediaCodec.createEncoderByType(MIME_TYPE);
     encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+
     inputSurface = encoder.createInputSurface();
     eglResourcesHolder = EGLResourcesHolder.createWithWindowedSurface(sharedContext, inputSurface);
     eglResourcesHolder.makeCurrent();
     textureRenderer = new TextureRenderer();
     encoder.start();
 
-    // Create a MediaMuxer.  We can't add the video track and start() the muxer here,
-    // because our MediaFormat doesn't have the Magic Goodies.  These can only be
-    // obtained from the encoder after it has started processing data.
-    //
-    // We're not actually interested in multiplexing audio.  We just want to convert
-    // the raw H.264 elementary stream we get from MediaCodec into a .mp4 file.
     try {
       muxer = new MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
     } catch (IOException ioe) {
@@ -129,7 +126,6 @@ public class VideoEncoder {
     }
     drainEncoder(eos);
   }
-
 
   /**
    * Extracts all pending data from the encoder.
