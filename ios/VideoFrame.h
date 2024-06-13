@@ -23,7 +23,7 @@ public:
   void release();
 
 private:
-  std::atomic_flag released = false;
+  std::atomic_flag released = ATOMIC_FLAG_INIT;
   CVPixelBufferRef pixelBuffer;
   double width;
   double height;

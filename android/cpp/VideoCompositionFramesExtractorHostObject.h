@@ -26,7 +26,7 @@ public:
 private:
   global_ref<NativeEventDispatcher> jEventDispatcher;
   global_ref<VideoCompositionFramesExtractor> player;
-  std::atomic_flag released;
+  std::atomic_flag released = ATOMIC_FLAG_INIT;
   void release();
 };
 

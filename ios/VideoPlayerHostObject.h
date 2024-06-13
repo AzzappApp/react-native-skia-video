@@ -39,7 +39,7 @@ private:
   float width;
   float height;
   int rotation;
-  std::atomic_flag released;
+  std::atomic_flag released = ATOMIC_FLAG_INIT;
   void release();
 };
 } // namespace RNSkiaVideo
