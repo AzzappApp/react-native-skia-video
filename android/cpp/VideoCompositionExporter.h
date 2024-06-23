@@ -2,7 +2,7 @@
 
 #include <GLES/egl.h>
 #include <JsiSkCanvas.h>
-#include <SkSurface.h>
+#include <include/core/SkSurface.h>
 #include <WorkletRuntime.h>
 #include <fbjni/fbjni.h>
 

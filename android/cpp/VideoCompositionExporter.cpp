@@ -5,8 +5,8 @@
 #include "VideoCompositionExporter.h"
 #include <EGL/eglext.h>
 #include <JsiSkCanvas.h>
-#include <gpu/ganesh/SkSurfaceGanesh.h>
-#include <gpu/ganesh/gl/GrGLBackendSurface.h>
+#include <include/gpu/ganesh/SkSurfaceGanesh.h>
+#include <include/gpu/ganesh/gl/GrGLBackendSurface.h>
 
 #include "JNIHelpers.h"
 

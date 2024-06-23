@@ -1,5 +1,8 @@
 buildscript {
   repositories {
+    maven {
+      url "https://plugins.gradle.org/m2/"
+    }
     google()
     mavenCentral()
   }
@@ -111,12 +114,20 @@ android {
     excludes = [
       "META-INF",
       "META-INF/**",
-      "**/librnskia.so",
-      "**/libjsi.so",
-      "**/libreact_nativemodule_core.so",
-      "**/libturbomodulejsijni.so",
       "**/libc++_shared.so",
-      "**/libfbjni.so"
+      "**/libfbjni.so",
+      "**/libjsi.so",
+      "**/libfolly_json.so",
+      "**/libfolly_runtime.so",
+      "**/libglog.so",
+      "**/libhermes.so",
+      "**/libhermes-executor-debug.so",
+      "**/libhermes_executor.so",
+      "**/libreactnativejni.so",
+      "**/libturbomodulejsijni.so",
+      "**/libreact_nativemodule_core.so",
+      "**/libjscexecutor.so",
+      "**/libruntimeexecutor.so"
     ]
   }
 
@@ -161,10 +172,7 @@ repositories {
 
 def MEDIA3_VERSION = "1.2.1"
 dependencies {
-  // For < 0.71, this will be from the local maven repo
-  // For > 0.71, this will be replaced by `com.facebook.react:react-android:$version` by react gradle plugin
-  //noinspection GradleDynamicVersion
-  implementation "com.facebook.react:react-native:+"
+  implementation 'com.facebook.react:react-android:+'
   implementation(project(":shopify_react-native-skia")) {
     exclude group: "com.facebook.react", module: "react-native"
   }
@@ -173,6 +181,20 @@ dependencies {
   implementation "androidx.media3:media3-exoplayer:${MEDIA3_VERSION}"
   implementation "androidx.media3:media3-datasource:${MEDIA3_VERSION}"
   implementation "androidx.media3:media3-exoplayer-hls:${MEDIA3_VERSION}"
+}
+
+tasks.whenTaskAdded { task ->
+  if (task.name.contains("configureCMakeDebug")) {
+    rootProject.getTasksByName("packageReactNdkDebugLibs", true).forEach {
+      task.dependsOn(it)
+    }
+  }
+
+  if (task.name.contains("configureCMakeRel")) {
+    rootProject.getTasksByName("packageReactNdkReleaseLibs", true).forEach {
+      task.dependsOn(it)
+    }
+  }
 }
 
 if (isNewArchitectureEnabled()) {

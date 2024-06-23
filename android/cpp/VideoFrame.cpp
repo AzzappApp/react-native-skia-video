@@ -45,8 +45,8 @@ jsi::Value VideoFrame::toJS(jsi::Runtime& runtime) {
   jsObject.setProperty(runtime, "rotation", rotation);
   jsObject.setProperty(
       runtime, "buffer",
-      std::move(jsi::BigInt::fromUint64(
-          runtime, reinterpret_cast<uintptr_t>(hardwareBuffer))));
+      jsi::BigInt::fromUint64(
+          runtime, reinterpret_cast<uintptr_t>(hardwareBuffer)));
 
   return jsObject;
 }
