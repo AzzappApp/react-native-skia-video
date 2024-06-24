@@ -3,6 +3,7 @@
 #include <fbjni/ByteBuffer.h>
 #include <fbjni/fbjni.h>
 #include <jni.h>
+#include <jsi/jsi.h>
 
 namespace RNSkiaVideo {
 
