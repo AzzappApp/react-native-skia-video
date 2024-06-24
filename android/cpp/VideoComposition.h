@@ -1,6 +1,5 @@
 #pragma once
 
-#include <RNSkPlatformContext.h>
 #include <fbjni/ByteBuffer.h>
 #include <fbjni/fbjni.h>
 #include <jni.h>

@@ -1,10 +1,10 @@
 #pragma once
 
 #include <GLES/egl.h>
-#include <JsiSkCanvas.h>
-#include <include/core/SkSurface.h>
 #include <WorkletRuntime.h>
 #include <fbjni/fbjni.h>
+#include <react-native-skia/JsiSkCanvas.h>
+#include <react-native-skia/include/core/SkSurface.h>
 
 #include "VideoComposition.h"
 #include "VideoFrame.h"

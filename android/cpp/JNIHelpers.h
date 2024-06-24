@@ -1,8 +1,8 @@
 #pragma once
 
-#include <JniSkiaManager.h>
-#include <RNSkPlatformContext.h>
 #include <fbjni/fbjni.h>
+#include <react-native-skia/JniSkiaManager.h>
+#include <react-native-skia/RNSkPlatformContext.h>
 
 namespace RNSkiaVideo {
 

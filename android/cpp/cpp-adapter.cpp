@@ -71,7 +71,7 @@ void install(jsi::Runtime& jsiRuntime) {
          const jsi::Value* arguments, size_t count) -> jsi::Value {
         if (count != 6) {
           throw jsi::JSError(runtime,
-                             "SkiaVideo.exportVideoComposition(..) expects 4"
+                             "SkiaVideo.exportVideoComposition(..) expects 6"
                              "arguments (composition, options, workletRuntime, "
                              "drawFrame, onSuccess, onError)!");
         }
