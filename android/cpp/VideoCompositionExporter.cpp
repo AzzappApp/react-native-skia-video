@@ -141,15 +141,14 @@ int VideoCompositionExporter::renderFrame(
       &ThreadContextHolder::ThreadSkiaOpenGLContext,
       ThreadContextHolder::ThreadSkiaOpenGLContext.gl1x1Surface);
   auto currentTime = jsi::Value(time);
-  auto &runtime = workletRuntime->getJSIRuntime();
+  auto& runtime = workletRuntime->getJSIRuntime();
   auto result = jsi::Object(runtime);
   auto platformContext = JNIHelpers::getSkiaPlatformContext();
   for (auto& entry : *frames) {
     auto id = entry.first->toStdString();
     auto frame = entry.second;
     auto jsFrame = frame->toJS(runtime);
-    result.setProperty(runtime, id.c_str(),
-                       std::move(jsFrame));
+    result.setProperty(runtime, id.c_str(), std::move(jsFrame));
   }
   surface->getCanvas()->clear(SkColors::kTransparent);
 
