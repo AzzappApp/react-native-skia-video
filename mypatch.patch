@@ -1,0 +1,173 @@
+diff --git a/.yarnrc.yml b/.yarnrc.yml
+index 13215d6..d366986 100644
+--- a/.yarnrc.yml
++++ b/.yarnrc.yml
+@@ -1,5 +1,5 @@
+ nodeLinker: node-modules
+-nmHoistingLimits: workspaces
++nmHoistingLimits: none
+ 
+ plugins:
+   - path: .yarn/plugins/@yarnpkg/plugin-interactive-tools.cjs
+diff --git a/example/android/app/build.gradle b/example/android/app/build.gradle
+index 59010e9..50590ba 100644
+--- a/example/android/app/build.gradle
++++ b/example/android/app/build.gradle
+@@ -2,6 +2,13 @@ apply plugin: "com.android.application"
+ apply plugin: "org.jetbrains.kotlin.android"
+ apply plugin: "com.facebook.react"
+ 
++/**
++ * This is the configuration block to customize your React Native Android app.
++ * By default you don't need to apply any configuration, just uncomment the lines you need.
++ */
++
++def reactNativePath = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsolutePath()
++
+ /**
+  * This is the configuration block to customize your React Native Android app.
+  * By default you don't need to apply any configuration, just uncomment the lines you need.
+@@ -11,11 +18,11 @@ react {
+     //   The root of your project, i.e. where "package.json" lives. Default is '..'
+     // root = file("../")
+     //   The folder where the react-native NPM package is. Default is ../node_modules/react-native
+-    // reactNativeDir = file("../node_modules/react-native")
++    reactNativeDir =   file("${reactNativePath}")
+     //   The folder where the react-native Codegen package is. Default is ../node_modules/@react-native/codegen
+-    // codegenDir = file("../node_modules/@react-native/codegen")
++	codegenDir = file("${reactNativePath}/../@react-native/codegen")
+     //   The cli.js file which is the React Native CLI entrypoint. Default is ../node_modules/react-native/cli.js
+-    // cliFile = file("../node_modules/react-native/cli.js")
++    cliFile = file("${reactNativePath}/cli.js")
+ 
+     /* Variants */
+     //   The list of variants to that are debuggable. For those we're going to
+@@ -45,12 +52,13 @@ react {
+ 
+     /* Hermes Commands */
+     //   The hermes compiler command to run. By default it is 'hermesc'
+-    // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
++    hermesCommand = "${reactNativePath}/sdks/hermesc/%OS-BIN%/hermesc"
+     //
+     //   The list of flags to pass to the Hermes compiler. By default is "-O", "-output-source-map"
+     // hermesFlags = ["-O", "-output-source-map"]
+ }
+ 
++
+ /**
+  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
+  */
+@@ -115,4 +123,4 @@ dependencies {
+     }
+ }
+ 
+-apply from: file("../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesAppBuildGradle(project)
++apply from: file("../../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesAppBuildGradle(project)
+diff --git a/example/android/settings.gradle b/example/android/settings.gradle
+index 0cd57fe..8d21c81 100644
+--- a/example/android/settings.gradle
++++ b/example/android/settings.gradle
+@@ -1,4 +1,4 @@
+ rootProject.name = 'ReactNativeSkiaVideoExample'
+-apply from: file("../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesSettingsGradle(settings)
++apply from: file("../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesSettingsGradle(settings)
+ include ':app'
+-includeBuild('../node_modules/@react-native/gradle-plugin')
++includeBuild('../../node_modules/@react-native/gradle-plugin')
+diff --git a/example/metro.config.js b/example/metro.config.js
+index b823214..64c3e2c 100644
+--- a/example/metro.config.js
++++ b/example/metro.config.js
+@@ -16,22 +16,6 @@ const modules = Object.keys({ ...pak.peerDependencies });
+ const config = {
+   watchFolders: [root],
+ 
+-  // We need to make sure that only one version is loaded for peerDependencies
+-  // So we block them at the root, and alias them to the versions in example's node_modules
+-  resolver: {
+-    blacklistRE: exclusionList(
+-      modules.map(
+-        (m) =>
+-          new RegExp(`^${escape(path.join(root, 'node_modules', m))}\\/.*$`)
+-      )
+-    ),
+-
+-    extraNodeModules: modules.reduce((acc, name) => {
+-      acc[name] = path.join(__dirname, 'node_modules', name);
+-      return acc;
+-    }, {}),
+-  },
+-
+   transformer: {
+     getTransformOptions: async () => ({
+       transform: {
+diff --git a/example/package.json b/example/package.json
+index e104b19..060dc6a 100644
+--- a/example/package.json
++++ b/example/package.json
+@@ -10,6 +10,7 @@
+     "build:ios": "cd ios && xcodebuild -workspace ReactNativeSkiaVideoExample.xcworkspace -scheme ReactNativeSkiaVideoExample -configuration Debug -sdk iphonesimulator CC=clang CPLUSPLUS=clang++ LD=clang LDPLUSPLUS=clang++ GCC_OPTIMIZATION_LEVEL=0 GCC_PRECOMPILE_PREFIX_HEADER=YES ASSETCATALOG_COMPILER_OPTIMIZATION=time DEBUG_INFORMATION_FORMAT=dwarf COMPILER_INDEX_STORE_ENABLE=NO"
+   },
+   "dependencies": {
++    "@azzapp/react-native-skia-video": "file:../react-native-skia-video",
+     "@paralleldrive/cuid2": "^2.2.2",
+     "@react-native-community/slider": "^4.5.2",
+     "@react-navigation/native": "^6.1.17",
+diff --git a/example/src/VideoCompositionExample.tsx b/example/src/VideoCompositionExample.tsx
+index a472842..45eb635 100644
+--- a/example/src/VideoCompositionExample.tsx
++++ b/example/src/VideoCompositionExample.tsx
+@@ -36,6 +36,7 @@ import {
+   Canvas,
+   Picture,
+   Skia,
++  TextAlign,
+   type SkImage,
+ } from '@shopify/react-native-skia';
+ import { createId } from '@paralleldrive/cuid2';
+@@ -203,6 +204,10 @@ const drawFrame: FrameDrawer = ({
+     }
+     const frameAspectRatio = frame.width / frame.height;
+     const aspectRatio = width / height;
++    if (!global.hasLogged) {
++      console.log(canvas);
++      global.hasLogged = true;
++    }
+ 
+     canvas.drawImageRect(
+       image,
+@@ -222,6 +227,14 @@ const drawFrame: FrameDrawer = ({
+       { x: 0, y: 0, width, height },
+       paint
+     );
++
++    const paragraph = Skia.ParagraphBuilder.Make({ textAlign: TextAlign.Left })
++      .addText('Hello world')
++      .build();
++
++    paragraph.layout(width / 2);
++
++    paragraph.paint(canvas, width / 4, height / 2 - paragraph.getHeight() / 2);
+   }
+ };
+ 
+@@ -313,6 +326,7 @@ const VideoCompositionPreview = ({
+     if (!videoComposition) {
+       return;
+     }
++    isExporting = true;
+     setExporting(true);
+ 
+     // We need to wait a bit to let the UI unmount the player
+diff --git a/example/src/helpers/pexelsClient.ts b/example/src/helpers/pexelsClient.ts
+index b56a70b..5ec7f32 100644
+--- a/example/src/helpers/pexelsClient.ts
++++ b/example/src/helpers/pexelsClient.ts
+@@ -1,6 +1,6 @@
+ import { createClient } from 'pexels';
+ 
+-const API_KEY = 'your-api-key';
++const API_KEY = '563492ad6f9170000100000135a62fd9061b495c8bbe55fa903f1c18';
+ 
+ const pexelsClient = createClient(API_KEY);
+ 

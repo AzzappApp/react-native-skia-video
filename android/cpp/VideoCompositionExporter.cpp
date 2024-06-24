@@ -18,7 +18,8 @@ jsi::Value VideoCompositionExporter::exportVideoComposition(
     jsi::Runtime& runtime, jsi::Object jsComposition, jsi::Object options,
     std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
     std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
-    jsi::Function onSuccess, jsi::Function onError) {
+    jsi::Function onSuccess, jsi::Function onError,
+    std::shared_ptr<RNSkia::JsiSkSurface> jsiSurface) {
 
   auto composition = VideoComposition::fromJSIObject(runtime, jsComposition);
   auto outPath =
@@ -38,7 +39,7 @@ jsi::Value VideoCompositionExporter::exportVideoComposition(
   global_ref<VideoCompositionExporter::JavaPart> exporter =
       VideoCompositionExporter::create(composition, outPath, width, height,
                                        frameRate, bitRate, encoderName,
-                                       workletRuntime, drawFrame);
+                                       workletRuntime, drawFrame, jsiSurface);
 
   auto sharedSuccessCallback =
       std::make_shared<jsi::Function>(std::move(onSuccess));
@@ -80,10 +81,11 @@ global_ref<VideoCompositionExporter::JavaPart> VideoCompositionExporter::create(
     int width, int height, int frameRate, int bitRate,
     std::optional<std::string> encoderName,
     std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
-    std::shared_ptr<reanimated::ShareableWorklet> drawFrame) {
+    std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
+    std::shared_ptr<RNSkia::JsiSkSurface> jsiSurface) {
 
   auto hybridData = makeHybridData(std::make_unique<VideoCompositionExporter>(
-      width, height, workletRuntime, drawFrame));
+      width, height, workletRuntime, drawFrame, jsiSurface));
   auto jExporter = newObjectJavaArgs(
       hybridData, composition, outPath, width, height, frameRate, bitRate,
       encoderName.has_value() ? encoderName.value() : nullptr);
@@ -96,11 +98,13 @@ global_ref<VideoCompositionExporter::JavaPart> VideoCompositionExporter::create(
 VideoCompositionExporter::VideoCompositionExporter(
     int width, int height,
     std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
-    std::shared_ptr<reanimated::ShareableWorklet> drawFrame) {
+    std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
+    std::shared_ptr<RNSkia::JsiSkSurface> jsiSurface) {
   this->width = width;
   this->height = height;
   this->drawFrameWorklet = drawFrame;
   this->workletRuntime = workletRuntime;
+  this->jsiSurface = jsiSurface;
 }
 
 void VideoCompositionExporter::registerNatives() {
@@ -124,8 +128,7 @@ void VideoCompositionExporter::start(
 void VideoCompositionExporter::makeSkiaSharedContextCurrent() {
   if (surface == nullptr) {
     surface = SkiaOpenGLSurfaceFactory::makeOffscreenSurface(width, height);
-    jsiCanvas = std::make_shared<JsiSkCanvas>(
-        JNIHelpers::getSkiaPlatformContext(), surface->getCanvas());
+    jsiSurface->setObject(surface);
   }
   SkiaOpenGLHelper::makeCurrent(
       &ThreadContextHolder::ThreadSkiaOpenGLContext,
@@ -138,21 +141,19 @@ int VideoCompositionExporter::renderFrame(
       &ThreadContextHolder::ThreadSkiaOpenGLContext,
       ThreadContextHolder::ThreadSkiaOpenGLContext.gl1x1Surface);
   auto currentTime = jsi::Value(time);
-  auto result = jsi::Object(workletRuntime->getJSIRuntime());
+  auto &runtime = workletRuntime->getJSIRuntime();
+  auto result = jsi::Object(runtime);
   auto platformContext = JNIHelpers::getSkiaPlatformContext();
   for (auto& entry : *frames) {
     auto id = entry.first->toStdString();
     auto frame = entry.second;
-    auto jsFrame = frame->toJS(workletRuntime->getJSIRuntime());
-    result.setProperty(workletRuntime->getJSIRuntime(), id.c_str(),
+    auto jsFrame = frame->toJS(runtime);
+    result.setProperty(runtime, id.c_str(),
                        std::move(jsFrame));
   }
   surface->getCanvas()->clear(SkColors::kTransparent);
 
-  workletRuntime->runGuarded(drawFrameWorklet,
-                             jsi::Object::createFromHostObject(
-                                 workletRuntime->getJSIRuntime(), jsiCanvas),
-                             currentTime, result);
+  workletRuntime->runGuarded(drawFrameWorklet, currentTime, result);
 
   GrAsDirectContext(surface->recordingContext())->flushAndSubmit();
   GrBackendTexture texture = SkSurfaces::GetBackendTexture(
@@ -169,7 +170,7 @@ int VideoCompositionExporter::renderFrame(
 void VideoCompositionExporter::release() {
   jThis = nullptr;
   surface = nullptr;
-  jsiCanvas = nullptr;
+  jsiSurface = nullptr;
 }
 
 void VideoCompositionExporter::onComplete() {

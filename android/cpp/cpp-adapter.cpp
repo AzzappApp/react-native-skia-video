@@ -7,6 +7,7 @@
 #include <WorkletRuntime.h>
 #include <jni.h>
 #include <jsi/jsi.h>
+#include <react-native-skia/JsiSkSurface.h>
 
 using namespace facebook;
 using namespace RNSkiaVideo;
@@ -69,11 +70,11 @@ void install(jsi::Runtime& jsiRuntime) {
       jsi::PropNameID::forAscii(jsiRuntime, "exportVideoComposition"), 6,
       [](jsi::Runtime& runtime, const jsi::Value& thisValue,
          const jsi::Value* arguments, size_t count) -> jsi::Value {
-        if (count != 6) {
+        if (count != 7) {
           throw jsi::JSError(runtime,
                              "SkiaVideo.exportVideoComposition(..) expects 6"
                              "arguments (composition, options, workletRuntime, "
-                             "drawFrame, onSuccess, onError)!");
+                             "drawFrame, onSuccess, onError, SkSurface)!");
         }
         return VideoCompositionExporter::exportVideoComposition(
             runtime, arguments[0].asObject(runtime),
@@ -82,7 +83,9 @@ void install(jsi::Runtime& jsiRuntime) {
             reanimated::extractShareableOrThrow<reanimated::ShareableWorklet>(
                 runtime, arguments[3]),
             arguments[4].asObject(runtime).asFunction(runtime),
-            arguments[5].asObject(runtime).asFunction(runtime));
+            arguments[5].asObject(runtime).asFunction(runtime),
+            std::static_pointer_cast<RNSkia::JsiSkSurface>(
+                arguments[6].asObject(runtime).asHostObject(runtime)));
       });
   RNSVModule.setProperty(jsiRuntime, "exportVideoComposition",
                          std::move(exportVideoComposition));

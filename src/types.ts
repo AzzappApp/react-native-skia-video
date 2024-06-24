@@ -1,6 +1,6 @@
 // @ts-ignore
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-import type { SkCanvas, Skia } from '@shopify/react-native-skia';
+import type { SkCanvas, SkSurface, Skia } from '@shopify/react-native-skia';
 import type { WorkletRuntime } from 'react-native-reanimated';
 
 /**
@@ -333,7 +333,9 @@ export type RNSkiaVideoModule = {
     workletRuntime: WorkletRuntime,
     drawFrame: any, // ShareableRef<FrameDrawer>
     onCompletion: () => void,
-    onError: (error: any) => void
+    onError: (error: any) => void,
+    // android only
+    surface: SkSurface | null
   ) => Promise<void>;
 
   /**
