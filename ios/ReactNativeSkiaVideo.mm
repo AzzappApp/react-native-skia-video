@@ -97,7 +97,7 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
       runtime, jsi::PropNameID::forAscii(runtime, "exportVideoComposition"), 6,
       [](jsi::Runtime& runtime, const jsi::Value& thisValue,
          const jsi::Value* arguments, size_t count) -> jsi::Value {
-        if (count != 6) {
+        if (count < 6) {
           throw jsi::JSError(runtime,
                              "SkiaVideo.exportVideoComposition(..) expects 4"
                              "arguments (composition, options, workletRuntime, "

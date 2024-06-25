@@ -1,10 +1,10 @@
 #pragma once
 
 #include <GLES/egl.h>
-#include <JsiSkCanvas.h>
-#include <SkSurface.h>
 #include <WorkletRuntime.h>
 #include <fbjni/fbjni.h>
+#include <react-native-skia/JsiSkSurface.h>
+#include <react-native-skia/include/core/SkSurface.h>
 
 #include "VideoComposition.h"
 #include "VideoFrame.h"
@@ -22,12 +22,14 @@ public:
          int width, int height, int frameRate, int bitRate,
          std::optional<std::string> encoderName,
          std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
-         std::shared_ptr<reanimated::ShareableWorklet> drawFrame);
+         std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
+         std::shared_ptr<RNSkia::JsiSkSurface> jsiSurface);
 
   explicit VideoCompositionExporter(
       int width, int height,
       std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
-      std::shared_ptr<reanimated::ShareableWorklet> drawFrame);
+      std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
+      std::shared_ptr<RNSkia::JsiSkSurface> jsiSurface);
 
   static void registerNatives();
 
@@ -35,7 +37,8 @@ public:
       jsi::Runtime& runtime, jsi::Object composition, jsi::Object options,
       std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
       std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
-      jsi::Function onSuccess, jsi::Function onError);
+      jsi::Function onSuccess, jsi::Function onError,
+      std::shared_ptr<RNSkia::JsiSkSurface> jsiSurface);
 
 private:
   friend HybridBase;
@@ -47,8 +50,7 @@ private:
   std::function<void()> onCompleteCallback;
   std::function<void(alias_ref<JObject> e)> onErrorCallback;
   sk_sp<SkSurface> surface;
-  std::shared_ptr<RNSkia::JsiSkCanvas> jsiCanvas;
-  std::shared_ptr<jsi::Object> jsiCanvasProxy;
+  std::shared_ptr<RNSkia::JsiSkSurface> jsiSurface;
 
   void start(std::function<void()> onCompleteCallback,
              std::function<void(alias_ref<JObject> e)> onErrorCallback);
