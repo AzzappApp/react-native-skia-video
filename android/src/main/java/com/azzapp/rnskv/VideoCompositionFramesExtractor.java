@@ -159,7 +159,6 @@ public class VideoCompositionFramesExtractor {
       handler.sendEmptyMessage(PLAYBACK_RELEASE);
     }
 
-
     @Override
     public boolean handleMessage(@NonNull Message msg) {
       try {
@@ -203,7 +202,6 @@ public class VideoCompositionFramesExtractor {
       return true;
     }
 
-
     private void prepareInternal() {
       decoder.prepare();
       prepared = true;
@@ -220,6 +218,7 @@ public class VideoCompositionFramesExtractor {
       }
       decoder.start();
       startTime = microTime() - pausePosition;
+      pausePosition = 0;
       handler.removeMessages(PLAYBACK_LOOP);
       loopInternal(true);
     }
@@ -278,5 +277,3 @@ public class VideoCompositionFramesExtractor {
     return System.nanoTime() / 1000;
   }
 }
-
-

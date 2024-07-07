@@ -174,7 +174,12 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
       return;
     }
 
-    ByteBuffer inputBuffer = this.codec.getInputBuffer(index);
+    ByteBuffer inputBuffer;
+    try {
+      inputBuffer = this.codec.getInputBuffer(index);
+    } catch (Throwable e) {
+      return;
+    }
     if (inputBuffer == null) {
       return;
     }
@@ -208,7 +213,12 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
       info.presentationTimeUs < TimeHelpers.secToUs(item.getStartTime());
 
     if (!itemEndReached && info.size != 0 && !sampleOutOfBounds && !sampleBeforeStartTime) {
-      ByteBuffer buffer = this.codec.getOutputBuffer(index);
+      ByteBuffer buffer;
+      try {
+        buffer = this.codec.getOutputBuffer(index);
+      } catch (Throwable e) {
+        return;
+      }
       buffer.position(info.offset);
       buffer.limit(info.offset + info.size);
 
