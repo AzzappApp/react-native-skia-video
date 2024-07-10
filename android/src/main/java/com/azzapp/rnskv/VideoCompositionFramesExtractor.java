@@ -79,7 +79,7 @@ public class VideoCompositionFramesExtractor {
    * @return the current position of the player in microseconds
    */
   public long getCurrentPosition() {
-    return playbackThread.currentPosition;
+    return playbackThread.getCurrentPosition();
   }
 
   /**
@@ -103,23 +103,23 @@ public class VideoCompositionFramesExtractor {
    * @return whether the player is currently playing
    */
   public boolean getIsPlaying() {
-    return !playbackThread.paused;
+    return playbackThread.isPlaying;
   }
 
   private class PlaybackThread extends HandlerThread implements Handler.Callback {
-    private static final int PLAYBACK_PLAY = 1;
-    private static final int PLAYBACK_PAUSE = 2;
-    private static final int PLAYBACK_LOOP = 3;
-    private static final int PLAYBACK_SEEK = 4;
-    private static final int PLAYBACK_RELEASE = 5;
-    private boolean paused = true;
+    private static final int PLAYBACK_PREPARE = 1;
+    private static final int PLAYBACK_PLAY = 2;
+    private static final int PLAYBACK_PAUSE = 3;
+    private static final int PLAYBACK_LOOP = 4;
+    private static final int PLAYBACK_SEEK = 5;
+    private static final int PLAYBACK_RELEASE = 6;
+    private boolean isPlaying = false;
     private boolean prepared;
     private boolean releasing;
     private boolean looping;
 
     private long startTime;
     private long pausePosition = 0;
-    private long currentPosition = 0;
     private boolean isEOS = false;
     private Handler handler;
 
@@ -132,15 +132,14 @@ public class VideoCompositionFramesExtractor {
       super.start();
       // Create the handler that will process the messages on the handler thread
       handler = new Handler(this.getLooper(), this);
+      handler.sendEmptyMessage(PLAYBACK_PREPARE);
     }
 
     public void play() {
-      paused = false;
       handler.sendEmptyMessage(PLAYBACK_PLAY);
     }
 
     public void pause() {
-      paused = true;
       handler.sendEmptyMessage(PLAYBACK_PAUSE);
     }
 
@@ -149,12 +148,16 @@ public class VideoCompositionFramesExtractor {
       handler.obtainMessage(PLAYBACK_SEEK, position).sendToTarget();
     }
 
-    private void release() {
+    public long getCurrentPosition() {
+      return isPlaying ? microTime() - startTime : pausePosition;
+    }
+
+    public void release() {
       if (!isAlive()) {
         return;
       }
 
-      paused = true;
+      isPlaying = false;
       releasing = true;
       handler.sendEmptyMessage(PLAYBACK_RELEASE);
     }
@@ -169,6 +172,10 @@ public class VideoCompositionFramesExtractor {
         }
 
         switch (msg.what) {
+          case PLAYBACK_PREPARE -> {
+            prepareInternal();
+            return true;
+          }
           case PLAYBACK_PLAY -> {
             playInternal();
             return true;
@@ -178,7 +185,7 @@ public class VideoCompositionFramesExtractor {
             return true;
           }
           case PLAYBACK_LOOP -> {
-            loopInternal(false);
+            loopInternal();
             return true;
           }
           case PLAYBACK_SEEK -> {
@@ -203,67 +210,71 @@ public class VideoCompositionFramesExtractor {
     }
 
     private void prepareInternal() {
+      if (prepared) {
+        return;
+      }
       decoder.prepare();
+      decoder.start();
       prepared = true;
       eventDispatcher.dispatchEvent("ready", null);
+      handler.sendEmptyMessage(PLAYBACK_LOOP);
     }
 
-    private void playInternal() throws IOException, InterruptedException {
-      if (!prepared) {
-        prepareInternal();
+    private void playInternal() {
+      if (!prepared || isPlaying) {
+        return;
       }
       if (isEOS) {
         isEOS = false;
+        pausePosition = 0;
         seekInternal(0);
       }
-      decoder.start();
       startTime = microTime() - pausePosition;
+      isPlaying = true;
       pausePosition = 0;
-      handler.removeMessages(PLAYBACK_LOOP);
-      loopInternal(true);
     }
 
     private void pauseInternal() {
-      pausePosition = currentPosition;
-      handler.removeMessages(PLAYBACK_LOOP);
+      if (!isPlaying) {
+        return;
+      }
+      pausePosition = getCurrentPosition();
+      isPlaying = false;
     }
 
-    private void loopInternal(boolean force) throws IOException, InterruptedException {
+    private void loopInternal() throws IOException, InterruptedException {
       long loopStartTime = SystemClock.elapsedRealtime();
 
-      currentPosition = microTime() - startTime;
+      long currentPosition = getCurrentPosition();
 
       isEOS = currentPosition >= TimeHelpers.secToUs(composition.getDuration());
-
       if (isEOS) {
         eventDispatcher.dispatchEvent("complete", null);
-        if (looping) {
-          playInternal();
-          return;
-        } else {
-          paused = true;
-          pauseInternal();
-        }
-      } else {
-        decoder.render(currentPosition);
+        isPlaying = false;
+        pausePosition = TimeHelpers.secToUs(composition.getDuration());
+        currentPosition = pausePosition;
       }
-
-      if (!paused) {
-        long delay = 10;
-        long duration = (SystemClock.elapsedRealtime() - loopStartTime);
-        delay = delay - duration;
-        if (delay > 0) {
-          handler.sendEmptyMessageDelayed(PLAYBACK_LOOP, delay);
-        } else {
-          handler.sendEmptyMessage(PLAYBACK_LOOP);
-        }
+      decoder.render(currentPosition);
+      if (isEOS && looping) {
+        playInternal();
+      }
+      long delay = 10;
+      long duration = (SystemClock.elapsedRealtime() - loopStartTime);
+      delay = delay - duration;
+      if (delay > 0) {
+        handler.sendEmptyMessageDelayed(PLAYBACK_LOOP, delay);
+      } else {
+        handler.sendEmptyMessage(PLAYBACK_LOOP);
       }
     }
 
     private void seekInternal(long position) {
       decoder.seekTo(position);
-      startTime = microTime() - position;
-      currentPosition = position;
+      if (isPlaying) {
+        startTime = microTime() - position;
+      } else {
+        pausePosition = position;
+      }
     }
 
     private void releaseInternal() {

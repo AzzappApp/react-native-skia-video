@@ -136,10 +136,7 @@ export const useVideoCompositionPlayer = ({
 
   useFrameCallback(() => {
     'worklet';
-    if (
-      !framesExtractor ||
-      (!framesExtractor.isPlaying && currentFrame.value)
-    ) {
+    if (!framesExtractor) {
       return;
     }
 
