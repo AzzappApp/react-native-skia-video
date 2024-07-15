@@ -15,7 +15,16 @@ VideoCompositionItemDecoder::VideoCompositionItemDecoder(
       [NSString stringWithCString:item->path.c_str()
                          encoding:[NSString defaultCStringEncoding]];
   asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:nil];
-  videoTrack = [[asset tracksWithMediaType:AVMediaTypeVideo] objectAtIndex:0];
+  videoTrack = [[asset tracksWithMediaType:AVMediaTypeVideo] firstObject];
+  if (!videoTrack) {
+    throw [NSError
+        errorWithDomain:@"com.azzapp.rnskv"
+                   code:0
+               userInfo:@{
+                 NSLocalizedDescriptionKey : [NSString
+                     stringWithFormat:@"No video track for path: %@", path]
+               }];
+  }
   width = videoTrack.naturalSize.width;
   height = videoTrack.naturalSize.height;
   rotation = AVAssetTrackUtils::GetTrackRotationInDegree(videoTrack);
