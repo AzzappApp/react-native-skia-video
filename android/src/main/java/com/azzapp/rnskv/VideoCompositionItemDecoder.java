@@ -230,7 +230,11 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
         onFrameAvailableListener.onFrameAvailable(frame.presentationTimeUs);
       }
     } else {
-      codec.releaseOutputBuffer(index, false);
+      try {
+        codec.releaseOutputBuffer(index, false);
+      } catch (Throwable e) {
+        return;
+      }
     }
 
     itemEndReached = outputEOS || sampleOutOfBounds;
@@ -270,7 +274,13 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     if (framesToRenders.isEmpty()) {
       return null;
     }
-    framesToRenders.forEach(frame -> codec.releaseOutputBuffer(frame.outputBufferIndex, true));
+    framesToRenders.forEach(frame -> {
+      try {
+        codec.releaseOutputBuffer(frame.outputBufferIndex, true);
+      } catch (Throwable e) {
+        return;
+      }
+    });
     freeFrames.addAll(framesToRenders);
     pendingFrames.removeAll(framesToRenders);
 
