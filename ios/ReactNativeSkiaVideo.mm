@@ -101,7 +101,7 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
           throw jsi::JSError(runtime,
                              "SkiaVideo.exportVideoComposition(..) expects 4"
                              "arguments (composition, options, workletRuntime, "
-                             "drawFrame, onSuccess, onError)!");
+                             "drawFrame, onSuccess, onError, onProgress?)!");
         }
         auto bridge = [RCTBridge currentBridge];
         RNSkiaModule* skiaModule = [bridge moduleForName:@"RNSkiaModule"];
@@ -132,6 +132,12 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
         auto sharedErrorCallback = std::make_shared<jsi::Function>(
             arguments[5].asObject(runtime).asFunction(runtime));
 
+        std::shared_ptr<jsi::Function> sharedProgressCallback = nullptr;
+        if (count >= 7 && arguments[6].isObject()) {
+          sharedProgressCallback = std::make_shared<jsi::Function>(
+              arguments[6].asObject(runtime).asFunction(runtime));
+        }
+
         auto queue =
             dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
         dispatch_async(queue, ^{
@@ -150,6 +156,14 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
                       sharedErrorCallback->call(
                           runtime, RNSkiaVideo::NSErrorToJSI(runtime, error));
                     });
+              },
+              [callInvoker, &runtime, sharedProgressCallback](int progress) {
+                callInvoker->invokeAsync([&runtime, progress,
+                                          sharedProgressCallback]() -> void {
+                  if (sharedProgressCallback != nullptr) {
+                    sharedProgressCallback->call(runtime, jsi::Value(progress));
+                  }
+                });
               });
         });
 

@@ -37,7 +37,9 @@ public:
       jsi::Runtime& runtime, jsi::Object composition, jsi::Object options,
       std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
       std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
-      jsi::Function onSuccess, jsi::Function onError,
+      std::shared_ptr<jsi::Function> onSuccess,
+      std::shared_ptr<jsi::Function> onError,
+      std::shared_ptr<jsi::Function> onProgress,
       std::shared_ptr<RNSkia::JsiSkSurface> jsiSurface);
 
 private:
@@ -49,12 +51,15 @@ private:
   std::shared_ptr<reanimated::ShareableWorklet> drawFrameWorklet;
   std::function<void()> onCompleteCallback;
   std::function<void(alias_ref<JObject> e)> onErrorCallback;
+  std::function<void(int frame)> onProgressCallback;
   sk_sp<SkSurface> surface;
   std::shared_ptr<RNSkia::JsiSkSurface> jsiSurface;
 
   void start(std::function<void()> onCompleteCallback,
-             std::function<void(alias_ref<JObject> e)> onErrorCallback);
+             std::function<void(alias_ref<JObject> e)> onErrorCallback,
+             std::function<void(int frame)> onProgressCallback);
   void makeSkiaSharedContextCurrent();
+  void onProgress(jint frame);
   int renderFrame(jdouble timeUS, alias_ref<JMap<JString, VideoFrame>> frames);
   void onComplete();
   void onError(alias_ref<JObject> e);

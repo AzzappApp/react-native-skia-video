@@ -18,7 +18,9 @@ jsi::Value VideoCompositionExporter::exportVideoComposition(
     jsi::Runtime& runtime, jsi::Object jsComposition, jsi::Object options,
     std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
     std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
-    jsi::Function onSuccess, jsi::Function onError,
+    std::shared_ptr<jsi::Function> onSuccess,
+    std::shared_ptr<jsi::Function> onError,
+    std::shared_ptr<jsi::Function> onProgress,
     std::shared_ptr<RNSkia::JsiSkSurface> jsiSurface) {
 
   auto composition = VideoComposition::fromJSIObject(runtime, jsComposition);
@@ -41,16 +43,11 @@ jsi::Value VideoCompositionExporter::exportVideoComposition(
                                        frameRate, bitRate, encoderName,
                                        workletRuntime, drawFrame, jsiSurface);
 
-  auto sharedSuccessCallback =
-      std::make_shared<jsi::Function>(std::move(onSuccess));
-  auto sharedErrorCallback =
-      std::make_shared<jsi::Function>(std::move(onError));
-
   exporter->cthis()->start(
       [=, &runtime]() {
         JNIHelpers::getCallInvoker()->invokeAsync([=, &runtime]() -> void {
           exporter->cthis()->release();
-          sharedSuccessCallback->call(runtime);
+          onSuccess->call(runtime);
         });
       },
       [=, &runtime](alias_ref<JObject> error) {
@@ -70,7 +67,14 @@ jsi::Value VideoCompositionExporter::exportVideoComposition(
           } else {
             error = jsi::Value::null();
           }
-          sharedErrorCallback->call(runtime, error);
+          onError->call(runtime, error);
+        });
+      },
+      [=, &runtime](int frame) {
+        JNIHelpers::getCallInvoker()->invokeAsync([=, &runtime]() -> void {
+          if (onProgress != nullptr) {
+            onProgress->call(runtime, jsi::Value(frame));
+          }
         });
       });
   return jsi::Value::undefined();
@@ -113,14 +117,17 @@ void VideoCompositionExporter::registerNatives() {
                         VideoCompositionExporter::makeSkiaSharedContextCurrent),
        makeNativeMethod("renderFrame", VideoCompositionExporter::renderFrame),
        makeNativeMethod("onComplete", VideoCompositionExporter::onComplete),
-       makeNativeMethod("onError", VideoCompositionExporter::onError)});
+       makeNativeMethod("onError", VideoCompositionExporter::onError),
+       makeNativeMethod("onProgress", VideoCompositionExporter::onProgress)});
 }
 
 void VideoCompositionExporter::start(
     std::function<void()> onComplete,
-    std::function<void(alias_ref<JObject> e)> onError) {
+    std::function<void(alias_ref<JObject> e)> onError,
+    std::function<void(int frame)> onProgressCallback) {
   this->onCompleteCallback = onComplete;
   this->onErrorCallback = onError;
+  this->onProgressCallback = onProgressCallback;
   auto startMethod = jThis->getClass()->getMethod<void()>("start");
   startMethod(jThis);
 }
@@ -160,6 +167,7 @@ int VideoCompositionExporter::renderFrame(
   if (!texture.isValid()) {
     return -1;
   }
+
   GrGLTextureInfo textureInfo;
   return GrBackendTextures::GetGLTextureInfo(texture, &textureInfo)
              ? textureInfo.fID
@@ -170,6 +178,10 @@ void VideoCompositionExporter::release() {
   jThis = nullptr;
   surface = nullptr;
   jsiSurface = nullptr;
+}
+
+void VideoCompositionExporter::onProgress(jint frame) {
+  onProgressCallback(frame);
 }
 
 void VideoCompositionExporter::onComplete() {

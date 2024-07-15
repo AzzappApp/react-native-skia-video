@@ -25,7 +25,8 @@ void RNSkiaVideo::exportVideoComposition(
     std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
     std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
     std::shared_ptr<RNSkPlatformContext> rnskPlatformContext,
-    std::function<void()> onComplete, std::function<void(NSError*)> onError) {
+    std::function<void()> onComplete, std::function<void(NSError*)> onError,
+    std::function<void(int)> onProgress) {
 
   NSError* error = nil;
   auto assetWriter = [AVAssetWriter
@@ -271,6 +272,7 @@ void RNSkiaVideo::exportVideoComposition(
       onError(error);
       return;
     }
+    onProgress(i);
   }
 
   releaseResources();

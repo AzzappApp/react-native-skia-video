@@ -12,5 +12,6 @@ void exportVideoComposition(
     std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
     std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
     std::shared_ptr<RNSkia::RNSkPlatformContext> rnskPlatformContext,
-    std::function<void()> onComplete, std::function<void(NSError*)> onError);
+    std::function<void()> onComplete, std::function<void(NSError*)> onError,
+    std::function<void(int)> onProgress);
 } // namespace RNSkiaVideo

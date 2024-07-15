@@ -70,22 +70,33 @@ void install(jsi::Runtime& jsiRuntime) {
       jsi::PropNameID::forAscii(jsiRuntime, "exportVideoComposition"), 6,
       [](jsi::Runtime& runtime, const jsi::Value& thisValue,
          const jsi::Value* arguments, size_t count) -> jsi::Value {
-        if (count != 7) {
-          throw jsi::JSError(runtime,
-                             "SkiaVideo.exportVideoComposition(..) expects 6"
-                             "arguments (composition, options, workletRuntime, "
-                             "drawFrame, onSuccess, onError, SkSurface)!");
+        if (count != 8) {
+          throw jsi::JSError(
+              runtime,
+              "SkiaVideo.exportVideoComposition(..) expects 6"
+              "arguments (composition, options, workletRuntime, "
+              "drawFrame, onSuccess, onError, onProgress?, SkSurface)!");
         }
+
+        auto onSuccess = std::make_shared<jsi::Function>(
+            arguments[4].asObject(runtime).asFunction(runtime));
+        auto onError = std::make_shared<jsi::Function>(
+            arguments[5].asObject(runtime).asFunction(runtime));
+        std::shared_ptr<jsi::Function> onProgress = nullptr;
+        if (arguments[6].isObject()) {
+          onProgress = std::make_shared<jsi::Function>(
+              arguments[6].asObject(runtime).asFunction(runtime));
+        }
+
         return VideoCompositionExporter::exportVideoComposition(
             runtime, arguments[0].asObject(runtime),
             arguments[1].asObject(runtime),
             reanimated::extractWorkletRuntime(runtime, arguments[2]),
             reanimated::extractShareableOrThrow<reanimated::ShareableWorklet>(
                 runtime, arguments[3]),
-            arguments[4].asObject(runtime).asFunction(runtime),
-            arguments[5].asObject(runtime).asFunction(runtime),
+            onSuccess, onError, onProgress,
             std::static_pointer_cast<RNSkia::JsiSkSurface>(
-                arguments[6].asObject(runtime).asHostObject(runtime)));
+                arguments[7].asObject(runtime).asHostObject(runtime)));
       });
   RNSVModule.setProperty(jsiRuntime, "exportVideoComposition",
                          std::move(exportVideoComposition));

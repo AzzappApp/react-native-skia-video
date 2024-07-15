@@ -308,6 +308,7 @@ const VideoCompositionPreview = ({
 
   const [exporting, setExporting] = useState(false);
   const [exportedPath, setExportedPath] = useState<string | null>(null);
+  const [exportProgress, setExportProgress] = useState(0);
 
   const exportCurrentComposition = useCallback(() => {
     if (!videoComposition) {
@@ -351,7 +352,9 @@ const VideoCompositionPreview = ({
           outPath,
           ...encoderConfigs,
         },
-        drawFrame
+        drawFrame,
+        (progress) =>
+          setExportProgress(progress.framesCompleted / progress.nbFrames)
       ).then(
         () => {
           setExportedPath(outPath);
@@ -437,7 +440,9 @@ const VideoCompositionPreview = ({
           ) : (
             <>
               <ActivityIndicator size="large" />
-              <Text style={{ color: 'black' }}>Exporting video...</Text>
+              <Text style={{ color: 'black' }}>
+                Exporting video {Math.round(exportProgress * 100)}%...
+              </Text>
             </>
           )}
         </View>

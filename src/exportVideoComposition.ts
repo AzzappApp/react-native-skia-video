@@ -32,7 +32,8 @@ const getExportRuntime = () => {
 export const exportVideoComposition = async (
   videoComposition: VideoComposition,
   options: ExportOptions,
-  drawFrame: FrameDrawer
+  drawFrame: FrameDrawer,
+  onProgress?: (progress: { framesCompleted: number; nbFrames: number }) => void
 ): Promise<void> => {
   let surface: SkSurface | null = null;
   let drawFrameInner: (...args: any[]) => void;
@@ -70,6 +71,8 @@ export const exportVideoComposition = async (
     };
   }
 
+  const nbFrames = videoComposition.duration * options.frameRate;
+
   return new Promise((resolve, reject) =>
     RNSkiaVideoModule.exportVideoComposition(
       videoComposition,
@@ -78,6 +81,13 @@ export const exportVideoComposition = async (
       makeShareableCloneRecursive(drawFrameInner),
       () => resolve(),
       (e: any) => reject(e ?? new Error('Failed to export video')),
+      onProgress
+        ? (frameIndex) =>
+            onProgress({
+              framesCompleted: frameIndex + 1,
+              nbFrames,
+            })
+        : null,
       surface
     )
   );

@@ -199,6 +199,7 @@ public class VideoCompositionExporter {
     double time = (double) currentFrame / frameRate;
     int texture = renderFrame(time, decoder.getUpdatedVideoFrames());
     encoder.writeFrame(TimeHelpers.secToUs(time), texture, eos);
+    onProgress(currentFrame);
     if (!eos) {
       currentFrame += 1;
       decoding = true;
@@ -222,5 +223,6 @@ public class VideoCompositionExporter {
   private native void onComplete();
 
   private native void onError(Object e);
+  private native void onProgress(int frame);
 
 }
