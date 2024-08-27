@@ -102,3 +102,7 @@ target_link_libraries(
         ${PACKAGE_NAME}
         react-native-reanimated::reanimated
 )
+target_link_libraries(
+        ${PACKAGE_NAME}
+        react-native-reanimated::worklets
+)
