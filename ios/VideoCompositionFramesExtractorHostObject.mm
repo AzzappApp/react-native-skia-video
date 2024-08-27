@@ -43,6 +43,7 @@ VideoCompositionFramesExtractorHostObject::
                 return;
               }
             }
+            decoderPool(composition, itemDecoders, currentFrames, currentTime, true);
             for (const auto& entry : itemDecoders) {
               auto decoder = entry.second;
               if (decoder) {
@@ -215,10 +216,7 @@ void VideoCompositionFramesExtractorHostObject::init() {
       return;
     }
     try {
-      for (const auto& item : composition->items) {
-        itemDecoders[item->id] =
-            std::make_shared<VideoCompositionItemDecoder>(item, true);
-      }
+      decoderPool(composition, itemDecoders, currentFrames, kCMTimeZero, true);
     } catch (NSError* error) {
       itemDecoders.clear();
       emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {

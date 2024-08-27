@@ -1,7 +1,7 @@
 #pragma once
 #import "VideoComposition.h"
 #include <RNSkPlatformContext.h>
-#include <WorkletRuntime.h>
+#include "WorkletRuntime.h"
 
 namespace RNSkiaVideo {
 using namespace facebook;
