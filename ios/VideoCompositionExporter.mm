@@ -5,7 +5,7 @@
 #import <JsiSkCanvas.h>
 #import <React/RCTBridge.h>
 #import <SkSurface.h>
-#import <SkiaMetalSurfaceFactory.h>
+#import "SkiaMetalSurfaceFactory.h"
 #import <include/gpu/GrBackendSurface.h>
 #import <include/gpu/ganesh/SkImageGanesh.h>
 #import <include/gpu/ganesh/SkSurfaceGanesh.h>
@@ -71,11 +71,10 @@ void RNSkiaVideo::exportVideoComposition(
 
   std::map<std::string, std::shared_ptr<VideoCompositionItemDecoder>>
       itemDecoders;
+  std::map<std::string, std::shared_ptr<VideoFrame>> currentFrames;
+
   try {
-    for (const auto& item : composition->items) {
-      itemDecoders[item->id] =
-          std::make_shared<VideoCompositionItemDecoder>(item, false);
-    }
+    decoderPool(composition, itemDecoders, currentFrames, kCMTimeZero, false);
   } catch (NSError* error) {
     onError(error);
     return;
@@ -94,7 +93,6 @@ void RNSkiaVideo::exportVideoComposition(
       *runtime,
       std::make_shared<JsiSkCanvas>(rnskPlatformContext, surface->getCanvas()));
 
-  std::map<std::string, std::shared_ptr<VideoFrame>> currentFrames;
   auto releaseResources = [&]() {
     for (const auto& entry : itemDecoders) {
       auto decoder = entry.second;
@@ -115,6 +113,7 @@ void RNSkiaVideo::exportVideoComposition(
     CMTime currentTime =
         CMTimeMakeWithSeconds((double)i / (double)frameRate, NSEC_PER_SEC);
     auto frames = jsi::Object(*runtime);
+    decoderPool(composition, itemDecoders, currentFrames, currentTime, false);
     for (const auto& entry : itemDecoders) {
       auto itemId = entry.first;
       auto decoder = entry.second;

@@ -51,10 +51,11 @@ jsi::Value VideoFrame::get(jsi::Runtime& runtime,
 }
 
 void VideoFrame::release() {
-  if (released.test_and_set()) {
-    return;
+  if (!released.test_and_set()) {
+    if (pixelBuffer) {
+      CVPixelBufferRelease(pixelBuffer);
+      pixelBuffer = nullptr;
+    }
   }
-  CVPixelBufferRelease(pixelBuffer);
-  pixelBuffer = nullptr;
 }
 } // namespace RNSkiaVideo
