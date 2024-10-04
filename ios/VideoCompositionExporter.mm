@@ -6,7 +6,8 @@
 #import <React/RCTBridge.h>
 #import <SkSurface.h>
 #import <SkiaMetalSurfaceFactory.h>
-#import <include/gpu/GrBackendSurface.h>
+#import <include/gpu/ganesh/mtl/GrMtlBackendSurface.h>
+#import <include/gpu/ganesh/GrBackendSurface.h>
 #import <include/gpu/ganesh/SkImageGanesh.h>
 #import <include/gpu/ganesh/SkSurfaceGanesh.h>
 #import <map>
@@ -151,7 +152,7 @@ void RNSkiaVideo::exportVideoComposition(
     }
 
     GrMtlTextureInfo textureInfo;
-    if (!texture.getMtlTextureInfo(&textureInfo)) {
+    if (!GrBackendTextures::GetMtlTextureInfo(texture, &textureInfo)) {
       releaseResources();
       onError(
           createErrorWithMessage(@"Could not extract texture from SkSurface"));
