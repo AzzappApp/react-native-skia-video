@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Button,
   PixelRatio,
+  Platform,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -178,7 +179,10 @@ const VideoPlayerExample = () => {
           minimumValue={0}
           maximumValue={video?.duration ?? 0}
           onValueChange={(value) => {
-            player?.seekTo(value);
+            // Trigger continuously on Android
+            if (Platform.OS !== 'android') {
+              player?.seekTo(value);
+            }
           }}
           style={{ alignSelf: 'stretch' }}
           disabled={loading}

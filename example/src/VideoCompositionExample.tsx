@@ -387,7 +387,6 @@ const VideoCompositionPreview = ({
               flex: 1,
               gap: 20,
               alignItems: 'center',
-              opacity: videoComposition ? 1 : 0,
             }}
           >
             <Canvas
@@ -398,12 +397,14 @@ const VideoCompositionPreview = ({
             >
               <Picture picture={currentFrame} />
             </Canvas>
-            <Button
-              title="Export"
-              onPress={() => {
-                exportCurrentComposition();
-              }}
-            />
+            <View style={{ opacity: videoComposition ? 1 : 0 }}>
+              <Button
+                title="Export"
+                onPress={() => {
+                  exportCurrentComposition();
+                }}
+              />
+            </View>
           </View>
           {!videoComposition && (
             <View
