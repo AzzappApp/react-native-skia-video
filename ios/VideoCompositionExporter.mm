@@ -140,6 +140,11 @@ void RNSkiaVideo::exportVideoComposition(
     surface->getCanvas()->clear(SkColors::kTransparent);
     workletRuntime->runGuarded(drawFrame, skCanvas,
                                CMTimeGetSeconds(currentTime), frames);
+                               
+    // Surface seems not initialized on first frame, waiting 1 milliseconds
+    if (i == 0) {
+      usleep(1000);
+    }
 
     GrAsDirectContext(surface->recordingContext())->flushAndSubmit();
     GrBackendTexture texture = SkSurfaces::GetBackendTexture(
