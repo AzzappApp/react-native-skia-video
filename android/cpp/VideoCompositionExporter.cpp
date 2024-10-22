@@ -16,8 +16,8 @@ using namespace RNSkia;
 
 jsi::Value VideoCompositionExporter::exportVideoComposition(
     jsi::Runtime& runtime, jsi::Object jsComposition, jsi::Object options,
-    std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
-    std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
+    std::shared_ptr<worklets::WorkletRuntime> workletRuntime,
+    std::shared_ptr<worklets::ShareableWorklet> drawFrame,
     std::shared_ptr<jsi::Function> onSuccess,
     std::shared_ptr<jsi::Function> onError,
     std::shared_ptr<jsi::Function> onProgress,
@@ -84,8 +84,8 @@ global_ref<VideoCompositionExporter::JavaPart> VideoCompositionExporter::create(
     alias_ref<RNSkiaVideo::VideoComposition> composition, std::string& outPath,
     int width, int height, int frameRate, int bitRate,
     std::optional<std::string> encoderName,
-    std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
-    std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
+    std::shared_ptr<worklets::WorkletRuntime> workletRuntime,
+    std::shared_ptr<worklets::ShareableWorklet> drawFrame,
     std::shared_ptr<RNSkia::JsiSkSurface> jsiSurface) {
 
   auto hybridData = makeHybridData(std::make_unique<VideoCompositionExporter>(
@@ -101,8 +101,8 @@ global_ref<VideoCompositionExporter::JavaPart> VideoCompositionExporter::create(
 
 VideoCompositionExporter::VideoCompositionExporter(
     int width, int height,
-    std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
-    std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
+    std::shared_ptr<worklets::WorkletRuntime> workletRuntime,
+    std::shared_ptr<worklets::ShareableWorklet> drawFrame,
     std::shared_ptr<RNSkia::JsiSkSurface> jsiSurface) {
   this->width = width;
   this->height = height;

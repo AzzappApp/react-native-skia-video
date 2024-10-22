@@ -1,5 +1,5 @@
 PODS:
-  - azzapp-react-native-skia-video (0.5.1):
+  - azzapp-react-native-skia-video (0.5.3):
     - DoubleConversion
     - glog
     - hermes-engine
@@ -1047,7 +1047,7 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
-  - react-native-skia (1.4.2):
+  - react-native-skia (1.5.0):
     - DoubleConversion
     - glog
     - hermes-engine
@@ -1341,7 +1341,7 @@ PODS:
     - React-logger (= 0.74.0)
     - React-perflogger (= 0.74.0)
     - React-utils (= 0.74.0)
-  - RNReanimated (3.15.0):
+  - RNReanimated (3.16.1):
     - DoubleConversion
     - glog
     - hermes-engine
@@ -1361,10 +1361,32 @@ PODS:
     - React-utils
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
-    - RNReanimated/reanimated (= 3.15.0)
-    - RNReanimated/worklets (= 3.15.0)
+    - RNReanimated/reanimated (= 3.16.1)
+    - RNReanimated/worklets (= 3.16.1)
     - Yoga
-  - RNReanimated/reanimated (3.15.0):
+  - RNReanimated/reanimated (3.16.1):
+    - DoubleConversion
+    - glog
+    - hermes-engine
+    - RCT-Folly (= 2024.01.01.00)
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Codegen
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-rendererdebug
+    - React-utils
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - RNReanimated/reanimated/apple (= 3.16.1)
+    - Yoga
+  - RNReanimated/reanimated/apple (3.16.1):
     - DoubleConversion
     - glog
     - hermes-engine
@@ -1385,7 +1407,7 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
-  - RNReanimated/worklets (3.15.0):
+  - RNReanimated/worklets (3.16.1):
     - DoubleConversion
     - glog
     - hermes-engine
@@ -1649,7 +1671,7 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
 SPEC CHECKSUMS:
-  azzapp-react-native-skia-video: f97f88c795c130cec282e6fbd4f67075636ade31
+  azzapp-react-native-skia-video: b67b97cebed4c28518d172365a38cc3c4bcfb647
   boost: d3f49c53809116a5d38da093a8aa78bf551aed09
   DoubleConversion: 76ab83afb40bddeeee456813d9c04f67f78771b5
   FBLazyVector: 026c8f4ae67b06e088ae01baa2271ef8a26c0e8c
@@ -1682,7 +1704,7 @@ SPEC CHECKSUMS:
   React-Mapbuffer: 5e05d78fe6505f4a054b86f415733d4ad02dd314
   react-native-blob-util: a535b7689faf6c51a8c7175792c9bb8316d31703
   react-native-safe-area-context: 7f54ad0a774de306ab790c70d9d950321e5c5449
-  react-native-skia: 554486d3b4f4ace62ec0a68438fceba5f1c968fc
+  react-native-skia: 2ab636144d7a0e54f592413edd37eed2bfde2dab
   react-native-slider: 42583bbf96c3476ed6faf6ea12e182b6e4604307
   React-nativeconfig: 951ec32f632e81cbd7d40aebb3211313251c092e
   React-NativeModulesApple: 0b3a42ca90069119ef79d8b2327d01441d71abd4
@@ -1707,11 +1729,11 @@ SPEC CHECKSUMS:
   React-runtimescheduler: 7fe561d179b97cecd0c2bec0bbd08f9fd8581c26
   React-utils: f013537c3371270d2095bff1d594d00d4bc9261b
   ReactCommon: 2cde697fd80bd31da1d6448d25a5803088585219
-  RNReanimated: 599e687582e90f6b3da386031068c11e92dc0d37
+  RNReanimated: 9e3870d25b7f8c7b79bf0b1cadc98da6470bfcec
   RNScreens: 63fe8222c172a79f5c30dd1aefaeb369c6eb57b6
   SocketRocket: abac6f5de4d4d62d24e11868d7a2f427e0ef940d
   Yoga: ff1d575b119f510a5de23c22a794872562078ccf
 
-PODFILE CHECKSUM: e42769fbb547a8c4c9c22514cc1a46d3c80e2235
+PODFILE CHECKSUM: 584d264b8949e42d728c08fd6a3f418a23317f62
 
 COCOAPODS: 1.14.3

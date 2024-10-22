@@ -1,7 +1,7 @@
 #pragma once
 
 #include <GLES/egl.h>
-#include <WorkletRuntime.h>
+#include <worklets/WorkletRuntime/WorkletRuntime.h>
 #include <fbjni/fbjni.h>
 #include <react-native-skia/JsiSkSurface.h>
 #include <react-native-skia/include/core/SkSurface.h>
@@ -21,22 +21,22 @@ public:
   create(alias_ref<VideoComposition> composition, std::string& outPath,
          int width, int height, int frameRate, int bitRate,
          std::optional<std::string> encoderName,
-         std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
-         std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
+         std::shared_ptr<worklets::WorkletRuntime> workletRuntime,
+         std::shared_ptr<worklets::ShareableWorklet> drawFrame,
          std::shared_ptr<RNSkia::JsiSkSurface> jsiSurface);
 
   explicit VideoCompositionExporter(
       int width, int height,
-      std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
-      std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
+      std::shared_ptr<worklets::WorkletRuntime> workletRuntime,
+      std::shared_ptr<worklets::ShareableWorklet> drawFrame,
       std::shared_ptr<RNSkia::JsiSkSurface> jsiSurface);
 
   static void registerNatives();
 
   static jsi::Value exportVideoComposition(
       jsi::Runtime& runtime, jsi::Object composition, jsi::Object options,
-      std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
-      std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
+      std::shared_ptr<worklets::WorkletRuntime> workletRuntime,
+      std::shared_ptr<worklets::ShareableWorklet> drawFrame,
       std::shared_ptr<jsi::Function> onSuccess,
       std::shared_ptr<jsi::Function> onError,
       std::shared_ptr<jsi::Function> onProgress,
@@ -47,8 +47,8 @@ private:
   jni::global_ref<javaobject> jThis;
   int width;
   int height;
-  std::shared_ptr<reanimated::WorkletRuntime> workletRuntime;
-  std::shared_ptr<reanimated::ShareableWorklet> drawFrameWorklet;
+  std::shared_ptr<worklets::WorkletRuntime> workletRuntime;
+  std::shared_ptr<worklets::ShareableWorklet> drawFrameWorklet;
   std::function<void()> onCompleteCallback;
   std::function<void(alias_ref<JObject> e)> onErrorCallback;
   std::function<void(int frame)> onProgressCallback;

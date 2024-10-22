@@ -5,7 +5,7 @@
 #import <React/RCTBridge.h>
 #import <React/RCTUtils.h>
 #import <ReactCommon/RCTTurboModule.h>
-#import <WorkletRuntime.h>
+#import <worklets/WorkletRuntime/WorkletRuntime.h>
 #import <jsi/jsi.h>
 
 #import "JSIUtils.h"
@@ -122,9 +122,9 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
         int frameRate = options.getProperty(runtime, "frameRate").asNumber();
         int bitRate = options.getProperty(runtime, "bitRate").asNumber();
         auto workletRuntime =
-            reanimated::extractWorkletRuntime(runtime, arguments[2]);
+            worklets::extractWorkletRuntime(runtime, arguments[2]);
         auto drawFrame =
-            reanimated::extractShareableOrThrow<reanimated::ShareableWorklet>(
+            worklets::extractShareableOrThrow<worklets::ShareableWorklet>(
                 runtime, arguments[3]);
 
         auto sharedSuccessCallback = std::make_shared<jsi::Function>(

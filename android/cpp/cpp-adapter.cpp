@@ -4,7 +4,7 @@
 #include "VideoCompositionFramesExtractorHostObject.h"
 #include "VideoPlayerHostObject.h"
 #include <ReactCommon/CallInvokerHolder.h>
-#include <WorkletRuntime.h>
+#include <worklets/WorkletRuntime/WorkletRuntime.h>
 #include <jni.h>
 #include <jsi/jsi.h>
 #include <react-native-skia/JsiSkSurface.h>
@@ -91,8 +91,8 @@ void install(jsi::Runtime& jsiRuntime) {
         return VideoCompositionExporter::exportVideoComposition(
             runtime, arguments[0].asObject(runtime),
             arguments[1].asObject(runtime),
-            reanimated::extractWorkletRuntime(runtime, arguments[2]),
-            reanimated::extractShareableOrThrow<reanimated::ShareableWorklet>(
+            worklets::extractWorkletRuntime(runtime, arguments[2]),
+            worklets::extractShareableOrThrow<worklets::ShareableWorklet>(
                 runtime, arguments[3]),
             onSuccess, onError, onProgress,
             std::static_pointer_cast<RNSkia::JsiSkSurface>(

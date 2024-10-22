@@ -23,8 +23,8 @@ NS_INLINE NSError* createErrorWithMessage(NSString* message) {
 void RNSkiaVideo::exportVideoComposition(
     std::shared_ptr<VideoComposition> composition, std::string outPath,
     int width, int height, int frameRate, int bitRate,
-    std::shared_ptr<reanimated::WorkletRuntime> workletRuntime,
-    std::shared_ptr<reanimated::ShareableWorklet> drawFrame,
+    std::shared_ptr<worklets::WorkletRuntime> workletRuntime,
+    std::shared_ptr<worklets::ShareableWorklet> drawFrame,
     std::shared_ptr<RNSkPlatformContext> rnskPlatformContext,
     std::function<void()> onComplete, std::function<void(NSError*)> onError,
     std::function<void(int)> onProgress) {
@@ -140,13 +140,12 @@ void RNSkiaVideo::exportVideoComposition(
     surface->getCanvas()->clear(SkColors::kTransparent);
     workletRuntime->runGuarded(drawFrame, skCanvas,
                                CMTimeGetSeconds(currentTime), frames);
-                               
+
+    GrAsDirectContext(surface->recordingContext())->flushAndSubmit();
     // Surface seems not initialized on first frame, waiting 1 milliseconds
     if (i == 0) {
       usleep(1000);
     }
-
-    GrAsDirectContext(surface->recordingContext())->flushAndSubmit();
     GrBackendTexture texture = SkSurfaces::GetBackendTexture(
         surface.get(), SkSurfaces::BackendHandleAccess::kFlushRead);
     if (!texture.isValid()) {
