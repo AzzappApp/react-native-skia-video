@@ -120,7 +120,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (!released) {
             seekTo(
-                CMTimeMakeWithSeconds(arguments[1].asNumber(), NSEC_PER_SEC));
+                CMTimeMakeWithSeconds(arguments[0].asNumber(), NSEC_PER_SEC));
           }
           return jsi::Value::undefined();
         });
