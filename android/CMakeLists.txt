@@ -10,6 +10,7 @@ set(build_DIR ${CMAKE_SOURCE_DIR}/build)
 
 file(GLOB libfbjni_include_DIRS "${build_DIR}/fbjni-*-headers.jar/")
 
+
 # Consume shared libraries and headers from prefabs
 find_package(fbjni REQUIRED CONFIG)
 find_package(ReactAndroid REQUIRED CONFIG)
@@ -62,24 +63,50 @@ find_library(
         log
 )
 
-add_definitions(-DGL_GLEXT_PROTOTYPES)
-add_definitions(-DEGL_EGLEXT_PROTOTYPES)
+unset(REACT_LIB CACHE)
+unset(REACTNATIVEJNI_LIB CACHE)
+unset(RUNTIMEEXECUTOR_LIB CACHE)
+unset(TURBOMODULES_LIB CACHE)
+if(${REACT_NATIVE_VERSION} GREATER_EQUAL 76)
+        set (REACT_LIB "ReactAndroid::reactnative")
+else()
+        set (REACT_LIB "ReactAndroid::react_nativemodule_core")
+        set (REACTNATIVEJNI_LIB "ReactAndroid::reactnativejni")
+        set (RUNTIMEEXECUTOR_LIB "ReactAndroid::runtimeexecutor")
+        set (TURBOMODULES_LIB "ReactAndroid::turbomodulejsijni")
+endif()
 
-target_link_libraries(
-        ${PACKAGE_NAME}
-        ${LOG_LIB}
-        android
-        fbjni::fbjni
-        ReactAndroid::react_nativemodule_core
-        ReactAndroid::jsi
-        ReactAndroid::reactnativejni  
-        ReactAndroid::runtimeexecutor  
-        ReactAndroid::turbomodulejsijni
-        -ljnigraphics
-        -lGLESv2
-        -lEGL
-        -landroid
-)
+
+if(${REACT_NATIVE_VERSION} GREATER_EQUAL 76)
+        target_link_libraries(
+                ${PACKAGE_NAME}
+                ${LOG_LIB}
+                android
+                fbjni::fbjni
+                ${REACT_LIB}
+                ReactAndroid::jsi
+                -ljnigraphics
+                -lGLESv2
+                -lEGL
+                -landroid
+        )
+else()
+        target_link_libraries(
+                ${PACKAGE_NAME}
+                ${LOG_LIB}
+                android
+                fbjni::fbjni
+                ${REACT_LIB}
+                ReactAndroid::jsi
+                ${REACTNATIVEJNI_LIB}
+                ${RUNTIMEEXECUTOR_LIB} 
+                ${TURBOMODULES_LIB}
+                -ljnigraphics
+                -lGLESv2
+                -lEGL
+                -landroid
+        )
+endif()
 
 find_package(shopify_react-native-skia REQUIRED CONFIG)
 target_link_libraries(

@@ -114,7 +114,7 @@ const VideoPlayerExample = () => {
     return Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
   });
 
-  const currentTime = useSharedValue(0);
+  const currentTime = useSharedValue<number | undefined>(0);
   useFrameCallback(() => {
     currentTime.value = player?.currentTime ?? 0;
   }, true);

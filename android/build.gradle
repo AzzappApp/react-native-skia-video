@@ -44,6 +44,13 @@ static def findNodeModules(baseDir) {
 def nodeModules = findNodeModules(projectDir)
 logger.warn("react-native-skia-video: node_modules/ found at: ${nodeModules}")
 
+def reactProperties = new Properties()
+file("$nodeModules/react-native/ReactAndroid/gradle.properties").withInputStream { reactProperties.load(it) }
+def FULL_RN_VERSION =  (System.getenv("REACT_NATIVE_OVERRIDE_VERSION") ?: reactProperties.getProperty("VERSION_NAME"))
+def REACT_NATIVE_VERSION = FULL_RN_VERSION.split("\\.")[1].toInteger()
+logger.warn("react-native-skia-video: React Native version: ${REACT_NATIVE_VERSION}")
+
+
 def buildType = "debug"
 tasks.all({ task ->
   if (task.name == "buildCMakeRelease") {
@@ -97,6 +104,7 @@ android {
         cppFlags "-O2 -frtti -fexceptions -Wall -fstack-protector-all"
         arguments "-DANDROID_STL=c++_shared",
           "-DNODE_MODULES_DIR=${nodeModules}",
+          "-DREACT_NATIVE_VERSION=${REACT_NATIVE_VERSION}",
           "-DBUILD_TYPE=${buildType}"
         abiFilters (*reactNativeArchitectures())
       }
