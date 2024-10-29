@@ -79,7 +79,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         });
   } else if (propName == "seekTo") {
     return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "seekTo"), 0,
+        runtime, jsi::PropNameID::forAscii(runtime, "seekTo"), 1,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (!released.test()) {
