@@ -75,38 +75,6 @@ VideoCompositionEncoderHostObject::get(jsi::Runtime& runtime,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           framesExtractor->makeGLContextCurrent();
-          /*auto pointer = arguments[0].asBigInt(runtime).asUint64(runtime);
-          const AHardwareBuffer *hardwareBuffer = reinterpret_cast<AHardwareBuffer *>(pointer);
-          while (GL_NO_ERROR != glGetError()) {} //clear GL errors
-
-          EGLClientBuffer clientBuffer = eglGetNativeClientBufferANDROID(hardwareBuffer);
-          EGLint attribs[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE };
-          EGLDisplay display = eglGetCurrentDisplay();
-          // eglCreateImageKHR will add a ref to the AHardwareBuffer
-          EGLImageKHR image = eglCreateImageKHR(display, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID,
-                                                clientBuffer, attribs);
-          if (EGL_NO_IMAGE_KHR == image) {
-            throw new std::runtime_error("Failed to acquire eglTexture");
-          }
-
-          GLuint texID;
-          glGenTextures(1, &texID);
-          glBindTexture(GL_TEXTURE_2D, texID);
-          GLenum status = GL_NO_ERROR;
-          if ((status = glGetError()) != GL_NO_ERROR) {
-            throw new std::runtime_error("Failed to acquire eglTexture");
-          }
-          glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
-          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-          eglDestroyImageKHR(display, image);
-          if ((status = glGetError()) != GL_NO_ERROR) {
-            throw new std::runtime_error("Failed to acquire eglTexture");
-          }*/
-
           auto texId = arguments[0].asObject(runtime).getProperty(runtime, "fID").asNumber();
 
           framesExtractor->encodeFrame(

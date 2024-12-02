@@ -181,11 +181,6 @@ repositories {
 def MEDIA3_VERSION = "1.2.1"
 dependencies {
   implementation 'com.facebook.react:react-android:+'
-  implementation(project(":shopify_react-native-skia")) {
-    exclude group: "com.facebook.react", module: "react-native"
-  }
-  implementation project(":react-native-reanimated")
-
   implementation "androidx.media3:media3-exoplayer:${MEDIA3_VERSION}"
   implementation "androidx.media3:media3-datasource:${MEDIA3_VERSION}"
   implementation "androidx.media3:media3-exoplayer-hls:${MEDIA3_VERSION}"

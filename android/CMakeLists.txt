@@ -110,29 +110,3 @@ else()
                 -landroid
         )
 endif()
-
-find_package(shopify_react-native-skia REQUIRED CONFIG)
-target_link_libraries(
-        ${PACKAGE_NAME}
-        shopify_react-native-skia::rnskia
-)
-
-get_target_property(RN_SKIA_INCLUDE_DIR shopify_react-native-skia::rnskia INTERFACE_INCLUDE_DIRECTORIES)
-include_directories("${RN_SKIA_INCLUDE_DIR}/react-native-skia")
-
-
-set(RN_SKIA_DIR "${NODE_MODULES_DIR}/@shopify/react-native-skia")
-file(GLOB skiaLibraries "${RN_SKIA_DIR}/libs/android/${ANDROID_ABI}/*.a")
-foreach(skiaLibrary ${skiaLibraries})
-  target_link_libraries(${PACKAGE_NAME} "${skiaLibrary}")
-endforeach()
-
-find_package(react-native-reanimated REQUIRED CONFIG)
-target_link_libraries(
-        ${PACKAGE_NAME}
-        react-native-reanimated::reanimated
-)
-target_link_libraries(
-        ${PACKAGE_NAME}
-        react-native-reanimated::worklets
-)
