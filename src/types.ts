@@ -1,7 +1,6 @@
 // @ts-ignore
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import type { SkCanvas, SkSurface, Skia } from '@shopify/react-native-skia';
-import type { WorkletRuntime } from 'react-native-reanimated';
 
 /**
  * Represents a video frame.
@@ -272,6 +271,49 @@ export type VideoCompositionFramesExtractor = {
 };
 
 /**
+ * The video composition sync extractor interface.
+ */
+export type VideoCompositionFramesSyncExtractor = {
+  /**
+   * Starts extracting the frames of the video composition.
+   */
+  start(): void;
+  /**
+   * Decodes the frames until reaching the specified time.
+   * This method will block the current thread until the frames are decoded.
+   *
+   * @returns The decoded video frames of the composition items.
+   */
+  decodeCompositionFrames(currentTime: number): Record<string, VideoFrame>;
+  /**
+   * Disposes of the video composition frames extractor.
+   */
+  dispose(): void;
+};
+
+/**
+ * The video composition encoder interface.
+ */
+export type VideoCompositionEncoder = {
+  /**
+   * Prepares the video composition encoder for writing.
+   */
+  prepare(): void;
+  /**
+   * Encodes the video frame to the video composition.
+   */
+  encodeFrame(texture: unknown, time: number): void;
+  /*
+   * Finish writing the video to the output file.
+   */
+  finishWriting(): void;
+  /**
+   * Disposes of the video composition encoder.
+   */
+  dispose(): void;
+};
+
+/**
  * The export options for a video composition.
  */
 export type ExportOptions = {
@@ -322,23 +364,34 @@ export type RNSkiaVideoModule = {
    * @returns The video composition frames extractor.
    */
   createVideoCompositionFramesExtractor: (
+    /**
+     * The video composition to extract frames from.
+     */
     composition: VideoComposition
   ) => VideoCompositionFramesExtractor;
   /**
-   * Exports the video composition to a video file.
+   * Creates a synchronous video composition frames extractor for the specified video composition.
+   * @param composition The video composition.
+   * @returns The video composition frames extractor.
    */
-  exportVideoComposition: (
-    videoComposition: VideoComposition,
-    options: ExportOptions,
-    workletRuntime: WorkletRuntime,
-    drawFrame: any, // ShareableRef<FrameDrawer>
-    onCompletion: () => void,
-    onError: (error: any) => void,
-    onProgress: ((frame: number) => void) | null,
-    // android only
-    surface: SkSurface | null
-  ) => Promise<void>;
+  createVideoCompositionFramesSyncExtractor: (
+    /**
+     * The video composition to extract frames from.
+     */
+    composition: VideoComposition
+  ) => VideoCompositionFramesSyncExtractor;
 
+  /**
+   * Creates a video composition encoder for the specified export options.
+   * @param options The export options for the video composition.
+   * @returns The video composition encoder.
+   */
+  createVideoCompositionEncoder: (
+    /**
+     * The export options for the video composition.
+     */
+    options: ExportOptions
+  ) => VideoCompositionEncoder;
   /**
    * Returns the decoding capabilities of the current platform for the specified mimetype.
    *

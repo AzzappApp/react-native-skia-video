@@ -33,7 +33,7 @@ __metadata:
     "@react-native/typescript-config": 0.76.0
     "@react-navigation/native": ^6.1.18
     "@react-navigation/native-stack": ^6.11.0
-    "@shopify/react-native-skia": ^1.5.0
+    "@shopify/react-native-skia": ^1.6.0
     babel-plugin-module-resolver: ^5.0.0
     pexels: ^1.4.0
     react: 18.3.1
@@ -53,7 +53,7 @@ __metadata:
     "@evilmartians/lefthook": ^1.5.0
     "@react-native/eslint-config": ^0.73.1
     "@release-it/conventional-changelog": ^5.0.0
-    "@shopify/react-native-skia": ^1.5.0
+    "@shopify/react-native-skia": ^1.6.0
     "@types/jest": ^29.5.5
     "@types/react": ^18.2.44
     commitlint: ^17.0.2
@@ -71,7 +71,7 @@ __metadata:
     turbo: ^1.10.7
     typescript: ^5.2.2
   peerDependencies:
-    "@shopify/react-native-skia": ">= 1.5.0"
+    "@shopify/react-native-skia": ">= 1.6.0"
     react: "*"
     react-native: "*"
     react-native-reanimated: ">= 3.16.1"
@@ -4572,9 +4572,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@shopify/react-native-skia@npm:^1.5.0":
-  version: 1.5.0
-  resolution: "@shopify/react-native-skia@npm:1.5.0"
+"@shopify/react-native-skia@npm:^1.6.0":
+  version: 1.6.0
+  resolution: "@shopify/react-native-skia@npm:1.6.0"
   dependencies:
     canvaskit-wasm: 0.39.1
     react-reconciler: 0.27.0
@@ -4589,7 +4589,7 @@ __metadata:
       optional: true
   bin:
     setup-skia-web: ./scripts/setup-canvaskit.js
-  checksum: 44cf9edcf1f1062f7306eb990da8b8c9222b92275268fbaaf20e36baa21260b0498ac69131f4f6e871c9049a7cc36a5cc719d0b7a4f60723f6a7a60be3cc0bf5
+  checksum: 88abc446541a2310143c346c29ab7dedd5b3b21bc85f3d54db35c14c96c084c70d7c487bc98ab4db510d8690f16ac68d62a2c022ebc6389a29eafb8f0089b4eb
   languageName: node
   linkType: hard
 

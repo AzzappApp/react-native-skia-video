@@ -2,8 +2,6 @@
 #include "JNIHelpers.h"
 
 namespace RNSkiaVideo {
-using namespace RNSkia;
-
 VideoPlayerHostObject::VideoPlayerHostObject(jsi::Runtime& runtime,
                                              const std::string& uri, int width,
                                              int height)

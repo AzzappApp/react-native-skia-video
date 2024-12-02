@@ -63,7 +63,7 @@
     "@evilmartians/lefthook": "^1.5.0",
     "@react-native/eslint-config": "^0.73.1",
     "@release-it/conventional-changelog": "^5.0.0",
-    "@shopify/react-native-skia": "^1.5.0",
+    "@shopify/react-native-skia": "^1.6.0",
     "@types/jest": "^29.5.5",
     "@types/react": "^18.2.44",
     "commitlint": "^17.0.2",
@@ -85,7 +85,7 @@
     "@types/react": "^18.2.44"
   },
   "peerDependencies": {
-    "@shopify/react-native-skia": ">= 1.5.0",
+    "@shopify/react-native-skia": ">= 1.6.0",
     "react": "*",
     "react-native": "*",
     "react-native-reanimated": ">= 3.16.1"

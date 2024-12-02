@@ -6,8 +6,6 @@ import android.os.Message;
 import android.os.Process;
 import android.os.SystemClock;
 
-import androidx.annotation.NonNull;
-
 import java.io.IOException;
 import java.util.Map;
 
@@ -163,7 +161,7 @@ public class VideoCompositionFramesExtractor {
     }
 
     @Override
-    public boolean handleMessage(@NonNull Message msg) {
+    public boolean handleMessage(Message msg) {
       try {
         if (releasing) {
           // When the releasing flag is set, just release without processing any more messages

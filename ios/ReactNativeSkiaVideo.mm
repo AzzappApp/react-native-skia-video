@@ -1,17 +1,17 @@
 #import "ReactNativeSkiaVideo.h"
 
-#import <RNskiaModule.h>
+#import "RNskiaModule.h"
 #import <React/RCTBridge+Private.h>
 #import <React/RCTBridge.h>
 #import <React/RCTUtils.h>
 #import <ReactCommon/RCTTurboModule.h>
-#import <worklets/WorkletRuntime/WorkletRuntime.h>
 #import <jsi/jsi.h>
 
 #import "JSIUtils.h"
 #import "VideoComposition.h"
-#import "VideoCompositionExporter.h"
+#import "VideoCompositionEncoderHostObject.h"
 #import "VideoCompositionFramesExtractorHostObject.h"
+#import "VideoCompositionFramesSyncExtractorHostObject.h"
 #import "VideoPlayerHostObject.h"
 
 @implementation ReactNativeSkiaVideo
@@ -93,27 +93,42 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
   RNSVModule.setProperty(runtime, "createVideoCompositionFramesExtractor",
                          std::move(createVideoCompositionFramesExtractor));
 
-  auto exportVideoComposition = jsi::Function::createFromHostFunction(
-      runtime, jsi::PropNameID::forAscii(runtime, "exportVideoComposition"), 6,
-      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
-         const jsi::Value* arguments, size_t count) -> jsi::Value {
-        if (count < 6) {
-          throw jsi::JSError(runtime,
-                             "SkiaVideo.exportVideoComposition(..) expects 4"
-                             "arguments (composition, options, workletRuntime, "
-                             "drawFrame, onSuccess, onError, onProgress?)!");
+  auto createVideoCompositionFramesSyncExtractor =
+      jsi::Function::createFromHostFunction(
+          runtime,
+          jsi::PropNameID::forAscii(
+              runtime, "createVideoCompositionFramesSyncExtractor"),
+          1,
+          [bridge](jsi::Runtime& runtime, const jsi::Value& thisValue,
+                   const jsi::Value* arguments, size_t count) -> jsi::Value {
+            if (count != 1 || !arguments[0].isObject()) {
+              throw jsi::JSError(runtime,
+                                 "ReactNativeSkiaVideo."
+                                 "createVideoCompositionFramesSyncExtractor(.."
+                                 ") expects one arguments (object)!");
+            }
+
+            auto instance = std::make_shared<
+                RNSkiaVideo::VideoCompositionFramesSyncExtractorHostObject>(
+                runtime, arguments[0].asObject(runtime));
+            return jsi::Object::createFromHostObject(runtime, instance);
+          });
+
+  RNSVModule.setProperty(runtime, "createVideoCompositionFramesSyncExtractor",
+                         std::move(createVideoCompositionFramesSyncExtractor));
+
+  auto createVideoCompositionEncoder = jsi::Function::createFromHostFunction(
+      runtime,
+      jsi::PropNameID::forAscii(runtime, "createVideoCompositionEncoder"), 1,
+      [bridge](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+        if (count != 1 || !arguments[0].isObject()) {
+          throw jsi::JSError(runtime, "ReactNativeSkiaVideo."
+                                      "createVideoCompositionEncoder(.."
+                                      ") expects one arguments (object)!");
         }
-        auto bridge = [RCTBridge currentBridge];
-        RNSkiaModule* skiaModule = [bridge moduleForName:@"RNSkiaModule"];
-        auto rnskPlatformContext =
-            skiaModule.manager.skManager->getPlatformContext();
-        auto callInvoker = bridge.jsCallInvoker;
 
-        auto jsCompositon = arguments[0].asObject(runtime);
-        auto composition =
-            RNSkiaVideo::VideoComposition::fromJS(runtime, jsCompositon);
-
-        auto options = arguments[1].asObject(runtime);
+        auto options = arguments[0].asObject(runtime);
         auto outPath = options.getProperty(runtime, "outPath")
                            .asString(runtime)
                            .utf8(runtime);
@@ -121,56 +136,14 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
         int height = options.getProperty(runtime, "height").asNumber();
         int frameRate = options.getProperty(runtime, "frameRate").asNumber();
         int bitRate = options.getProperty(runtime, "bitRate").asNumber();
-        auto workletRuntime =
-            worklets::extractWorkletRuntime(runtime, arguments[2]);
-        auto drawFrame =
-            worklets::extractShareableOrThrow<worklets::ShareableWorklet>(
-                runtime, arguments[3]);
 
-        auto sharedSuccessCallback = std::make_shared<jsi::Function>(
-            arguments[4].asObject(runtime).asFunction(runtime));
-        auto sharedErrorCallback = std::make_shared<jsi::Function>(
-            arguments[5].asObject(runtime).asFunction(runtime));
-
-        std::shared_ptr<jsi::Function> sharedProgressCallback = nullptr;
-        if (count >= 7 && arguments[6].isObject()) {
-          sharedProgressCallback = std::make_shared<jsi::Function>(
-              arguments[6].asObject(runtime).asFunction(runtime));
-        }
-
-        auto queue =
-            dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
-        dispatch_async(queue, ^{
-          RNSkiaVideo::exportVideoComposition(
-              composition, outPath, width, height, frameRate, bitRate,
-              workletRuntime, drawFrame, rnskPlatformContext,
-              [callInvoker, &runtime, sharedSuccessCallback]() {
-                callInvoker->invokeAsync(
-                    [&runtime, sharedSuccessCallback]() -> void {
-                      sharedSuccessCallback->call(runtime);
-                    });
-              },
-              [callInvoker, &runtime, sharedErrorCallback](NSError* error) {
-                callInvoker->invokeAsync(
-                    [&runtime, error, sharedErrorCallback]() -> void {
-                      sharedErrorCallback->call(
-                          runtime, RNSkiaVideo::NSErrorToJSI(runtime, error));
-                    });
-              },
-              [callInvoker, &runtime, sharedProgressCallback](int progress) {
-                callInvoker->invokeAsync([&runtime, progress,
-                                          sharedProgressCallback]() -> void {
-                  if (sharedProgressCallback != nullptr) {
-                    sharedProgressCallback->call(runtime, jsi::Value(progress));
-                  }
-                });
-              });
-        });
-
-        return jsi::Value::undefined();
+        auto instance =
+            std::make_shared<RNSkiaVideo::VideoCompositionEncoderHostObject>(
+                outPath, width, height, frameRate, bitRate);
+        return jsi::Object::createFromHostObject(runtime, instance);
       });
-  RNSVModule.setProperty(runtime, "exportVideoComposition",
-                         std::move(exportVideoComposition));
+  RNSVModule.setProperty(runtime, "createVideoCompositionEncoder",
+                         std::move(createVideoCompositionEncoder));
 
   runtime.global().setProperty(runtime, "RNSkiaVideo", RNSVModule);
   return @true;

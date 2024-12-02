@@ -7,17 +7,6 @@ import com.shopify.reactnative.skia.RNSkiaModule;
  */
 public class JNIHelpers {
 
-  /**
-   * Get the Skia platform context. used from the native side.
-   *
-   * @return the Skia platform context
-   */
-  static public Object getSkiaPlatformContext() {
-    return ReactNativeSkiaVideoModule.currentReactApplicationContext()
-      .getNativeModule(RNSkiaModule.class)
-      .getSkiaManager();
-  }
-
   static public Object getCallInvoker() {
     return ReactNativeSkiaVideoModule.currentReactApplicationContext()
       .getCatalystInstance().getJSCallInvokerHolder();

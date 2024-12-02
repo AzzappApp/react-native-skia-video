@@ -48,7 +48,6 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
             return result;
           }
           auto frames = player->decodeCompositionFrames();
-          auto platformContext = JNIHelpers::getSkiaPlatformContext();
           for (auto& entry : *frames) {
             auto id = entry.first->toStdString();
             auto frame = entry.second;

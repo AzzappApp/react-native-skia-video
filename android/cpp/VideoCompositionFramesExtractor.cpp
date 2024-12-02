@@ -54,7 +54,6 @@ VideoCompositionFramesExtractor::decodeCompositionFrames() {
   static const auto decodeCompositionFramesMethod =
       getClass()->getMethod<JMap<JString, VideoFrame>()>(
           "decodeCompositionFrames");
-  std::map<std::string, VideoFrame> result;
   return decodeCompositionFramesMethod(self());
 }
 

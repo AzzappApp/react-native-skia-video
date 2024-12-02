@@ -1,25 +1,33 @@
 import {
   createWorkletRuntime,
-  makeShareableCloneRecursive,
-  type WorkletRuntime,
+  runOnRuntime,
+  runOnJS,
 } from 'react-native-reanimated';
 import { Platform } from 'react-native';
 import { Skia } from '@shopify/react-native-skia';
-import type { SkCanvas, SkSurface } from '@shopify/react-native-skia';
+import type { SkSurface } from '@shopify/react-native-skia';
 import type {
   ExportOptions,
   FrameDrawer,
   VideoComposition,
-  VideoFrame,
+  VideoCompositionEncoder,
+  VideoCompositionFramesSyncExtractor,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
 
-let exportRuntime: WorkletRuntime;
-const getExportRuntime = () => {
-  if (!exportRuntime) {
-    exportRuntime = createWorkletRuntime('RNSkiaVideoExportRuntime');
-  }
-  return exportRuntime;
+const runOnNewThread = (fn: () => void) => {
+  const exportRuntime = createWorkletRuntime(
+    'RNSkiaVideoExportRuntime-' + performance.now()
+  );
+  const isAndroid = Platform.OS === 'android';
+  runOnRuntime(exportRuntime, () => {
+    'worklet';
+    if (isAndroid) {
+      (RNSkiaVideoModule as any).runWithJNIClassLoader(fn);
+    } else {
+      fn();
+    }
+  })();
 };
 
 /**
@@ -34,61 +42,73 @@ export const exportVideoComposition = async (
   options: ExportOptions,
   drawFrame: FrameDrawer,
   onProgress?: (progress: { framesCompleted: number; nbFrames: number }) => void
-): Promise<void> => {
-  let surface: SkSurface | null = null;
-  let drawFrameInner: (...args: any[]) => void;
-  if (Platform.OS === 'android') {
-    surface = Skia.Surface.Make(1, 1);
-    if (!surface) {
-      throw new Error('Failed to create Skia surface');
-    }
-    drawFrameInner = (time: number, frames: Record<string, VideoFrame>) => {
+): Promise<void> =>
+  new Promise<void>((resolve, reject) => {
+    runOnNewThread(() => {
       'worklet';
-      drawFrame({
-        canvas: surface!.getCanvas(),
-        videoComposition,
-        currentTime: time,
-        frames,
-        width: options.width,
-        height: options.height,
-      });
-    };
-  } else {
-    drawFrameInner = (
-      canvas: SkCanvas,
-      time: number,
-      frames: Record<string, VideoFrame>
-    ) => {
-      'worklet';
-      drawFrame({
-        canvas,
-        videoComposition,
-        currentTime: time,
-        frames,
-        width: options.width,
-        height: options.height,
-      });
-    };
-  }
 
-  const nbFrames = videoComposition.duration * options.frameRate;
+      let surface: SkSurface | null = null;
+      let frameExtractor: VideoCompositionFramesSyncExtractor | null = null;
+      let encoder: VideoCompositionEncoder | null = null;
+      const { width, height } = options;
+      try {
+        surface = Skia.Surface.MakeOffscreen(width, height);
+        if (!surface) {
+          throw new Error('Failed to create Skia surface');
+        }
 
-  return new Promise((resolve, reject) =>
-    RNSkiaVideoModule.exportVideoComposition(
-      videoComposition,
-      options,
-      getExportRuntime(),
-      makeShareableCloneRecursive(drawFrameInner),
-      () => resolve(),
-      (e: any) => reject(e ?? new Error('Failed to export video')),
-      onProgress
-        ? (frameIndex) =>
-            onProgress({
-              framesCompleted: frameIndex + 1,
+        encoder = RNSkiaVideoModule.createVideoCompositionEncoder(options);
+        console.log('Preparing encoder');
+        encoder.prepare();
+
+        frameExtractor =
+          RNSkiaVideoModule.createVideoCompositionFramesSyncExtractor(
+            videoComposition
+          );
+        console.log('Preparing encoder');
+        frameExtractor.start();
+
+        const nbFrames = videoComposition.duration * options.frameRate;
+        for (let i = 0; i < nbFrames; i++) {
+          const currentTime = i / options.frameRate;
+          const frames = frameExtractor.decodeCompositionFrames(currentTime);
+          const canvas = surface.getCanvas();
+          canvas.clear(Skia.Color('#00000000'));
+          console.log('Drawing frame', i);
+          drawFrame({
+            canvas,
+            videoComposition,
+            currentTime,
+            frames,
+            width: options.width,
+            height: options.height,
+          });
+          surface.flush();
+          const texture = surface.getBackendTexture();
+          encoder.encodeFrame(texture, currentTime);
+          if (onProgress) {
+            runOnJS(onProgress)({
+              framesCompleted: i + 1,
               nbFrames,
-            })
-        : null,
-      surface
-    )
-  );
-};
+            });
+          }
+        }
+      } catch (e) {
+        runOnJS(reject)(e);
+        return;
+      } finally {
+        frameExtractor?.dispose();
+        surface?.dispose();
+      }
+
+      try {
+        encoder!.finishWriting();
+      } catch (e) {
+        runOnJS(reject)(e);
+        return;
+      } finally {
+        encoder?.dispose();
+      }
+      runOnJS(resolve)();
+    });
+  });
