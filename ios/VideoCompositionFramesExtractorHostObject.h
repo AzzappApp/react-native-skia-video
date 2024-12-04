@@ -52,6 +52,7 @@ private:
   bool initialized = false;
   bool released = false;
 
+  void prepare();
   void init();
   void play();
   void pause();

@@ -1,4 +1,4 @@
-#include "VideoCompositionFramesSyncExtractorHostObject.h"
+#include "VideoCompositionFramesExtractorSyncHostObject.h"
 
 namespace RNSkiaVideo {
 using namespace facebook::jni;
@@ -27,21 +27,21 @@ void VideoCompositionFramesExtractorSync::release() const {
   releaseMethod(self());
 }
 
-VideoCompositionFramesSyncExtractorHostObject::
-    VideoCompositionFramesSyncExtractorHostObject(jsi::Runtime& runtime,
+VideoCompositionFramesExtractorSyncHostObject::
+    VideoCompositionFramesExtractorSyncHostObject(jsi::Runtime& runtime,
                                                   jsi::Object jsComposition) {
   auto composition = VideoComposition::fromJSIObject(runtime, jsComposition);
   framesExtractor =
       make_global(VideoCompositionFramesExtractorSync::create(composition));
 }
 
-VideoCompositionFramesSyncExtractorHostObject::
-    ~VideoCompositionFramesSyncExtractorHostObject() {
+VideoCompositionFramesExtractorSyncHostObject::
+    ~VideoCompositionFramesExtractorSyncHostObject() {
   this->release();
 }
 
 std::vector<jsi::PropNameID>
-VideoCompositionFramesSyncExtractorHostObject::getPropertyNames(
+VideoCompositionFramesExtractorSyncHostObject::getPropertyNames(
     jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> result;
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("start")));
@@ -51,7 +51,7 @@ VideoCompositionFramesSyncExtractorHostObject::getPropertyNames(
   return result;
 }
 
-jsi::Value VideoCompositionFramesSyncExtractorHostObject::get(
+jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
     jsi::Runtime& runtime, const jsi::PropNameID& propNameId) {
   auto propName = propNameId.utf8(runtime);
   if (propName == "decodeCompositionFrames") {
@@ -97,7 +97,7 @@ jsi::Value VideoCompositionFramesSyncExtractorHostObject::get(
   return jsi::Value::undefined();
 }
 
-void VideoCompositionFramesSyncExtractorHostObject::release() {
+void VideoCompositionFramesExtractorSyncHostObject::release() {
   if (!released.test_and_set()) {
     framesExtractor->release();
     framesExtractor = nullptr;

@@ -11,12 +11,9 @@ import android.view.Surface;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.function.Supplier;
 
 import javax.microedition.khronos.egl.EGL10;
 import javax.microedition.khronos.egl.EGLContext;
-import javax.microedition.khronos.egl.EGLDisplay;
-import javax.microedition.khronos.egl.EGLSurface;
 
 
 /**
@@ -90,10 +87,7 @@ public class VideoEncoder {
    * Configures encoder and muxer state, and prepares the input Surface.
    */
   public void prepare() throws IOException {
-    EGLContext sharedContext = ((EGL10) EGLContext.getEGL()).eglGetCurrentContext();
-    if (sharedContext == EGL10.EGL_NO_CONTEXT) {
-      throw new RuntimeException("No shared context");
-    }
+    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
     encoder = encoderName != null
       ? MediaCodec.createByCodecName(encoderName)
       : MediaCodec.createEncoderByType(MIME_TYPE);

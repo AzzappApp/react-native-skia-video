@@ -7,10 +7,10 @@
 namespace RNSkiaVideo {
 using namespace facebook;
 
-class JSI_EXPORT VideoCompositionEncoderHostObject : public jsi::HostObject {
+class JSI_EXPORT VideoEncoderHostObject : public jsi::HostObject {
 public:
-  VideoCompositionEncoderHostObject(std::string outPath, int width, int height,
-                                    int frameRate, int bitRate);
+  VideoEncoderHostObject(std::string outPath, int width, int height,
+                         int frameRate, int bitRate);
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
   std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime& rt) override;
 

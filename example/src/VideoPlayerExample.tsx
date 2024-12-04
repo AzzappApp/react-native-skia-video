@@ -111,7 +111,11 @@ const VideoPlayerExample = () => {
     if (!frame) {
       return null;
     }
-    return Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
+    return Skia.Image.MakeImageFromNativeTexture(
+      frame.texture,
+      frame.width,
+      frame.height
+    );
   });
 
   const currentTime = useSharedValue<number | undefined>(0);

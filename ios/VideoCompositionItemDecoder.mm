@@ -1,4 +1,5 @@
 #include "VideoCompositionItemDecoder.h"
+#include "MTLTextureUtils.h"
 
 #import "AVAssetTrackUtils.h"
 #import <AVFoundation/AVFoundation.h>
@@ -49,8 +50,7 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
                      position));
 
   NSDictionary* pixBuffAttributes = @{
-    (id)kCVPixelBufferPixelFormatTypeKey :
-        @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange),
+    (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
     (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
     (id)kCVPixelBufferMetalCompatibilityKey : @YES
   };
@@ -124,12 +124,16 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
       }
       auto timeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
       auto buffer = CMSampleBufferGetImageBuffer(sampleBuffer);
-      auto frame =
-          std::make_shared<VideoFrame>(buffer, width, height, rotation);
-      framesQueue->push_back(
-          std::make_pair(CMTimeGetSeconds(timeStamp), frame));
+      if (buffer) {
+        auto texture =
+            [MTLTextureUtils convertBGRACVPixelBufferRefToMTLTexture:buffer];
+        auto frame =
+            std::make_shared<VideoFrame>(texture, width, height, rotation);
+        framesQueue->push_back(
+            std::make_pair(CMTimeGetSeconds(timeStamp), frame));
+      }
+
       latestSampleTime = timeStamp;
-      CFRelease(sampleBuffer);
     }
   }
 }
@@ -192,6 +196,7 @@ void VideoCompositionItemDecoder::release() {
     for (const auto& frame : nextLoopFrames) {
       frame.second->release();
     }
+    nextLoopFrames.clear();
     if (currentFrame) {
       currentFrame->release();
       currentFrame = nullptr;

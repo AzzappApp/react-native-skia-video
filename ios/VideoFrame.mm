@@ -9,10 +9,10 @@
 
 namespace RNSkiaVideo {
 
-VideoFrame::VideoFrame(CVPixelBufferRef pixelBuffer, double width,
-                       double height, int rotation) {
-  CVPixelBufferRetain(pixelBuffer);
-  this->pixelBuffer = pixelBuffer;
+VideoFrame::VideoFrame(id<MTLTexture> mtlTexture, double width, double height,
+                       int rotation) {
+  CFRetain((CFTypeRef)mtlTexture);
+  this->mtlTexture = mtlTexture;
   this->width = width;
   this->height = height;
   this->rotation = rotation;
@@ -40,10 +40,10 @@ jsi::Value VideoFrame::get(jsi::Runtime& runtime,
     return jsi::Value(height);
   } else if (propName == "rotation") {
     return jsi::Value(rotation);
-  } else if (propName == "buffer") {
-    if (pixelBuffer != nullptr) {
+  } else if (propName == "texture") {
+    if (mtlTexture) {
       return jsi::BigInt::fromUint64(runtime,
-                                     reinterpret_cast<uintptr_t>(pixelBuffer));
+                                     reinterpret_cast<uintptr_t>(mtlTexture));
     }
   }
 
@@ -54,7 +54,9 @@ void VideoFrame::release() {
   if (released.test_and_set()) {
     return;
   }
-  CVPixelBufferRelease(pixelBuffer);
-  pixelBuffer = nullptr;
+  if (mtlTexture) {
+    CFRelease((CFTypeRef)mtlTexture);
+  }
 }
+
 } // namespace RNSkiaVideo

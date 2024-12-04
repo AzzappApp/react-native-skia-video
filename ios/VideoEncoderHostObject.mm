@@ -1,4 +1,4 @@
-#import "VideoCompositionEncoderHostObject.h"
+#import "VideoEncoderHostObject.h"
 #import "JsiUtils.h"
 #import <Metal/Metal.h>
 #import <future>
@@ -11,8 +11,9 @@ NS_INLINE NSError* createErrorWithMessage(NSString* message) {
 
 namespace RNSkiaVideo {
 
-VideoCompositionEncoderHostObject::VideoCompositionEncoderHostObject(
-    std::string outPath, int width, int height, int frameRate, int bitRate) {
+VideoEncoderHostObject::VideoEncoderHostObject(std::string outPath, int width,
+                                               int height, int frameRate,
+                                               int bitRate) {
   this->outPath = outPath;
   this->width = width;
   this->height = height;
@@ -20,9 +21,8 @@ VideoCompositionEncoderHostObject::VideoCompositionEncoderHostObject(
   this->bitRate = bitRate;
 }
 
-
 std::vector<jsi::PropNameID>
-VideoCompositionEncoderHostObject::getPropertyNames(jsi::Runtime& rt) {
+VideoEncoderHostObject::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> result;
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("prepare")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("encodeFrame")));
@@ -31,8 +31,7 @@ VideoCompositionEncoderHostObject::getPropertyNames(jsi::Runtime& rt) {
   return result;
 }
 
-jsi::Value
-VideoCompositionEncoderHostObject::get(jsi::Runtime& runtime,
+jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
                                        const jsi::PropNameID& propNameId) {
   auto propName = propNameId.utf8(runtime);
   if (propName == "prepare") {
@@ -43,12 +42,14 @@ VideoCompositionEncoderHostObject::get(jsi::Runtime& runtime,
           prepare();
           return jsi::Value::undefined();
         });
-  } if (propName == "encodeFrame") {
+  }
+  if (propName == "encodeFrame") {
     return jsi::Function::createFromHostFunction(
         runtime, jsi::PropNameID::forAscii(runtime, "encodeFrame"), 2,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          void *texturePointer = reinterpret_cast<void*>(arguments[0].asBigInt(runtime).asUint64(runtime));
+          void* texturePointer = reinterpret_cast<void*>(
+              arguments[0].asBigInt(runtime).asUint64(runtime));
           auto texture = (__bridge id<MTLTexture>)texturePointer;
           auto time =
               CMTimeMakeWithSeconds(arguments[1].asNumber(), NSEC_PER_SEC);
@@ -77,7 +78,7 @@ VideoCompositionEncoderHostObject::get(jsi::Runtime& runtime,
   return jsi::Value::undefined();
 }
 
-void VideoCompositionEncoderHostObject::prepare() {
+void VideoEncoderHostObject::prepare() {
   NSError* error = nil;
   assetWriter = [AVAssetWriter
       assetWriterWithURL:
@@ -121,8 +122,8 @@ void VideoCompositionEncoderHostObject::prepare() {
   commandQueue = [device newCommandQueue];
 }
 
-void VideoCompositionEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
-                                                    CMTime time) {
+void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
+                                         CMTime time) {
   // Assuming mlTexture is your MTLResourceStorageModePrivate texture
   MTLTextureDescriptor* descriptor = [MTLTextureDescriptor
       texture2DDescriptorWithPixelFormat:mlTexture.pixelFormat
@@ -227,7 +228,7 @@ void VideoCompositionEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
   }
 }
 
-void VideoCompositionEncoderHostObject::finish() {
+void VideoEncoderHostObject::finish() {
 
   __block std::promise<void> promise;
   std::future<void> future = promise.get_future();
@@ -246,7 +247,7 @@ void VideoCompositionEncoderHostObject::finish() {
   }
 }
 
-void VideoCompositionEncoderHostObject::release() {
+void VideoEncoderHostObject::release() {
   if (assetWriter && assetWriter.status == AVAssetWriterStatusWriting) {
     [assetWriter cancelWriting];
   }

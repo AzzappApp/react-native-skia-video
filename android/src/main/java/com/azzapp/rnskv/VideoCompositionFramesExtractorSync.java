@@ -9,6 +9,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
+import javax.microedition.khronos.egl.EGLContext;
+
 public class VideoCompositionFramesExtractorSync {
   private final VideoComposition composition;
 
@@ -39,9 +41,10 @@ public class VideoCompositionFramesExtractorSync {
     exportThread.start();
     handler = new Handler(exportThread.getLooper());
     CompletableFuture<Void> future = new CompletableFuture<>();
+    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
     handler.post(() -> {
       try {
-        decoder.prepare();
+        decoder.prepare(sharedContext);
         decoder.setOnErrorListener(this::handleError);
         decoder.setOnFrameAvailableListener(this::onFrameAvailable);
         decoder.setOnItemEndReachedListener(this::onItemEndReached);
@@ -142,7 +145,7 @@ public class VideoCompositionFramesExtractorSync {
   }
 
   private void resolveIfReady() {
-    Map<String, VideoFrame> videoFrames = decoder.getUpdatedVideoFrames();
+    Map<String, VideoFrame> videoFrames = decoder.updateVideosFrames();
     for (VideoComposition.Item item : composition.getItems()) {
       VideoFrame videoFrame = videoFrames.getOrDefault(item.getId(), null);
       if (videoFrame == null) {
@@ -152,7 +155,7 @@ public class VideoCompositionFramesExtractorSync {
       if (itemFrameTime == null) {
         continue;
       }
-      long videoFrameTime = TimeHelpers.nsecToUs(videoFrame.getTimestamp());
+      long videoFrameTime = TimeHelpers.nsecToUs(videoFrame.getTimestampNs());
       if (Math.abs(itemFrameTime - videoFrameTime) > 1000) {
         return;
       }

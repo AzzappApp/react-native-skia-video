@@ -1,16 +1,18 @@
 #include "VideoFrame.h"
 #include "JNIHelpers.h"
+#include <EGL/egl.h>
+#include <GLES/gl.h>
 
 namespace RNSkiaVideo {
+#define GR_GL_RGBA8 0x8058
 AHardwareBuffer* VideoFrame::getHardwareBuffer() {
-  static const auto getHardwareBufferMethod =
-      getClass()->getMethod<jobject()>("getHardwareBuffer");
-  auto hardwareBuffer = getHardwareBufferMethod(self());
-  if (hardwareBuffer == nullptr) {
-    return nullptr;
-  }
-  return AHardwareBuffer_fromHardwareBuffer(jni::Environment::current(),
-                                            hardwareBuffer.get());
+  return nullptr;
+}
+
+jint VideoFrame::getTexture() {
+  static const auto getTextureMethod =
+      getClass()->getMethod<jint()>("getTexture");
+  return getTextureMethod(self());
 }
 
 jint VideoFrame::getWidth() {
@@ -31,10 +33,7 @@ jint VideoFrame::getRotation() {
 }
 
 jsi::Value VideoFrame::toJS(jsi::Runtime& runtime) {
-  auto hardwareBuffer = getHardwareBuffer();
-  if (hardwareBuffer == nullptr) {
-    return jsi::Value::null();
-  }
+  auto texture = getTexture();
   auto width = getWidth();
   auto height = getHeight();
   auto rotation = getRotation();
@@ -43,10 +42,14 @@ jsi::Value VideoFrame::toJS(jsi::Runtime& runtime) {
   jsObject.setProperty(runtime, "width", width);
   jsObject.setProperty(runtime, "height", height);
   jsObject.setProperty(runtime, "rotation", rotation);
-  jsObject.setProperty(
-      runtime, "buffer",
-      jsi::BigInt::fromUint64(runtime,
-                              reinterpret_cast<uintptr_t>(hardwareBuffer)));
+
+  jsi::Object jsiTextureInfo = jsi::Object(runtime);
+  jsiTextureInfo.setProperty(runtime, "fTarget", (int)GL_TEXTURE_2D);
+  jsiTextureInfo.setProperty(runtime, "fFormat", (int)GR_GL_RGBA8);
+  jsiTextureInfo.setProperty(runtime, "fID", (int)texture);
+  jsiTextureInfo.setProperty(runtime, "fProtected", false);
+
+  jsObject.setProperty(runtime, "texture", jsiTextureInfo);
 
   return jsObject;
 }

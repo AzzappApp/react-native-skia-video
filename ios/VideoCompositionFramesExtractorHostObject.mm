@@ -15,50 +15,6 @@ VideoCompositionFramesExtractorHostObject::
     : EventEmitter(runtime, callInvoker) {
   lock = [[NSObject alloc] init];
   composition = VideoComposition::fromJS(runtime, jsComposition);
-
-  dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(
-      DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0);
-  decoderQueue =
-      dispatch_queue_create("ReactNativeVideoCompositionItemDecoder", attr);
-  dispatch_async(decoderQueue, ^{
-    this->init();
-  });
-
-  displayLink = [[RNSVDisplayLinkWrapper alloc]
-      initWithUpdateBlock:^(CADisplayLink* displayLink) {
-        dispatch_async(decoderQueue, ^{
-          std::vector<std::future<void>> futures;
-          @synchronized(lock) {
-            if (released || !initialized) {
-              return;
-            }
-            auto currentTime = getCurrentTime();
-            if (CMTimeGetSeconds(currentTime) >= composition->duration) {
-              emit("complete", jsi::Value::null());
-              if (isLooping) {
-                currentTime = kCMTimeZero;
-                startDate = [NSDate date];
-              } else {
-                isPlaying = false;
-                return;
-              }
-            }
-            for (const auto& entry : itemDecoders) {
-              auto decoder = entry.second;
-              if (decoder) {
-                futures.push_back(
-                    std::async(std::launch::async, [decoder, currentTime]() {
-                      decoder->advanceDecoder(currentTime);
-                    }));
-              }
-            }
-          }
-          for (auto& future : futures) {
-            future.get();
-          }
-        });
-      }];
-  [displayLink start];
 }
 
 VideoCompositionFramesExtractorHostObject::
@@ -69,6 +25,7 @@ VideoCompositionFramesExtractorHostObject::
 std::vector<jsi::PropNameID>
 VideoCompositionFramesExtractorHostObject::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> result;
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("prepare")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("play")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("pause")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("seekTo")));
@@ -85,7 +42,17 @@ VideoCompositionFramesExtractorHostObject::getPropertyNames(jsi::Runtime& rt) {
 jsi::Value VideoCompositionFramesExtractorHostObject::get(
     jsi::Runtime& runtime, const jsi::PropNameID& propNameId) {
   auto propName = propNameId.utf8(runtime);
-  if (propName == "play") {
+  if (propName == "prepare") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "prepare"), 0,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          if (!released) {
+            prepare();
+          }
+          return jsi::Value::undefined();
+        });
+  } else if (propName == "play") {
     return jsi::Function::createFromHostFunction(
         runtime, jsi::PropNameID::forAscii(runtime, "play"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
@@ -209,6 +176,51 @@ void VideoCompositionFramesExtractorHostObject::set(
   }
 }
 
+void VideoCompositionFramesExtractorHostObject::prepare() {
+  dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(
+      DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0);
+  decoderQueue =
+      dispatch_queue_create("ReactNativeVideoCompositionItemDecoder", attr);
+  dispatch_async(decoderQueue, ^{
+    this->init();
+  });
+
+  displayLink = [[RNSVDisplayLinkWrapper alloc]
+      initWithUpdateBlock:^(CADisplayLink* displayLink) {
+        dispatch_async(decoderQueue, ^{
+          std::vector<std::future<void>> futures;
+          @synchronized(lock) {
+            if (released || !initialized) {
+              return;
+            }
+            auto currentTime = getCurrentTime();
+            if (CMTimeGetSeconds(currentTime) >= composition->duration) {
+              emit("complete", jsi::Value::null());
+              if (isLooping) {
+                currentTime = kCMTimeZero;
+                startDate = [NSDate date];
+              } else {
+                isPlaying = false;
+                return;
+              }
+            }
+            for (const auto& entry : itemDecoders) {
+              auto decoder = entry.second;
+              if (decoder) {
+                futures.push_back(
+                    std::async(std::launch::async, [decoder, currentTime]() {
+                      decoder->advanceDecoder(currentTime);
+                    }));
+              }
+            }
+          }
+          for (auto& future : futures) {
+            future.get();
+          }
+        });
+      }];
+  [displayLink start];
+}
 void VideoCompositionFramesExtractorHostObject::init() {
   @synchronized(lock) {
     if (released) {

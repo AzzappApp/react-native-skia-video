@@ -5,7 +5,6 @@ namespace RNSkiaVideo {
 
 using namespace facebook;
 
-
 static jsi::Value NSErrorToJSI(jsi::Runtime& runtime, NSError* error) {
   auto jsError = jsi::Object(runtime);
   auto message = error == nil ? @"Unknown error" : [error description];

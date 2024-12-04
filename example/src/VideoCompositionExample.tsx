@@ -196,7 +196,11 @@ const drawFrame: FrameDrawer = ({
     );
     let image: SkImage;
     try {
-      image = Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
+      image = Skia.Image.MakeImageFromNativeTexture(
+        frame.texture,
+        frame.width,
+        frame.height
+      );
     } catch (error) {
       console.log('error', error);
       continue;

@@ -25,18 +25,20 @@ add_library(${PACKAGE_NAME}
         cpp/cpp-adapter.cpp
         cpp/NativeEventDispatcher.h
         cpp/NativeEventDispatcher.cpp
+        cpp/SkiaContextHolder.h
+        cpp/SkiaContextHolder.cpp
         cpp/VideoCapabilities.h
         cpp/VideoCapabilities.cpp
         cpp/VideoComposition.h
         cpp/VideoComposition.cpp
-        cpp/VideoCompositionEncoderHostObject.h
-        cpp/VideoCompositionEncoderHostObject.cpp
         cpp/VideoCompositionFramesExtractor.h
         cpp/VideoCompositionFramesExtractor.cpp
-        cpp/VideoCompositionFramesSyncExtractorHostObject.h
-        cpp/VideoCompositionFramesSyncExtractorHostObject.cpp
         cpp/VideoCompositionFramesExtractorHostObject.h
         cpp/VideoCompositionFramesExtractorHostObject.cpp
+        cpp/VideoCompositionFramesExtractorSyncHostObject.h
+        cpp/VideoCompositionFramesExtractorSyncHostObject.cpp
+        cpp/VideoEncoderHostObject.h
+        cpp/VideoEncoderHostObject.cpp
         cpp/VideoPlayerHostObject.h
         cpp/VideoPlayerHostObject.cpp
         cpp/VideoPlayer.h

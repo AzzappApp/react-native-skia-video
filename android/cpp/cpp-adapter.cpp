@@ -1,12 +1,12 @@
 #include "NativeEventDispatcher.h"
 #include "VideoCapabilities.h"
-#include "VideoCompositionEncoderHostObject.h"
 #include "VideoCompositionFramesExtractorHostObject.h"
-#include "VideoCompositionFramesSyncExtractorHostObject.h"
+#include "VideoCompositionFramesExtractorSyncHostObject.h"
+#include "VideoEncoderHostObject.h"
 #include "VideoPlayerHostObject.h"
+#include <fbjni/fbjni.h>
 #include <jni.h>
 #include <jsi/jsi.h>
-#include <fbjni/fbjni.h>
 
 using namespace facebook;
 using namespace RNSkiaVideo;
@@ -64,38 +64,38 @@ void install(jsi::Runtime& jsiRuntime) {
   RNSVModule.setProperty(jsiRuntime, "createVideoCompositionFramesExtractor",
                          std::move(createVideoCompositionFramesExtractor));
 
-  auto createVideoCompositionFramesSyncExtractor =
+  auto createVideoCompositionFramesExtractorSync =
       jsi::Function::createFromHostFunction(
           jsiRuntime,
-          jsi::PropNameID::forAscii(jsiRuntime,
-                                    "createVideoCompositionFramesSyncExtractor"),
+          jsi::PropNameID::forAscii(
+              jsiRuntime, "createVideoCompositionFramesExtractorSync"),
           1,
           [](jsi::Runtime& runtime, const jsi::Value& thisValue,
              const jsi::Value* arguments, size_t count) -> jsi::Value {
             if (count != 1 || !arguments[0].isObject()) {
               throw jsi::JSError(runtime,
-                                 "createVideoCompositionFramesSyncExtractor(.."
+                                 "createVideoCompositionFramesExtractorSync(.."
                                  ") expects one arguments (object)!");
             }
 
             auto instance = std::make_shared<
-                RNSkiaVideo::VideoCompositionFramesSyncExtractorHostObject>(
+                RNSkiaVideo::VideoCompositionFramesExtractorSyncHostObject>(
                 runtime, arguments[0].asObject(runtime));
             return jsi::Object::createFromHostObject(runtime, instance);
           });
 
   RNSVModule.setProperty(jsiRuntime,
-                         "createVideoCompositionFramesSyncExtractor",
-                         std::move(createVideoCompositionFramesSyncExtractor));
+                         "createVideoCompositionFramesExtractorSync",
+                         std::move(createVideoCompositionFramesExtractorSync));
 
-  auto createVideoCompositionEncoder = jsi::Function::createFromHostFunction(
-      jsiRuntime,
-      jsi::PropNameID::forAscii(jsiRuntime, "createVideoCompositionEncoder"), 1,
+  auto createVideoEncoder = jsi::Function::createFromHostFunction(
+      jsiRuntime, jsi::PropNameID::forAscii(jsiRuntime, "createVideoEncoder"),
+      1,
       [](jsi::Runtime& runtime, const jsi::Value& thisValue,
          const jsi::Value* arguments, size_t count) -> jsi::Value {
         if (count != 1 || !arguments[0].isObject()) {
           throw jsi::JSError(runtime, "ReactNativeSkiaVideo."
-                                      "createVideoCompositionEncoder(.."
+                                      "createVideoEncoder(.."
                                       ") expects one arguments (object)!");
         }
 
@@ -115,13 +115,12 @@ void install(jsi::Runtime& jsiRuntime) {
           }
         }
 
-        auto instance =
-            std::make_shared<RNSkiaVideo::VideoCompositionEncoderHostObject>(
-                outPath, width, height, frameRate, bitRate, encoderName);
+        auto instance = std::make_shared<RNSkiaVideo::VideoEncoderHostObject>(
+            outPath, width, height, frameRate, bitRate, encoderName);
         return jsi::Object::createFromHostObject(runtime, instance);
       });
-  RNSVModule.setProperty(jsiRuntime, "createVideoCompositionEncoder",
-                         std::move(createVideoCompositionEncoder));
+  RNSVModule.setProperty(jsiRuntime, "createVideoEncoder",
+                         std::move(createVideoEncoder));
 
   auto getDecodingCapabilitiesFor = jsi::Function::createFromHostFunction(
       jsiRuntime,
@@ -193,16 +192,18 @@ void install(jsi::Runtime& jsiRuntime) {
   RNSVModule.setProperty(jsiRuntime, "getValidEncoderConfigurations",
                          std::move(getValidEncoderConfigurations));
 
-  auto runWithJNIClassLoader =  jsi::Function::createFromHostFunction(
+  auto runWithJNIClassLoader = jsi::Function::createFromHostFunction(
       jsiRuntime,
       jsi::PropNameID::forAscii(jsiRuntime, "runWithJNIClassLoader"), 1,
       [](jsi::Runtime& runtime, const jsi::Value& thisValue,
-          const jsi::Value* arguments, size_t count) -> jsi::Value {
-        auto jsiCallback = std::make_shared<jsi::Function>(arguments[0].asObject(runtime).asFunction(runtime));
+         const jsi::Value* arguments, size_t count) -> jsi::Value {
+        auto jsiCallback = std::make_shared<jsi::Function>(
+            arguments[0].asObject(runtime).asFunction(runtime));
         jni::Environment::ensureCurrentThreadIsAttached();
-        jni::ThreadScope::WithClassLoader([jsiCallback = std::move(jsiCallback), &runtime]() {
-          jsiCallback->call(runtime);
-        });
+        jni::ThreadScope::WithClassLoader(
+            [jsiCallback = std::move(jsiCallback), &runtime]() {
+              jsiCallback->call(runtime);
+            });
         return jsi::Value::undefined();
       });
   RNSVModule.setProperty(jsiRuntime, "runWithJNIClassLoader",

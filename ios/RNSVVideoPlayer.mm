@@ -5,6 +5,7 @@
 
 #import "RNSVVideoPlayer.h"
 #import "AVAssetTrackUtils.h"
+#import "MTLTextureUtils.h"
 
 static void* timeRangeContext = &timeRangeContext;
 static void* statusContext = &statusContext;
@@ -33,8 +34,7 @@ static void* rateContext = &rateContext;
   AVAsset* asset = [AVAsset assetWithURL:url];
   self.resolution = resolution;
   NSDictionary* pixBuffAttributes = @{
-    (id)kCVPixelBufferPixelFormatTypeKey :
-        @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange),
+    (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
     (id)kCVPixelBufferMetalCompatibilityKey : @YES
   };
   if (!CGSizeEqualToSize(CGSizeZero, resolution)) {
@@ -108,6 +108,20 @@ static void* rateContext = &rateContext;
                                    itemTimeForDisplay:nil];
   }
   return buffer;
+}
+
+- (nullable id<MTLTexture>)getNextTextureForTime:(CMTime)time {
+  id<MTLTexture> texture = NULL;
+  if ([_videoOutput hasNewPixelBufferForItemTime:time]) {
+    auto buffer = [_videoOutput copyPixelBufferForItemTime:time
+                                        itemTimeForDisplay:nil];
+    if (buffer) {
+      texture =
+          [MTLTextureUtils convertBGRACVPixelBufferRefToMTLTexture:buffer];
+      CVPixelBufferRelease(buffer);
+    }
+  }
+  return texture;
 }
 
 - (void)seekTo:(CMTime)time

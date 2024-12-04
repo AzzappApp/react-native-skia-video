@@ -1,9 +1,9 @@
-#include "VideoCompositionEncoderHostObject.h"
-#include <android/hardware_buffer_jni.h>
+#include "VideoEncoderHostObject.h"
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES/gl.h>
 #include <GLES/glext.h>
+#include <android/hardware_buffer_jni.h>
 
 namespace RNSkiaVideo {
 using namespace facebook::jni;
@@ -21,7 +21,8 @@ void VideoEncoder::prepare() const {
 }
 
 void VideoEncoder::makeGLContextCurrent() const {
-  static const auto makeGLContextCurrentMethod = getClass()->getMethod<void()>("makeGLContextCurrent");
+  static const auto makeGLContextCurrentMethod =
+      getClass()->getMethod<void()>("makeGLContextCurrent");
   makeGLContextCurrentMethod(self());
 }
 
@@ -42,31 +43,28 @@ void VideoEncoder::finishWriting() const {
   finishWritingMethod(self());
 }
 
-VideoCompositionEncoderHostObject::VideoCompositionEncoderHostObject(
+VideoEncoderHostObject::VideoEncoderHostObject(
     std::string& outPath, int width, int height, int frameRate, int bitRate,
     std::optional<std::string> encoderName) {
   framesExtractor = make_global(VideoEncoder::create(
       outPath, width, height, frameRate, bitRate, encoderName));
 }
 
-VideoCompositionEncoderHostObject::~VideoCompositionEncoderHostObject() {
+VideoEncoderHostObject::~VideoEncoderHostObject() {
   this->release();
 }
 
 std::vector<jsi::PropNameID>
-VideoCompositionEncoderHostObject::getPropertyNames(jsi::Runtime& rt) {
+VideoEncoderHostObject::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> result;
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("prepare")));
-  result.push_back(
-      jsi::PropNameID::forUtf8(rt, std::string("encodeFrame")));
-  result.push_back(
-      jsi::PropNameID::forUtf8(rt, std::string("finishWriting")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("encodeFrame")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("finishWriting")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("dispose")));
   return result;
 }
 
-jsi::Value
-VideoCompositionEncoderHostObject::get(jsi::Runtime& runtime,
+jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
                                        const jsi::PropNameID& propNameId) {
   auto propName = propNameId.utf8(runtime);
   if (propName == "encodeFrame") {
@@ -75,12 +73,13 @@ VideoCompositionEncoderHostObject::get(jsi::Runtime& runtime,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           framesExtractor->makeGLContextCurrent();
-          auto texId = arguments[0].asObject(runtime).getProperty(runtime, "fID").asNumber();
+          auto texId = arguments[0]
+                           .asObject(runtime)
+                           .getProperty(runtime, "fID")
+                           .asNumber();
 
-          framesExtractor->encodeFrame(
-              (int)texId,
-              arguments[1].asNumber());
-          eglMakeCurrent(skiaDisplay, skiaSurfaceRead, skiaSurfaceDraw, skiaContext);
+          framesExtractor->encodeFrame((int)texId, arguments[1].asNumber());
+          skiaContextHolder->makeCurrent();
           return jsi::Value::undefined();
         });
   } else if (propName == "prepare") {
@@ -89,13 +88,9 @@ VideoCompositionEncoderHostObject::get(jsi::Runtime& runtime,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (!released.test()) {
-            skiaDisplay = eglGetCurrentDisplay();
-            skiaSurfaceRead = eglGetCurrentSurface(EGL_READ);
-            skiaSurfaceDraw = eglGetCurrentSurface(EGL_DRAW);
-            skiaContext = eglGetCurrentContext();
-
+            skiaContextHolder = std::make_shared<SkiaContextHolder>();
             framesExtractor->prepare();
-            eglMakeCurrent(skiaDisplay, skiaSurfaceRead, skiaSurfaceDraw, skiaContext);
+            skiaContextHolder->makeCurrent();
           }
           return jsi::Value::undefined();
         });
@@ -122,7 +117,7 @@ VideoCompositionEncoderHostObject::get(jsi::Runtime& runtime,
   return jsi::Value::undefined();
 }
 
-void VideoCompositionEncoderHostObject::release() {
+void VideoEncoderHostObject::release() {
   if (!released.test_and_set()) {
     framesExtractor->release();
     framesExtractor = nullptr;

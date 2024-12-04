@@ -9,9 +9,9 @@
 
 #import "JSIUtils.h"
 #import "VideoComposition.h"
-#import "VideoCompositionEncoderHostObject.h"
 #import "VideoCompositionFramesExtractorHostObject.h"
-#import "VideoCompositionFramesSyncExtractorHostObject.h"
+#import "VideoCompositionFramesExtractorSyncHostObject.h"
+#import "VideoEncoderHostObject.h"
 #import "VideoPlayerHostObject.h"
 
 @implementation ReactNativeSkiaVideo
@@ -93,39 +93,37 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
   RNSVModule.setProperty(runtime, "createVideoCompositionFramesExtractor",
                          std::move(createVideoCompositionFramesExtractor));
 
-  auto createVideoCompositionFramesSyncExtractor =
+  auto createVideoCompositionFramesExtractorSync =
       jsi::Function::createFromHostFunction(
           runtime,
           jsi::PropNameID::forAscii(
-              runtime, "createVideoCompositionFramesSyncExtractor"),
+              runtime, "createVideoCompositionFramesExtractorSync"),
           1,
           [bridge](jsi::Runtime& runtime, const jsi::Value& thisValue,
                    const jsi::Value* arguments, size_t count) -> jsi::Value {
             if (count != 1 || !arguments[0].isObject()) {
               throw jsi::JSError(runtime,
                                  "ReactNativeSkiaVideo."
-                                 "createVideoCompositionFramesSyncExtractor(.."
-                                 ") expects one arguments (object)!");
+                                 "createVideoCompositionFramesExtractorSync(..)"
+                                 " expects one arguments (object)!");
             }
 
             auto instance = std::make_shared<
-                RNSkiaVideo::VideoCompositionFramesSyncExtractorHostObject>(
+                RNSkiaVideo::VideoCompositionFramesExtractorSyncHostObject>(
                 runtime, arguments[0].asObject(runtime));
             return jsi::Object::createFromHostObject(runtime, instance);
           });
 
-  RNSVModule.setProperty(runtime, "createVideoCompositionFramesSyncExtractor",
-                         std::move(createVideoCompositionFramesSyncExtractor));
+  RNSVModule.setProperty(runtime, "createVideoCompositionFramesExtractorSync",
+                         std::move(createVideoCompositionFramesExtractorSync));
 
-  auto createVideoCompositionEncoder = jsi::Function::createFromHostFunction(
-      runtime,
-      jsi::PropNameID::forAscii(runtime, "createVideoCompositionEncoder"), 1,
+  auto createVideoEncoder = jsi::Function::createFromHostFunction(
+      runtime, jsi::PropNameID::forAscii(runtime, "createVideoEncoder"), 1,
       [bridge](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
         if (count != 1 || !arguments[0].isObject()) {
-          throw jsi::JSError(runtime, "ReactNativeSkiaVideo."
-                                      "createVideoCompositionEncoder(.."
-                                      ") expects one arguments (object)!");
+          throw jsi::JSError(runtime, "ReactNativeSkiaVideo.createVideoEncoder("
+                                      "..) expects one arguments (object)!");
         }
 
         auto options = arguments[0].asObject(runtime);
@@ -137,13 +135,12 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
         int frameRate = options.getProperty(runtime, "frameRate").asNumber();
         int bitRate = options.getProperty(runtime, "bitRate").asNumber();
 
-        auto instance =
-            std::make_shared<RNSkiaVideo::VideoCompositionEncoderHostObject>(
-                outPath, width, height, frameRate, bitRate);
+        auto instance = std::make_shared<RNSkiaVideo::VideoEncoderHostObject>(
+            outPath, width, height, frameRate, bitRate);
         return jsi::Object::createFromHostObject(runtime, instance);
       });
-  RNSVModule.setProperty(runtime, "createVideoCompositionEncoder",
-                         std::move(createVideoCompositionEncoder));
+  RNSVModule.setProperty(runtime, "createVideoEncoder",
+                         std::move(createVideoEncoder));
 
   runtime.global().setProperty(runtime, "RNSkiaVideo", RNSVModule);
   return @true;

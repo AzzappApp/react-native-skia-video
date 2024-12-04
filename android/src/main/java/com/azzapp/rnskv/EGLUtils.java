@@ -10,6 +10,9 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 
+import javax.microedition.khronos.egl.EGL10;
+import javax.microedition.khronos.egl.EGLContext;
+
 public class EGLUtils {
 
   /**
@@ -27,6 +30,14 @@ public class EGLUtils {
 
   static {
     Matrix.setIdentityM(IDENTITY_MATRIX, 0);
+  }
+
+  static public EGLContext getCurrentContextOrThrows() {
+    EGLContext context = ((EGL10) EGLContext.getEGL()).eglGetCurrentContext();
+    if (context == EGL10.EGL_NO_CONTEXT) {
+      throw new RuntimeException("Skia context is not initialized");
+    }
+    return context;
   }
 
   /**
@@ -153,6 +164,23 @@ public class EGLUtils {
         Log.e("RNSkiaVideo", errorMessageBuilder.toString());
       }
     }
+  }
+
+  /**
+   * Binds the texture of the given type with default configuration of GL_LINEAR filtering and
+   * GL_CLAMP_TO_EDGE wrapping.
+   *
+   * @param target The target to which the texture is bound, e.g. {@link GLES20#GL_TEXTURE_2D}
+   *               for a two-dimensional texture or {@link android.opengl.GLES11Ext#GL_TEXTURE_EXTERNAL_OES}
+   *               for an external texture.
+   * @param texId The texture identifier.
+   */
+  public static void configureTexture(int target, int texId) {
+    GLES20.glBindTexture(target, texId);
+    GLES20.glTexParameteri(target, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+    GLES20.glTexParameteri(target, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+    GLES20.glTexParameteri(target, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+    GLES20.glTexParameteri(target, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
   }
 
   /**

@@ -10,8 +10,8 @@ import type {
   ExportOptions,
   FrameDrawer,
   VideoComposition,
-  VideoCompositionEncoder,
-  VideoCompositionFramesSyncExtractor,
+  VideoEncoder,
+  VideoCompositionFramesExtractorSync,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
 
@@ -48,8 +48,8 @@ export const exportVideoComposition = async (
       'worklet';
 
       let surface: SkSurface | null = null;
-      let frameExtractor: VideoCompositionFramesSyncExtractor | null = null;
-      let encoder: VideoCompositionEncoder | null = null;
+      let frameExtractor: VideoCompositionFramesExtractorSync | null = null;
+      let encoder: VideoEncoder | null = null;
       const { width, height } = options;
       try {
         surface = Skia.Surface.MakeOffscreen(width, height);
@@ -57,15 +57,13 @@ export const exportVideoComposition = async (
           throw new Error('Failed to create Skia surface');
         }
 
-        encoder = RNSkiaVideoModule.createVideoCompositionEncoder(options);
-        console.log('Preparing encoder');
+        encoder = RNSkiaVideoModule.createVideoEncoder(options);
         encoder.prepare();
 
         frameExtractor =
-          RNSkiaVideoModule.createVideoCompositionFramesSyncExtractor(
+          RNSkiaVideoModule.createVideoCompositionFramesExtractorSync(
             videoComposition
           );
-        console.log('Preparing encoder');
         frameExtractor.start();
 
         const nbFrames = videoComposition.duration * options.frameRate;
@@ -74,7 +72,6 @@ export const exportVideoComposition = async (
           const frames = frameExtractor.decodeCompositionFrames(currentTime);
           const canvas = surface.getCanvas();
           canvas.clear(Skia.Color('#00000000'));
-          console.log('Drawing frame', i);
           drawFrame({
             canvas,
             videoComposition,

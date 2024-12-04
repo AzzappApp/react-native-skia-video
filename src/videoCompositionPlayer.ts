@@ -4,6 +4,7 @@ import {
   useSharedValue,
   useDerivedValue,
   useFrameCallback,
+  runOnUI,
   type SharedValue,
 } from 'react-native-reanimated';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -96,6 +97,12 @@ export const useVideoCompositionPlayer = ({
     }
     return null;
   }, [isErrored, composition]);
+
+  useEffect(() => {
+    runOnUI(() => {
+      framesExtractor?.prepare();
+    })();
+  }, [framesExtractor]);
 
   const currentFrame = useSharedValue<SkPicture | null>(null);
   useEffect(

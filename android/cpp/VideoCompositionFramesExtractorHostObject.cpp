@@ -21,6 +21,7 @@ VideoCompositionFramesExtractorHostObject::
 std::vector<jsi::PropNameID>
 VideoCompositionFramesExtractorHostObject::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> result;
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("prepare")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("play")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("pause")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("seekTo")));
@@ -37,14 +38,26 @@ VideoCompositionFramesExtractorHostObject::getPropertyNames(jsi::Runtime& rt) {
 jsi::Value VideoCompositionFramesExtractorHostObject::get(
     jsi::Runtime& runtime, const jsi::PropNameID& propNameId) {
   auto propName = propNameId.utf8(runtime);
-  if (propName == "decodeCompositionFrames") {
+  if (propName == "prepare") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "prepare"), 0,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          auto result = jsi::Object(runtime);
+          if (!prepared.test_and_set()) {
+            skiaContextHolder = std::make_shared<SkiaContextHolder>();
+            player->prepare();
+          }
+          return jsi::Value::undefined();
+        });
+  } else if (propName == "decodeCompositionFrames") {
     return jsi::Function::createFromHostFunction(
         runtime, jsi::PropNameID::forAscii(runtime, "decodeCompositionFrames"),
         0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           auto result = jsi::Object(runtime);
-          if (released.test()) {
+          if (released.test() || !prepared.test()) {
             return result;
           }
           auto frames = player->decodeCompositionFrames();
@@ -54,6 +67,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
             auto jsFrame = frame->toJS(runtime);
             result.setProperty(runtime, id.c_str(), std::move(jsFrame));
           }
+          skiaContextHolder->makeCurrent();
           return result;
         });
   } else if (propName == "play") {
@@ -89,7 +103,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
                   "exportVideoComposition(..) expects 1 arguments (number)!");
             }
             auto posSec = arguments[0].asNumber();
-            player->seekTo(posSec * 1000000);
+            player->seekTo((long)(posSec * 1000000));
           }
           return jsi::Value::undefined();
         });
@@ -101,9 +115,8 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
           if (released.test()) {
             return jsi::Function::createFromHostFunction(
                 runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
-                [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
-                       const jsi::Value* arguments,
-                       size_t count) -> jsi::Value {
+                [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+                   const jsi::Value* arguments, size_t count) -> jsi::Value {
                   return jsi::Value::undefined();
                 });
           }
@@ -120,12 +133,12 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
           return jsi::Value::undefined();
         });
   } else if (propName == "currentTime") {
-    return jsi::Value(
-        released.test() ? 0 : (double)player->getCurrentPosition() / 1000000.0);
+    return {released.test() ? 0
+                            : (double)player->getCurrentPosition() / 1000000.0};
   } else if (propName == "isLooping") {
-    return jsi::Value(!released.test() && player->getIsLooping());
+    return {!released.test() && player->getIsLooping()};
   } else if (propName == "isPlaying") {
-    return jsi::Value(!released.test() && player->getIsPlaying());
+    return {!released.test() && player->getIsPlaying()};
   }
   return jsi::Value::undefined();
 }

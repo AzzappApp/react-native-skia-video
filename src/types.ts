@@ -7,10 +7,9 @@ import type { SkCanvas, SkSurface, Skia } from '@shopify/react-native-skia';
  */
 export type VideoFrame = {
   /**
-   * The memory address of the native buffer.
-   * @see Skia.Image.MakeImageFromNativeBuffer
+   * The native texture of the frame.
    */
-  buffer: bigint | null;
+  texture: unknown;
   /**
    * The width in pixels of the frame.
    */
@@ -221,6 +220,10 @@ export type FrameDrawer = (args: {
  */
 export type VideoCompositionFramesExtractor = {
   /**
+   * Prepares the video composition frames extractor for extracting the frames.
+   */
+  prepare(): void;
+  /**
    * Starts extracting the frames of the video composition.
    */
   play(): void;
@@ -273,7 +276,7 @@ export type VideoCompositionFramesExtractor = {
 /**
  * The video composition sync extractor interface.
  */
-export type VideoCompositionFramesSyncExtractor = {
+export type VideoCompositionFramesExtractorSync = {
   /**
    * Starts extracting the frames of the video composition.
    */
@@ -294,7 +297,7 @@ export type VideoCompositionFramesSyncExtractor = {
 /**
  * The video composition encoder interface.
  */
-export type VideoCompositionEncoder = {
+export type VideoEncoder = {
   /**
    * Prepares the video composition encoder for writing.
    */
@@ -374,24 +377,24 @@ export type RNSkiaVideoModule = {
    * @param composition The video composition.
    * @returns The video composition frames extractor.
    */
-  createVideoCompositionFramesSyncExtractor: (
+  createVideoCompositionFramesExtractorSync: (
     /**
      * The video composition to extract frames from.
      */
     composition: VideoComposition
-  ) => VideoCompositionFramesSyncExtractor;
+  ) => VideoCompositionFramesExtractorSync;
 
   /**
    * Creates a video composition encoder for the specified export options.
    * @param options The export options for the video composition.
    * @returns The video composition encoder.
    */
-  createVideoCompositionEncoder: (
+  createVideoEncoder: (
     /**
      * The export options for the video composition.
      */
     options: ExportOptions
-  ) => VideoCompositionEncoder;
+  ) => VideoEncoder;
   /**
    * Returns the decoding capabilities of the current platform for the specified mimetype.
    *
