@@ -31,6 +31,27 @@ VideoCompositionItemDecoder::VideoCompositionItemDecoder(
   rotation = AVAssetTrackUtils::GetTrackRotationInDegree(videoTrack);
   currentFrame = nullptr;
   this->setupReader(kCMTimeZero);
+  
+  device = MTLCreateSystemDefaultDevice();
+  commandQueue = [device newCommandQueue];
+  
+  CGSize resolution = item->resolution;
+  MTLTextureDescriptor *descriptor = [[MTLTextureDescriptor alloc] init];
+  descriptor.pixelFormat = MTLPixelFormatBGRA8Unorm;
+  if (resolution.width > 0 && resolution.height > 0) {
+    descriptor.width = resolution.width;
+    descriptor.height =resolution.height;
+  } else {
+    descriptor.width = width;
+    descriptor.height = height;
+  }
+  descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+  descriptor.storageMode = MTLStorageModePrivate;
+
+  mtlTexture = [device newTextureWithDescriptor:descriptor];
+  if (!mtlTexture) {
+      throw std::runtime_error("Failed to create persistent Metal texture!");
+  }
 }
 
 void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
@@ -125,12 +146,8 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
       auto timeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
       auto buffer = CMSampleBufferGetImageBuffer(sampleBuffer);
       if (buffer) {
-        auto texture =
-            [MTLTextureUtils convertBGRACVPixelBufferRefToMTLTexture:buffer];
-        auto frame =
-            std::make_shared<VideoFrame>(texture, width, height, rotation);
         framesQueue->push_back(
-            std::make_pair(CMTimeGetSeconds(timeStamp), frame));
+            std::make_pair(CMTimeGetSeconds(timeStamp), buffer));
       }
 
       latestSampleTime = timeStamp;
@@ -145,7 +162,7 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
       CMTimeCompare(currentTime, lastRequestedTime) < 0) {
     hasLooped = false;
     for (const auto& frame : decodedFrames) {
-      frame.second->release();
+      CVPixelBufferRelease(frame.second);
     }
     decodedFrames = nextLoopFrames;
     nextLoopFrames.clear();
@@ -158,14 +175,14 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
           MAX((CMTimeGetSeconds(currentTime) - item->compositionStartTime), 0),
           NSEC_PER_SEC));
 
-  std::shared_ptr<VideoFrame> nextFrame = nullptr;
+  CVPixelBufferRef nextFrame = nil;
   auto it = decodedFrames.begin();
   while (it != decodedFrames.end()) {
     auto timestamp = CMTimeMakeWithSeconds(it->first, NSEC_PER_SEC);
     if (CMTimeCompare(timestamp, position) <= 0 ||
         (force && nextFrame == nullptr)) {
       if (nextFrame != nullptr) {
-        nextFrame->release();
+        CVPixelBufferRelease(nextFrame);
       }
       nextFrame = it->second;
       it = decodedFrames.erase(it);
@@ -173,7 +190,12 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
       break;
     }
   }
-  return nextFrame;
+  if (nextFrame) {
+    updatePersistentTextureWithPixelBuffer(nextFrame);
+    CVPixelBufferRelease(nextFrame);
+    return std::make_shared<VideoFrame>(mtlTexture, width, height, rotation);
+  }
+  return nullptr;
 }
 
 void VideoCompositionItemDecoder::seekTo(CMTime currentTime) {
@@ -190,11 +212,11 @@ void VideoCompositionItemDecoder::release() {
       assetReader = nullptr;
     }
     for (const auto& frame : decodedFrames) {
-      frame.second->release();
+      CVPixelBufferRelease(frame.second);
     }
     decodedFrames.clear();
     for (const auto& frame : nextLoopFrames) {
-      frame.second->release();
+      CVPixelBufferRelease(frame.second);
     }
     nextLoopFrames.clear();
     if (currentFrame) {
@@ -204,7 +226,65 @@ void VideoCompositionItemDecoder::release() {
     nextLoopFrames.clear();
     hasLooped = false;
     lastRequestedTime = kCMTimeInvalid;
+    [mtlTexture setPurgeableState:MTLPurgeableStateEmpty];
+    mtlTexture = nil;
+    commandQueue = nil;
+    device = nil;
   }
+}void VideoCompositionItemDecoder::updatePersistentTextureWithPixelBuffer(CVPixelBufferRef pixelBuffer) {
+    // Assure-toi que le pixel buffer est verrouillé pour lecture
+    CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+
+    size_t width = CVPixelBufferGetWidth(pixelBuffer);
+    size_t height = CVPixelBufferGetHeight(pixelBuffer);
+    size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
+    void *baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer);
+
+    if (!baseAddress) {
+        CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+        throw std::runtime_error("Failed to get base address of CVPixelBuffer!");
+    }
+
+    if (width > mtlTexture.width || height > mtlTexture.height) {
+        CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+        throw std::runtime_error("Pixel buffer dimensions exceed texture dimensions!");
+    }
+
+    id<MTLBuffer> stagingBuffer = [device newBufferWithLength:bytesPerRow * height
+                                                      options:MTLResourceStorageModeShared];
+    if (!stagingBuffer) {
+        CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+        throw std::runtime_error("Failed to create staging buffer!");
+    }
+
+    memcpy(stagingBuffer.contents, baseAddress, bytesPerRow * height);
+
+    id<MTLCommandBuffer> commandBuffer = [commandQueue commandBufferWithUnretainedReferences];
+    id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
+
+    MTLRegion region = MTLRegionMake2D(0, 0, width, height);
+
+    [blitEncoder copyFromBuffer:stagingBuffer
+                   sourceOffset:0
+              sourceBytesPerRow:bytesPerRow
+            sourceBytesPerImage:bytesPerRow * height
+                     sourceSize:region.size
+                      toTexture:mtlTexture
+               destinationSlice:0
+               destinationLevel:0
+              destinationOrigin:region.origin];
+
+    [blitEncoder endEncoding];
+    [commandBuffer commit];
+    [commandBuffer waitUntilCompleted];
+    
+    [stagingBuffer setPurgeableState:MTLPurgeableStateEmpty];
+    stagingBuffer = nil;
+
+    // Libère le pixel buffer
+    CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
 }
+
+
 
 } // namespace RNSkiaVideo

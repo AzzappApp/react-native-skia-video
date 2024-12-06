@@ -9,6 +9,7 @@ using namespace facebook;
 
 namespace RNSkiaVideo {
 
+
 class VideoCompositionItemDecoder {
 public:
   VideoCompositionItemDecoder(std::shared_ptr<VideoCompositionItem> item,
@@ -30,12 +31,17 @@ private:
   AVURLAsset* asset;
   AVAssetTrack* videoTrack;
   AVAssetReader* assetReader;
-  std::list<std::pair<double, std::shared_ptr<VideoFrame>>> decodedFrames;
-  std::list<std::pair<double, std::shared_ptr<VideoFrame>>> nextLoopFrames;
+  id<MTLDevice> device;
+  id<MTLCommandQueue> commandQueue;
+  id<MTLTexture> mtlTexture;
+  std::list<std::pair<double, CVPixelBufferRef>> decodedFrames;
+  std::list<std::pair<double, CVPixelBufferRef>> nextLoopFrames;
   CMTime lastRequestedTime = kCMTimeInvalid;
   std::shared_ptr<VideoFrame> currentFrame;
 
   void setupReader(CMTime initialTime);
+  
+  void updatePersistentTextureWithPixelBuffer(CVPixelBufferRef pixelBuffer);
 };
 
 } // namespace RNSkiaVideo
