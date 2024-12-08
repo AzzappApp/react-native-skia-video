@@ -16,9 +16,9 @@ static void* rateContext = &rateContext;
 
 @implementation RNSVVideoPlayer {
   AVPlayer* _player;
-  CADisplayLink* _displayLink;
   AVPlayerItemVideoOutput* _videoOutput;
   id<MTLTexture> _mtlTexture;
+  CADisplayLink* _displayLink;
   id<RNSVVideoPlayerDelegate> _delegate;
   Boolean _complete;
   Boolean _waitingForFrame;
@@ -102,15 +102,6 @@ static void* rateContext = &rateContext;
       (float)((volume < 0.0) ? 0.0 : ((volume > 1.0) ? 1.0 : volume));
 }
 
-- (nullable CVPixelBufferRef)copyPixelBufferForTime:(CMTime)time {
-  CVPixelBufferRef buffer = NULL;
-  if ([_videoOutput hasNewPixelBufferForItemTime:time]) {
-    buffer = [_videoOutput copyPixelBufferForItemTime:time
-                                   itemTimeForDisplay:nil];
-  }
-  return buffer;
-}
-
 - (nullable id<MTLTexture>)getNextTextureForTime:(CMTime)time {
   id<MTLTexture> texture = NULL;
   if ([_videoOutput hasNewPixelBufferForItemTime:time]) {
@@ -119,8 +110,10 @@ static void* rateContext = &rateContext;
     if (buffer) {
       size_t width = CVPixelBufferGetWidth(buffer);
       size_t height = CVPixelBufferGetHeight(buffer);
-      if (!_mtlTexture || width != _mtlTexture.width || height != _mtlTexture.height) {
-        _mtlTexture = [MTLTextureUtils createMTLTextureForVideoOutput: CGSizeMake(width, height)];
+      if (!_mtlTexture || width != _mtlTexture.width ||
+          height != _mtlTexture.height) {
+        _mtlTexture = [MTLTextureUtils
+            createMTLTextureForVideoOutput:CGSizeMake(width, height)];
       }
       [MTLTextureUtils updateTexture:_mtlTexture with:buffer];
       CVPixelBufferRelease(buffer);

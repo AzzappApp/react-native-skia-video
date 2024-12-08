@@ -228,6 +228,7 @@ void VideoCompositionItemDecoder::release() {
     device = nil;
   }
 }
+
 void VideoCompositionItemDecoder::updatePersistentTextureWithPixelBuffer(
     CVPixelBufferRef pixelBuffer) {
   // Assure-toi que le pixel buffer est verrouillé pour lecture

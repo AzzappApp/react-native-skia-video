@@ -11,8 +11,22 @@
 
 @implementation MTLTextureUtils
 
-static id<MTLDevice> device =  MTLCreateSystemDefaultDevice();
-static id<MTLCommandQueue> commandQueue = [device newCommandQueue];
+static id<MTLDevice> device;
+inline id<MTLDevice> getDevice() {
+  if (!device) {
+    device = MTLCreateSystemDefaultDevice();
+  }
+  return device;
+}
+
+static id<MTLCommandQueue> commandQueue;
+inline id<MTLCommandQueue> getCommandQueue() {
+  if (!commandQueue) {
+    auto device = getDevice();
+    commandQueue = [device newCommandQueue];
+  }
+  return commandQueue;
+}
 
 + (nullable id<MTLTexture>)createMTLTextureForVideoOutput:(CGSize)size {
   MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
@@ -22,10 +36,12 @@ static id<MTLCommandQueue> commandQueue = [device newCommandQueue];
   descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
   descriptor.storageMode = MTLStorageModePrivate;
 
+  auto device = getDevice();
   return [device newTextureWithDescriptor:descriptor];
 }
 
-+(void)updateTexture:(id<MTLTexture>)mtlTexture with:(CVPixelBufferRef)pixelBuffer {
++ (void)updateTexture:(id<MTLTexture>)mtlTexture
+                 with:(CVPixelBufferRef)pixelBuffer {
   CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
 
   size_t width = CVPixelBufferGetWidth(pixelBuffer);
@@ -43,6 +59,9 @@ static id<MTLCommandQueue> commandQueue = [device newCommandQueue];
     throw std::runtime_error(
         "Pixel buffer dimensions exceed texture dimensions!");
   }
+
+  auto device = getDevice();
+  auto commandQueue = getCommandQueue();
 
   id<MTLBuffer> stagingBuffer =
       [device newBufferWithLength:bytesPerRow * height

@@ -103,7 +103,6 @@ void VideoCompositionFramesExtractorSyncHostObject::release() {
   }
   itemDecoders.clear();
   currentFrames.clear();
-  
 }
 
 } // namespace RNSkiaVideo

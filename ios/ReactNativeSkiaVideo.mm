@@ -85,9 +85,11 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
                                  ") expects one arguments (object)!");
             }
 
-            auto instance = std::make_shared<
+           jsi::Object jsObject = arguments[0].asObject(runtime);
+           auto videoComposition = RNSkiaVideo::VideoComposition::fromJS(runtime, jsObject);
+           auto instance = std::make_shared<
                 RNSkiaVideo::VideoCompositionFramesExtractorHostObject>(
-                runtime, bridge.jsCallInvoker, arguments[0].asObject(runtime));
+                runtime, bridge.jsCallInvoker, videoComposition);
             return jsi::Object::createFromHostObject(runtime, instance);
           });
   RNSVModule.setProperty(runtime, "createVideoCompositionFramesExtractor",

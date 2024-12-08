@@ -11,10 +11,9 @@ namespace RNSkiaVideo {
 VideoCompositionFramesExtractorHostObject::
     VideoCompositionFramesExtractorHostObject(
         jsi::Runtime& runtime, std::shared_ptr<react::CallInvoker> callInvoker,
-        jsi::Object jsComposition)
-    : EventEmitter(runtime, callInvoker) {
+        std::shared_ptr<VideoComposition> videoComposition)
+    : EventEmitter(runtime, callInvoker), composition(videoComposition) {
   lock = [[NSObject alloc] init];
-  composition = VideoComposition::fromJS(runtime, jsComposition);
 }
 
 VideoCompositionFramesExtractorHostObject::
@@ -47,7 +46,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "prepare"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released) {
+          if (!released.test()) {
             prepare();
           }
           return jsi::Value::undefined();
@@ -57,7 +56,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "play"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released) {
+          if (!released.test()) {
             if (initialized) {
               play();
             } else {
@@ -71,7 +70,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "pause"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released) {
+          if (!released.test()) {
             if (initialized) {
               pause();
             } else {
@@ -85,7 +84,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "seekTo"), 1,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released) {
+          if (!released.test()) {
             seekTo(
                 CMTimeMakeWithSeconds(arguments[0].asNumber(), NSEC_PER_SEC));
           }
@@ -99,7 +98,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           @synchronized(lock) {
             auto frames = jsi::Object(runtime);
-            if (released || !initialized) {
+            if (released.test() || !initialized) {
               return frames;
             }
             auto currentTime = getCurrentTime();
@@ -130,7 +129,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           @synchronized(lock) {
-            if (released) {
+            if (released.test()) {
               return jsi::Function::createFromHostFunction(
                   runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
                   [](jsi::Runtime& runtime, const jsi::Value& thisValue,
@@ -152,11 +151,11 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
           return jsi::Value::undefined();
         });
   } else if (propName == "currentTime") {
-    return jsi::Value(released ? 0 : CMTimeGetSeconds(getCurrentTime()));
+    return jsi::Value(released.test() ? 0 : CMTimeGetSeconds(getCurrentTime()));
   } else if (propName == "isLooping") {
-    return jsi::Value(!released && isLooping);
+    return jsi::Value(!released.test() && isLooping);
   } else if (propName == "isPlaying") {
-    return jsi::Value(!released && isPlaying);
+    return jsi::Value(!released.test() && isPlaying);
   }
   return jsi::Value::undefined();
 }
@@ -164,7 +163,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
 void VideoCompositionFramesExtractorHostObject::set(
     jsi::Runtime& runtime, const jsi::PropNameID& propNameId,
     const jsi::Value& value) {
-  if (released) {
+  if (released.test()) {
     return;
   }
   auto propName = propNameId.utf8(runtime);
@@ -187,7 +186,7 @@ void VideoCompositionFramesExtractorHostObject::prepare() {
         dispatch_async(decoderQueue, ^{
           std::vector<std::future<void>> futures;
           @synchronized(lock) {
-            if (released || !initialized) {
+            if (released.test() || !initialized) {
               return;
             }
             auto currentTime = getCurrentTime();
@@ -220,7 +219,7 @@ void VideoCompositionFramesExtractorHostObject::prepare() {
 }
 void VideoCompositionFramesExtractorHostObject::init() {
   @synchronized(lock) {
-    if (released) {
+    if (released.test()) {
       return;
     }
     try {
@@ -283,7 +282,7 @@ CMTime VideoCompositionFramesExtractorHostObject::getCurrentTime() {
 
 void VideoCompositionFramesExtractorHostObject::release() {
   @synchronized(lock) {
-    if (released) {
+    if (released.test_and_set()) {
       return;
     }
     try {
