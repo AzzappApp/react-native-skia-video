@@ -11,9 +11,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface MTLTextureUtils : NSObject
 
-+ (nullable id<MTLTexture>)convertBGRACVPixelBufferRefToMTLTexture:
-    (CVPixelBufferRef)pixelBuffer;
-
++ (nullable id<MTLTexture>)createMTLTextureForVideoOutput:(CGSize)size;
++ (void)updateTexture:(id<MTLTexture>)texture with:(CVPixelBufferRef)buffer;
 @end
 
 NS_ASSUME_NONNULL_END

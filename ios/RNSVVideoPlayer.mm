@@ -18,6 +18,7 @@ static void* rateContext = &rateContext;
   AVPlayer* _player;
   CADisplayLink* _displayLink;
   AVPlayerItemVideoOutput* _videoOutput;
+  id<MTLTexture> _mtlTexture;
   id<RNSVVideoPlayerDelegate> _delegate;
   Boolean _complete;
   Boolean _waitingForFrame;
@@ -116,9 +117,14 @@ static void* rateContext = &rateContext;
     auto buffer = [_videoOutput copyPixelBufferForItemTime:time
                                         itemTimeForDisplay:nil];
     if (buffer) {
-      texture =
-          [MTLTextureUtils convertBGRACVPixelBufferRefToMTLTexture:buffer];
+      size_t width = CVPixelBufferGetWidth(buffer);
+      size_t height = CVPixelBufferGetHeight(buffer);
+      if (!_mtlTexture || width != _mtlTexture.width || height != _mtlTexture.height) {
+        _mtlTexture = [MTLTextureUtils createMTLTextureForVideoOutput: CGSizeMake(width, height)];
+      }
+      [MTLTextureUtils updateTexture:_mtlTexture with:buffer];
       CVPixelBufferRelease(buffer);
+      texture = _mtlTexture;
     }
   }
   return texture;

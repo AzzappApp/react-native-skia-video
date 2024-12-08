@@ -11,39 +11,73 @@
 
 @implementation MTLTextureUtils
 
-inline CVMetalTextureCacheRef getTextureCache() {
-  static CVMetalTextureCacheRef textureCache = nil;
-  if (textureCache == nil) {
-    // Create a new Texture Cache
-    auto result = CVMetalTextureCacheCreate(kCFAllocatorDefault, nil,
-                                            MTLCreateSystemDefaultDevice(), nil,
-                                            &textureCache);
-    if (result != kCVReturnSuccess || textureCache == nil) {
-      throw std::runtime_error("Failed to create Metal Texture Cache!");
-    }
-  }
-  return textureCache;
-}
-// caching the result of textureCache to improve perf(test in progress)
-static CVMetalTextureCacheRef textureCache = getTextureCache();
+static id<MTLDevice> device =  MTLCreateSystemDefaultDevice();
+static id<MTLCommandQueue> commandQueue = [device newCommandQueue];
 
-+ (id<MTLTexture>)convertBGRACVPixelBufferRefToMTLTexture:
-    (CVPixelBufferRef)pixelBuffer {
++ (nullable id<MTLTexture>)createMTLTextureForVideoOutput:(CGSize)size {
+  MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
+  descriptor.pixelFormat = MTLPixelFormatBGRA8Unorm;
+  descriptor.width = size.width;
+  descriptor.height = size.height;
+  descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+  descriptor.storageMode = MTLStorageModePrivate;
+
+  return [device newTextureWithDescriptor:descriptor];
+}
+
++(void)updateTexture:(id<MTLTexture>)mtlTexture with:(CVPixelBufferRef)pixelBuffer {
+  CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+
   size_t width = CVPixelBufferGetWidth(pixelBuffer);
   size_t height = CVPixelBufferGetHeight(pixelBuffer);
-  CVMetalTextureRef cvMetalTexture = nullptr;
-  CVReturn cvReturn = CVMetalTextureCacheCreateTextureFromImage(
-      kCFAllocatorDefault, getTextureCache(), pixelBuffer, nullptr,
-      MTLPixelFormatBGRA8Unorm, width, height, 0u, &cvMetalTexture);
+  size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
+  void* baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer);
 
-  if (cvReturn != kCVReturnSuccess) {
-    throw std::runtime_error(
-        "Could not create Metal texture from pixel buffer");
+  if (!baseAddress) {
+    CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+    throw std::runtime_error("Failed to get base address of CVPixelBuffer!");
   }
 
-  auto mtlTexture = CVMetalTextureGetTexture(cvMetalTexture);
-  CVBufferRelease(cvMetalTexture);
-  return mtlTexture;
+  if (width > mtlTexture.width || height > mtlTexture.height) {
+    CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+    throw std::runtime_error(
+        "Pixel buffer dimensions exceed texture dimensions!");
+  }
+
+  id<MTLBuffer> stagingBuffer =
+      [device newBufferWithLength:bytesPerRow * height
+                          options:MTLResourceStorageModeShared];
+  if (!stagingBuffer) {
+    CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+    throw std::runtime_error("Failed to create staging buffer!");
+  }
+
+  memcpy(stagingBuffer.contents, baseAddress, bytesPerRow * height);
+
+  id<MTLCommandBuffer> commandBuffer =
+      [commandQueue commandBufferWithUnretainedReferences];
+  id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
+
+  MTLRegion region = MTLRegionMake2D(0, 0, width, height);
+
+  [blitEncoder copyFromBuffer:stagingBuffer
+                 sourceOffset:0
+            sourceBytesPerRow:bytesPerRow
+          sourceBytesPerImage:bytesPerRow * height
+                   sourceSize:region.size
+                    toTexture:mtlTexture
+             destinationSlice:0
+             destinationLevel:0
+            destinationOrigin:region.origin];
+
+  [blitEncoder endEncoding];
+  [commandBuffer commit];
+  [commandBuffer waitUntilCompleted];
+
+  [stagingBuffer setPurgeableState:MTLPurgeableStateEmpty];
+  stagingBuffer = nil;
+
+  CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
 }
 
 @end
