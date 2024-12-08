@@ -24,6 +24,7 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
   }
 
   using namespace facebook;
+  using namespace RNSkiaVideo;
 
   auto jsiRuntime = (jsi::Runtime*)cxxBridge.runtime;
   if (jsiRuntime == nil) {
@@ -61,7 +62,7 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
 
         NSURL* url = [NSURL URLWithString:urlStr];
 
-        auto instance = std::make_shared<RNSkiaVideo::VideoPlayerHostObject>(
+        auto instance = std::make_shared<VideoPlayerHostObject>(
             runtime, bridge.jsCallInvoker, url, resolution);
         return jsi::Object::createFromHostObject(runtime, instance);
       });
@@ -85,11 +86,11 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
                                  ") expects one arguments (object)!");
             }
 
-           jsi::Object jsObject = arguments[0].asObject(runtime);
-           auto videoComposition = RNSkiaVideo::VideoComposition::fromJS(runtime, jsObject);
-           auto instance = std::make_shared<
-                RNSkiaVideo::VideoCompositionFramesExtractorHostObject>(
-                runtime, bridge.jsCallInvoker, videoComposition);
+            jsi::Object jsObject = arguments[0].asObject(runtime);
+            auto videoComposition = VideoComposition::fromJS(runtime, jsObject);
+            auto instance =
+                std::make_shared<VideoCompositionFramesExtractorHostObject>(
+                    runtime, bridge.jsCallInvoker, videoComposition);
             return jsi::Object::createFromHostObject(runtime, instance);
           });
   RNSVModule.setProperty(runtime, "createVideoCompositionFramesExtractor",
@@ -110,9 +111,11 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
                                  " expects one arguments (object)!");
             }
 
-            auto instance = std::make_shared<
-                RNSkiaVideo::VideoCompositionFramesExtractorSyncHostObject>(
-                runtime, arguments[0].asObject(runtime));
+            jsi::Object jsObject = arguments[0].asObject(runtime);
+            auto videoComposition = VideoComposition::fromJS(runtime, jsObject);
+            auto instance =
+                std::make_shared<VideoCompositionFramesExtractorSyncHostObject>(
+                    videoComposition);
             return jsi::Object::createFromHostObject(runtime, instance);
           });
 
@@ -137,7 +140,7 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
         int frameRate = options.getProperty(runtime, "frameRate").asNumber();
         int bitRate = options.getProperty(runtime, "bitRate").asNumber();
 
-        auto instance = std::make_shared<RNSkiaVideo::VideoEncoderHostObject>(
+        auto instance = std::make_shared<VideoEncoderHostObject>(
             outPath, width, height, frameRate, bitRate);
         return jsi::Object::createFromHostObject(runtime, instance);
       });

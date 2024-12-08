@@ -9,19 +9,9 @@
 namespace RNSkiaVideo {
 
 VideoCompositionFramesExtractorSyncHostObject::
-    VideoCompositionFramesExtractorSyncHostObject(jsi::Runtime& runtime,
-                                                  jsi::Object jsComposition) {
-  composition = VideoComposition::fromJS(runtime, jsComposition);
-  try {
-    for (const auto& item : composition->items) {
-      itemDecoders[item->id] =
-          std::make_shared<VideoCompositionItemDecoder>(item, false);
-    }
-  } catch (NSError* error) {
-    itemDecoders.clear();
-    throw error;
-  }
-}
+    VideoCompositionFramesExtractorSyncHostObject(
+        std::shared_ptr<VideoComposition> composition)
+    : composition(composition) {}
 
 VideoCompositionFramesExtractorSyncHostObject::
     ~VideoCompositionFramesExtractorSyncHostObject() {
@@ -46,8 +36,18 @@ jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
     return jsi::Function::createFromHostFunction(
         runtime, jsi::PropNameID::forAscii(runtime, "start"), 1,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
-               const jsi::Value* arguments,
-               size_t count) -> jsi::Value { return jsi::Value::undefined(); });
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          try {
+            for (const auto& item : composition->items) {
+              itemDecoders[item->id] =
+                  std::make_shared<VideoCompositionItemDecoder>(item, false);
+            }
+          } catch (NSError* error) {
+            itemDecoders.clear();
+            throw error;
+          }
+          return jsi::Value::undefined();
+        });
   } else if (propName == "decodeCompositionFrames") {
     return jsi::Function::createFromHostFunction(
         runtime, jsi::PropNameID::forAscii(runtime, "decodeCompositionFrames"),

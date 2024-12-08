@@ -30,8 +30,6 @@ private:
   AVURLAsset* asset;
   AVAssetTrack* videoTrack;
   AVAssetReader* assetReader;
-  id<MTLDevice> device;
-  id<MTLCommandQueue> commandQueue;
   id<MTLTexture> mtlTexture;
   std::list<std::pair<double, CVPixelBufferRef>> decodedFrames;
   std::list<std::pair<double, CVPixelBufferRef>> nextLoopFrames;
@@ -39,8 +37,6 @@ private:
   std::shared_ptr<VideoFrame> currentFrame;
 
   void setupReader(CMTime initialTime);
-
-  void updatePersistentTextureWithPixelBuffer(CVPixelBufferRef pixelBuffer);
 };
 
 } // namespace RNSkiaVideo

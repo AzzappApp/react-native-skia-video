@@ -32,23 +32,12 @@ VideoCompositionItemDecoder::VideoCompositionItemDecoder(
   currentFrame = nullptr;
   this->setupReader(kCMTimeZero);
 
-  device = MTLCreateSystemDefaultDevice();
-  commandQueue = [device newCommandQueue];
-
   CGSize resolution = item->resolution;
-  MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
-  descriptor.pixelFormat = MTLPixelFormatBGRA8Unorm;
-  if (resolution.width > 0 && resolution.height > 0) {
-    descriptor.width = resolution.width;
-    descriptor.height = resolution.height;
-  } else {
-    descriptor.width = width;
-    descriptor.height = height;
+  if (resolution.width <= 0 || resolution.height <= 0) {
+    resolution.width = width;
+    resolution.height = height;
   }
-  descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
-  descriptor.storageMode = MTLStorageModePrivate;
-
-  mtlTexture = [device newTextureWithDescriptor:descriptor];
+  mtlTexture = [MTLTextureUtils createMTLTextureForVideoOutput:resolution];
   if (!mtlTexture) {
     throw std::runtime_error("Failed to create persistent Metal texture!");
   }
@@ -191,7 +180,7 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
     }
   }
   if (nextFrame) {
-    updatePersistentTextureWithPixelBuffer(nextFrame);
+    [MTLTextureUtils updateTexture:mtlTexture with:nextFrame];
     CVPixelBufferRelease(nextFrame);
     return std::make_shared<VideoFrame>(mtlTexture, width, height, rotation);
   }
@@ -224,67 +213,7 @@ void VideoCompositionItemDecoder::release() {
     [mtlTexture setPurgeableState:MTLPurgeableStateEmpty];
     currentFrame = nullptr;
     mtlTexture = nil;
-    commandQueue = nil;
-    device = nil;
   }
-}
-
-void VideoCompositionItemDecoder::updatePersistentTextureWithPixelBuffer(
-    CVPixelBufferRef pixelBuffer) {
-  // Assure-toi que le pixel buffer est verrouillé pour lecture
-  CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
-
-  size_t width = CVPixelBufferGetWidth(pixelBuffer);
-  size_t height = CVPixelBufferGetHeight(pixelBuffer);
-  size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
-  void* baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer);
-
-  if (!baseAddress) {
-    CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
-    throw std::runtime_error("Failed to get base address of CVPixelBuffer!");
-  }
-
-  if (width > mtlTexture.width || height > mtlTexture.height) {
-    CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
-    throw std::runtime_error(
-        "Pixel buffer dimensions exceed texture dimensions!");
-  }
-
-  id<MTLBuffer> stagingBuffer =
-      [device newBufferWithLength:bytesPerRow * height
-                          options:MTLResourceStorageModeShared];
-  if (!stagingBuffer) {
-    CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
-    throw std::runtime_error("Failed to create staging buffer!");
-  }
-
-  memcpy(stagingBuffer.contents, baseAddress, bytesPerRow * height);
-
-  id<MTLCommandBuffer> commandBuffer =
-      [commandQueue commandBufferWithUnretainedReferences];
-  id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
-
-  MTLRegion region = MTLRegionMake2D(0, 0, width, height);
-
-  [blitEncoder copyFromBuffer:stagingBuffer
-                 sourceOffset:0
-            sourceBytesPerRow:bytesPerRow
-          sourceBytesPerImage:bytesPerRow * height
-                   sourceSize:region.size
-                    toTexture:mtlTexture
-             destinationSlice:0
-             destinationLevel:0
-            destinationOrigin:region.origin];
-
-  [blitEncoder endEncoding];
-  [commandBuffer commit];
-  [commandBuffer waitUntilCompleted];
-
-  [stagingBuffer setPurgeableState:MTLPurgeableStateEmpty];
-  stagingBuffer = nil;
-
-  // Libère le pixel buffer
-  CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
 }
 
 } // namespace RNSkiaVideo

@@ -13,8 +13,8 @@ using namespace facebook;
 class JSI_EXPORT VideoCompositionFramesExtractorSyncHostObject
     : public jsi::HostObject {
 public:
-  VideoCompositionFramesExtractorSyncHostObject(jsi::Runtime& runtime,
-                                                jsi::Object composition);
+  VideoCompositionFramesExtractorSyncHostObject(
+      std::shared_ptr<VideoComposition> composition);
   ~VideoCompositionFramesExtractorSyncHostObject();
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
   std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime& rt) override;
