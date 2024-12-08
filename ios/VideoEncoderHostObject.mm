@@ -48,8 +48,10 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "encodeFrame"), 2,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          auto serializedTexture =
+              arguments[0].asObject(runtime).getProperty(runtime, "mtlTexture");
           void* texturePointer = reinterpret_cast<void*>(
-              arguments[0].asBigInt(runtime).asUint64(runtime));
+              serializedTexture.asBigInt(runtime).asUint64(runtime));
           auto texture = (__bridge id<MTLTexture>)texturePointer;
           auto time =
               CMTimeMakeWithSeconds(arguments[1].asNumber(), NSEC_PER_SEC);

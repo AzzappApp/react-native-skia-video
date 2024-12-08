@@ -13,7 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)bufferingUpdate:(NSArray<NSValue*>*)loadedTimeRanges;
 - (void)videoError:(nullable NSError*)error;
 - (void)complete;
-- (void)isPlaying:(Boolean)playing;
+- (void)isPlaying:(BOOL)playing;
 
 @end
 

@@ -14,6 +14,7 @@ import {
 } from '@azzapp/react-native-skia-video';
 import Slider from '@react-native-community/slider';
 import Animated, {
+  useAnimatedProps,
   useDerivedValue,
   useFrameCallback,
   useSharedValue,
@@ -111,23 +112,38 @@ const VideoPlayerExample = () => {
     if (!frame) {
       return null;
     }
-    return Skia.Image.MakeImageFromNativeTexture(
-      frame.texture,
-      frame.width,
-      frame.height
-    );
+    try {
+      return Skia.Image.MakeImageFromNativeTextureUnstable(
+        frame.texture,
+        frame.width,
+        frame.height
+      );
+    } catch (e) {
+      console.error('Failed to convert native texture to SkImage', e);
+      return null;
+    }
   });
 
-  const currentTime = useSharedValue<number | undefined>(0);
+  const currentTime = useSharedValue<number>(0);
+  const duration = useSharedValue<number>(1);
   useFrameCallback(() => {
     currentTime.value = player?.currentTime ?? 0;
+    duration.value = player?.duration ?? 0;
   }, true);
+
+  const sliderProps = useAnimatedProps(
+    () => ({
+      value: currentTime.value,
+      maximumValue: duration.value,
+    }),
+    [currentTime, duration]
+  );
 
   // on android reconciliation of Image component might fails, so we need to avoid rerendering
   // for things like play/pause button change
   const canvas = useMemo(
     () => (
-      <Canvas style={canvasDimensions}>
+      <Canvas style={canvasDimensions} opaque>
         <Rect
           x={0}
           y={0}
@@ -144,6 +160,7 @@ const VideoPlayerExample = () => {
         >
           <Blur blur={blur ? 5 : 0} />
         </Image>
+        <Rect x={0} y={0} width={100} height={100} color={'red'} />
       </Canvas>
     ),
     [videoImage, canvasDimensions, videoDimensions, blur]
@@ -152,15 +169,15 @@ const VideoPlayerExample = () => {
   return (
     <View style={{ flex: 1 }}>
       {canvas}
-      {video &&
+      {player &&
         loadedRanges.map((range, index) => (
           <View
             key={index}
             style={{
               position: 'absolute',
               top: canvasDimensions.height,
-              left: (range.start / video.duration) * windowWidth,
-              width: (range.duration / video.duration) * windowWidth,
+              left: (range.start / player.duration) * windowWidth,
+              width: (range.duration / player.duration) * windowWidth,
               height: 5,
               backgroundColor: 'rgba(255, 0, 0, 0.5)',
             }}
@@ -179,10 +196,10 @@ const VideoPlayerExample = () => {
       )}
       <View style={{ marginTop: 10, flex: 1, gap: 20, alignItems: 'center' }}>
         <AnimatedSlider
-          value={currentTime}
+          animatedProps={sliderProps}
           minimumValue={0}
-          maximumValue={video?.duration ?? 0}
           onValueChange={(value) => {
+            console.log('Seeking to', value);
             // Trigger continuously on Android
             if (Platform.OS !== 'android') {
               player?.seekTo(value);

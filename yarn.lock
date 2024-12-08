@@ -33,7 +33,7 @@ __metadata:
     "@react-native/typescript-config": 0.76.0
     "@react-navigation/native": ^6.1.18
     "@react-navigation/native-stack": ^6.11.0
-    "@shopify/react-native-skia": ^1.6.0
+    "@shopify/react-native-skia": ^1.7.0
     babel-plugin-module-resolver: ^5.0.0
     pexels: ^1.4.0
     react: 18.3.1
@@ -53,13 +53,14 @@ __metadata:
     "@evilmartians/lefthook": ^1.5.0
     "@react-native/eslint-config": ^0.73.1
     "@release-it/conventional-changelog": ^5.0.0
-    "@shopify/react-native-skia": ^1.6.0
+    "@shopify/react-native-skia": ^1.7.0
     "@types/jest": ^29.5.5
     "@types/react": ^18.2.44
     commitlint: ^17.0.2
     del-cli: ^5.1.0
     eslint: ^8.51.0
     eslint-config-prettier: ^9.0.0
+    eslint-plugin-ft-flow: ^3.0.11
     eslint-plugin-prettier: ^5.0.1
     jest: ^29.7.0
     prettier: ^3.0.3
@@ -71,7 +72,7 @@ __metadata:
     turbo: ^1.10.7
     typescript: ^5.2.2
   peerDependencies:
-    "@shopify/react-native-skia": ">= 1.6.0"
+    "@shopify/react-native-skia": ">= 1.7.0"
     react: "*"
     react-native: "*"
     react-native-reanimated: ">= 3.16.1"
@@ -4572,9 +4573,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@shopify/react-native-skia@npm:^1.6.0":
-  version: 1.6.0
-  resolution: "@shopify/react-native-skia@npm:1.6.0"
+"@shopify/react-native-skia@npm:^1.7.0":
+  version: 1.7.0
+  resolution: "@shopify/react-native-skia@npm:1.7.0"
   dependencies:
     canvaskit-wasm: 0.39.1
     react-reconciler: 0.27.0
@@ -4589,7 +4590,7 @@ __metadata:
       optional: true
   bin:
     setup-skia-web: ./scripts/setup-canvaskit.js
-  checksum: 88abc446541a2310143c346c29ab7dedd5b3b21bc85f3d54db35c14c96c084c70d7c487bc98ab4db510d8690f16ac68d62a2c022ebc6389a29eafb8f0089b4eb
+  checksum: d0abc364569ce63de090f167747bdcdcc3b9daae21c91bb3a0eb9745ad3b51de42a645daa23d5764c899247770a0c0b64c43733d001b70870357bfc6ffb9178b
   languageName: node
   linkType: hard
 
@@ -7709,6 +7710,19 @@ __metadata:
     "@babel/eslint-parser": ^7.12.0
     eslint: ^8.1.0
   checksum: 6272f7c352154875dc85c7dcd7cf66f6ed926a9a6aba81c675583bcc6695147597d6b9a6db0f643a387d14eccd61dc36daf20eec1c49e91ce1c63c01ffe295f7
+  languageName: node
+  linkType: hard
+
+"eslint-plugin-ft-flow@npm:^3.0.11":
+  version: 3.0.11
+  resolution: "eslint-plugin-ft-flow@npm:3.0.11"
+  dependencies:
+    lodash: ^4.17.21
+    string-natural-compare: ^3.0.1
+  peerDependencies:
+    eslint: ^8.56.0 || ^9.0.0
+    hermes-eslint: ">=0.15.0"
+  checksum: eba55022633424b7c5e491d4939eeba5525f5b1345a9fa0846a47f508885b91a0ee2a008276e4031260d0f9c1d971903b7469d8915ebc668cce67a01cdb808d0
   languageName: node
   linkType: hard
 

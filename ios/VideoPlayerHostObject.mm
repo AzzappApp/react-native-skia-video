@@ -275,8 +275,10 @@ using namespace facebook;
   _host->emit("complete");
 }
 
-- (void)isPlaying:(Boolean)playing {
-  _host->emit("playingStatusChange", jsi::Value(playing));
+- (void)isPlaying:(BOOL)playing {
+  _host->emit("playingStatusChange", [playing](jsi::Runtime&) {
+    return jsi::Value(playing ? true : false);
+  });
 }
 
 - (void)dispose {

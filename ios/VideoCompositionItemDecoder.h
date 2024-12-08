@@ -9,7 +9,6 @@ using namespace facebook;
 
 namespace RNSkiaVideo {
 
-
 class VideoCompositionItemDecoder {
 public:
   VideoCompositionItemDecoder(std::shared_ptr<VideoCompositionItem> item,
@@ -40,7 +39,7 @@ private:
   std::shared_ptr<VideoFrame> currentFrame;
 
   void setupReader(CMTime initialTime);
-  
+
   void updatePersistentTextureWithPixelBuffer(CVPixelBufferRef pixelBuffer);
 };
 

@@ -67,9 +67,6 @@ jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
             auto frame =
                 decoder->acquireFrameForTime(currentTime, !previousFrame);
             if (frame) {
-              if (previousFrame) {
-                previousFrame->release();
-              }
               currentFrames[itemId] = frame;
             } else {
               frame = previousFrame;
@@ -102,16 +99,11 @@ void VideoCompositionFramesExtractorSyncHostObject::release() {
         entry.second->release();
       }
     }
-    for (const auto& entry : currentFrames) {
-      auto frame = entry.second;
-      if (frame) {
-        frame->release();
-      }
-    }
   } catch (...) {
   }
   itemDecoders.clear();
   currentFrames.clear();
+  
 }
 
 } // namespace RNSkiaVideo

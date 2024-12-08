@@ -196,7 +196,7 @@ const drawFrame: FrameDrawer = ({
     );
     let image: SkImage;
     try {
-      image = Skia.Image.MakeImageFromNativeTexture(
+      image = Skia.Image.MakeImageFromNativeTextureUnstable(
         frame.texture,
         frame.width,
         frame.height
@@ -398,6 +398,7 @@ const VideoCompositionPreview = ({
                 width: windowWidth,
                 height: windowWidth,
               }}
+              opaque
             >
               <Picture picture={currentFrame} />
             </Canvas>

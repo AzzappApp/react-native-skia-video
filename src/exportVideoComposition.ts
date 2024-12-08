@@ -15,11 +15,11 @@ import type {
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
 
+const isAndroid = Platform.OS === 'android';
 const runOnNewThread = (fn: () => void) => {
   const exportRuntime = createWorkletRuntime(
     'RNSkiaVideoExportRuntime-' + performance.now()
   );
-  const isAndroid = Platform.OS === 'android';
   runOnRuntime(exportRuntime, () => {
     'worklet';
     if (isAndroid) {
@@ -81,7 +81,7 @@ export const exportVideoComposition = async (
             height: options.height,
           });
           surface.flush();
-          const texture = surface.getBackendTexture();
+          const texture = surface.getNativeTextureUnstable();
           encoder.encodeFrame(texture, currentTime);
           if (onProgress) {
             runOnJS(onProgress)({

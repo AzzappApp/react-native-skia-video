@@ -39,7 +39,7 @@ void EventEmitter::emit(std::string eventName, jsi::Value data) {
 
 void EventEmitter::emit(std::string eventName,
                         std::function<jsi::Value(jsi::Runtime&)> dataFactory) {
-  callInvoker->invokeAsync([=]() {
+  callInvoker->invokeAsync([=, this]() {
     if (jsListeners.count(eventName) != 0) {
       auto listeners = jsListeners[eventName];
       auto data = dataFactory(*runtime);
