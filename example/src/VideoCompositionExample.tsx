@@ -34,7 +34,7 @@ import ReactNativeBlobUtil, {
 } from 'react-native-blob-util';
 import {
   Canvas,
-  Picture,
+  Image as ImageSkia,
   Skia,
   type SkImage,
 } from '@shopify/react-native-skia';
@@ -400,7 +400,13 @@ const VideoCompositionPreview = ({
               }}
               opaque
             >
-              <Picture picture={currentFrame} />
+              <ImageSkia
+                image={currentFrame}
+                x={0}
+                y={0}
+                width={windowWidth}
+                height={windowWidth}
+              />
             </Canvas>
             <View style={{ opacity: videoComposition ? 1 : 0 }}>
               <Button
