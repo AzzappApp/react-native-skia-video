@@ -147,6 +147,16 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
   RNSVModule.setProperty(runtime, "createVideoEncoder",
                          std::move(createVideoEncoder));
 
+  auto usleepJS = jsi::Function::createFromHostFunction(
+      runtime, jsi::PropNameID::forAscii(runtime, "usleep"), 1,
+      [bridge](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+        auto time = arguments[0].asNumber();
+        usleep(time);
+        return jsi::Value::undefined();
+      });
+  RNSVModule.setProperty(runtime, "usleep", std::move(usleepJS));
+
   runtime.global().setProperty(runtime, "RNSkiaVideo", RNSVModule);
   return @true;
 }

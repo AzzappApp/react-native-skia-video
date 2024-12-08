@@ -1,8 +1,4 @@
-import {
-  createWorkletRuntime,
-  runOnRuntime,
-  runOnJS,
-} from 'react-native-reanimated';
+import { runOnJS } from 'react-native-reanimated';
 import { Platform } from 'react-native';
 import { Skia } from '@shopify/react-native-skia';
 import type { SkSurface } from '@shopify/react-native-skia';
@@ -14,21 +10,11 @@ import type {
   VideoCompositionFramesExtractorSync,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
+import { runOnNewThread } from './utils/thread';
 
-const isAndroid = Platform.OS === 'android';
-const runOnNewThread = (fn: () => void) => {
-  const exportRuntime = createWorkletRuntime(
-    'RNSkiaVideoExportRuntime-' + performance.now()
-  );
-  runOnRuntime(exportRuntime, () => {
-    'worklet';
-    if (isAndroid) {
-      (RNSkiaVideoModule as any).runWithJNIClassLoader(fn);
-    } else {
-      fn();
-    }
-  })();
-};
+const Promise = global.Promise;
+
+const OS = Platform.OS;
 
 /**
  * Exports a video composition to a video file.
@@ -81,6 +67,12 @@ export const exportVideoComposition = async (
             height: options.height,
           });
           surface.flush();
+
+          // On iOS and macOS, the first flush is not synchronous,
+          // so we need to wait for the next frame
+          if (i === 0 && (OS === 'ios' || OS === 'macos')) {
+            RNSkiaVideoModule.usleep?.(1000);
+          }
           const texture = surface.getNativeTextureUnstable();
           encoder.encodeFrame(texture, currentTime);
           if (onProgress) {
