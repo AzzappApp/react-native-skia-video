@@ -160,7 +160,6 @@ const VideoPlayerExample = () => {
         >
           <Blur blur={blur ? 5 : 0} />
         </Image>
-        <Rect x={0} y={0} width={100} height={100} color={'red'} />
       </Canvas>
     ),
     [videoImage, canvasDimensions, videoDimensions, blur]
@@ -199,7 +198,6 @@ const VideoPlayerExample = () => {
           animatedProps={sliderProps}
           minimumValue={0}
           onValueChange={(value) => {
-            console.log('Seeking to', value);
             // Trigger continuously on Android
             if (Platform.OS !== 'android') {
               player?.seekTo(value);
