@@ -169,8 +169,10 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     }
 
     if (inputEOS || itemEndReached) {
-      this.codec.queueInputBuffer(index, 0, 0, 0,
-        MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+      try {
+        this.codec.queueInputBuffer(index, 0, 0, 0,
+          MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+      } catch (Throwable e) {}
       return;
     }
 
@@ -190,13 +192,17 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
         MediaCodec.BUFFER_FLAG_END_OF_STREAM);
       return;
     }
-    this.codec.queueInputBuffer(
-      index,
-      0,
-      sampleSize,
-      extractor.getSampleTime(),
-      extractor.getSampleFlags()
-    );
+    try {
+      this.codec.queueInputBuffer(
+        index,
+        0,
+        sampleSize,
+        extractor.getSampleTime(),
+        extractor.getSampleFlags()
+      );
+    } catch (Throwable e) {
+      return;
+    }
     extractor.advance();
     inputEOS = extractor.getSampleTime() == -1;
   }
