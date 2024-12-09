@@ -1,6 +1,5 @@
 #import "ReactNativeSkiaVideo.h"
 
-#import "RNskiaModule.h"
 #import <React/RCTBridge+Private.h>
 #import <React/RCTBridge.h>
 #import <React/RCTUtils.h>
