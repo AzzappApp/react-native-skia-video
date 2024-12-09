@@ -99,11 +99,9 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
     }
     surfaceTexture.updateTexImage();
     latestTimeStampNs = surfaceTexture.getTimestamp();
-    EGLUtils.checkGlError("GLFrameExtractor.updateTexImage()");
     surfaceTexture.getTransformMatrix(transformMatrix);
 
     GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frameBuffer);
-    EGLUtils.checkGlError("GLFrameExtractor.bindFrameBuffer()");
     GLES20.glFramebufferTexture2D(
       GLES20.GL_FRAMEBUFFER,
       GLES20.GL_COLOR_ATTACHMENT0,
@@ -114,7 +112,6 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
     GLES20.glClearColor(0,0,0,0);
     GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
     GLES20.glViewport(0, 0, width, height);
-    EGLUtils.checkGlError("GLFrameExtractor.glViewport()");
     textureRenderer.draw(inputTexId, transformMatrix);
     EGLUtils.checkGlError("GLFrameExtractor.draw()");
     GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);

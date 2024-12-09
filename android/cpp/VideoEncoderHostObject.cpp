@@ -75,7 +75,7 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
           framesExtractor->makeGLContextCurrent();
           auto texId = arguments[0]
                            .asObject(runtime)
-                           .getProperty(runtime, "fID")
+                           .getProperty(runtime, "glID")
                            .asNumber();
 
           framesExtractor->encodeFrame((int)texId, arguments[1].asNumber());

@@ -163,7 +163,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
   }
 
   @Override
-  synchronized public void onInputBufferAvailable(MediaCodec codec, int index) {
+  synchronized public void onInputBufferAvailable(@NonNull MediaCodec codec, int index) {
     if (!prepared || !configured || released) {
       return;
     }
@@ -202,7 +202,8 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
   }
 
   @Override
-  synchronized public void onOutputBufferAvailable(MediaCodec codec, int index, MediaCodec.BufferInfo info) {
+  synchronized public void onOutputBufferAvailable(
+    @NonNull MediaCodec codec, int index, @NonNull MediaCodec.BufferInfo info) {
     if (released) {
       return;
     }
@@ -217,6 +218,9 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
       try {
         buffer = this.codec.getOutputBuffer(index);
       } catch (Throwable e) {
+        return;
+      }
+      if (buffer == null) {
         return;
       }
       buffer.position(info.offset);
@@ -246,7 +250,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
   }
 
   @Override
-  public void onError(MediaCodec codec, MediaCodec.CodecException e) {
+  public void onError(@NonNull MediaCodec codec, @NonNull MediaCodec.CodecException e) {
     if (onErrorListener != null) {
       onErrorListener.onError(e);
     }
@@ -334,7 +338,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     for (int i = 0; i < numTracks; i++) {
       MediaFormat format = extractor.getTrackFormat(i);
       String mime = format.getString(MediaFormat.KEY_MIME);
-      if (mime.startsWith("video/")) {
+      if (mime != null && mime.startsWith("video/")) {
         return i;
       }
     }

@@ -273,8 +273,8 @@ public class VideoPlayer {
     if (width > 0 && height > 0 && glFrameExtractor.decodeNextFrame(width, height)) {
       return new VideoFrame(
         glFrameExtractor.getOutputTexId(),
-        videoWidth,
-        videoHeight,
+        width,
+        height,
         0,
         glFrameExtractor.getLatestTimeStampNs()
       );

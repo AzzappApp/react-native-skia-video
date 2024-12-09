@@ -28,8 +28,8 @@ void install(jsi::Runtime& jsiRuntime) {
         int height = -1;
         if (count >= 2 && arguments[1].isObject()) {
           auto res = arguments[1].asObject(runtime);
-          width = res.getProperty(runtime, "width").asNumber();
-          height = res.getProperty(runtime, "height").asNumber();
+          width = (int)res.getProperty(runtime, "width").asNumber();
+          height = (int)res.getProperty(runtime, "height").asNumber();
         }
         auto instance = std::make_shared<VideoPlayerHostObject>(
             runtime, arguments[0].asString(runtime).utf8(runtime), width,
@@ -78,9 +78,9 @@ void install(jsi::Runtime& jsiRuntime) {
                                  ") expects one arguments (object)!");
             }
 
-            auto instance = std::make_shared<
-                RNSkiaVideo::VideoCompositionFramesExtractorSyncHostObject>(
-                runtime, arguments[0].asObject(runtime));
+            auto instance =
+                std::make_shared<VideoCompositionFramesExtractorSyncHostObject>(
+                    runtime, arguments[0].asObject(runtime));
             return jsi::Object::createFromHostObject(runtime, instance);
           });
 
@@ -103,10 +103,11 @@ void install(jsi::Runtime& jsiRuntime) {
         auto outPath = options.getProperty(runtime, "outPath")
                            .asString(runtime)
                            .utf8(runtime);
-        int width = options.getProperty(runtime, "width").asNumber();
-        int height = options.getProperty(runtime, "height").asNumber();
-        int frameRate = options.getProperty(runtime, "frameRate").asNumber();
-        int bitRate = options.getProperty(runtime, "bitRate").asNumber();
+        int width = (int)options.getProperty(runtime, "width").asNumber();
+        int height = (int)options.getProperty(runtime, "height").asNumber();
+        int frameRate =
+            (int)options.getProperty(runtime, "frameRate").asNumber();
+        int bitRate = (int)options.getProperty(runtime, "bitRate").asNumber();
         std::optional<std::string> encoderName = std::nullopt;
         if (options.hasProperty(runtime, "encoderName")) {
           auto value = options.getProperty(runtime, "encoderName");
@@ -115,7 +116,7 @@ void install(jsi::Runtime& jsiRuntime) {
           }
         }
 
-        auto instance = std::make_shared<RNSkiaVideo::VideoEncoderHostObject>(
+        auto instance = std::make_shared<VideoEncoderHostObject>(
             outPath, width, height, frameRate, bitRate, encoderName);
         return jsi::Object::createFromHostObject(runtime, instance);
       });
@@ -153,10 +154,10 @@ void install(jsi::Runtime& jsiRuntime) {
       jsi::PropNameID::forAscii(jsiRuntime, "getDecodingCapabilitiesFor"), 4,
       [](jsi::Runtime& runtime, const jsi::Value& thisValue,
          const jsi::Value* arguments, size_t count) -> jsi::Value {
-        int width = arguments[0].asNumber();
-        int height = arguments[1].asNumber();
-        int framerate = arguments[2].asNumber();
-        int bitrate = arguments[3].asNumber();
+        int width = (int)arguments[0].asNumber();
+        int height = (int)arguments[1].asNumber();
+        int framerate = (int)arguments[2].asNumber();
+        int bitrate = (int)arguments[3].asNumber();
 
         auto encoderInfos = VideoCapabilities::getValidEncoderConfigurations(
             width, height, framerate, bitrate);

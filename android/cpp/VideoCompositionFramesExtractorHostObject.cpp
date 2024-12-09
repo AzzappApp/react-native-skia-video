@@ -44,7 +44,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           auto result = jsi::Object(runtime);
-          if (!prepared.test_and_set()) {
+          if (!released.test() && !prepared.test_and_set()) {
             skiaContextHolder = std::make_shared<SkiaContextHolder>();
             player->prepare();
           }

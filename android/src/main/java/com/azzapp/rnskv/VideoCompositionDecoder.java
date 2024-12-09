@@ -156,15 +156,22 @@ public class VideoCompositionDecoder {
         continue;
       }
       eglResourcesHolder.makeCurrent();
-      boolean shouldDownScale = item.getWidth() > 0 && item.getHeight() > 0;
-      int width = shouldDownScale ? item.getWidth() : decoder.getVideoWidth();
-      int height = shouldDownScale ? item.getHeight() : decoder.getVideoHeight();
-      if (!glFrameExtractor.decodeNextFrame(width, height)) {
+      int itemWidth = item.getWidth();
+      int itemHeight = item.getHeight();
+      boolean shouldDownScale = itemWidth > 0 && itemHeight > 0;
+      int frameWidth = shouldDownScale ? itemWidth : decoder.getVideoWidth();
+      int frameHeight = shouldDownScale ? itemHeight : decoder.getVideoHeight();
+      if (decoder.getRotation() == 90 || decoder.getRotation() == 270) {
+        int temp = frameWidth;
+        frameWidth = frameHeight;
+        frameHeight = temp;
+      } 
+      if (!glFrameExtractor.decodeNextFrame(frameWidth, frameHeight)) {
         continue;
       }
       VideoFrame nextFrame = new VideoFrame(
         glFrameExtractor.getOutputTexId(),
-        width, height, 0,
+        frameWidth, frameHeight, 0,
         glFrameExtractor.getLatestTimeStampNs()
       );
       String id = item.getId();

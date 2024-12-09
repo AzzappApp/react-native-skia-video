@@ -44,10 +44,10 @@ jsi::Value VideoFrame::toJS(jsi::Runtime& runtime) {
   jsObject.setProperty(runtime, "rotation", rotation);
 
   jsi::Object jsiTextureInfo = jsi::Object(runtime);
-  jsiTextureInfo.setProperty(runtime, "fTarget", (int)GL_TEXTURE_2D);
-  jsiTextureInfo.setProperty(runtime, "fFormat", (int)GR_GL_RGBA8);
-  jsiTextureInfo.setProperty(runtime, "fID", (int)texture);
-  jsiTextureInfo.setProperty(runtime, "fProtected", false);
+  jsiTextureInfo.setProperty(runtime, "glTarget", (int)GL_TEXTURE_2D);
+  jsiTextureInfo.setProperty(runtime, "glFormat", (int)GR_GL_RGBA8);
+  jsiTextureInfo.setProperty(runtime, "glID", (int)texture);
+  jsiTextureInfo.setProperty(runtime, "glProtected", 0);
 
   jsObject.setProperty(runtime, "texture", jsiTextureInfo);
 
