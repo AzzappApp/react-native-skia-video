@@ -192,7 +192,6 @@ public class VideoCompositionFramesExtractor {
       pausePosition = TimeHelpers.secToUs(composition.getDuration());
       currentPosition = pausePosition;
     }
-    Log.i("RNSKV", "rendering: " + currentPosition);
     decoder.render(currentPosition);
     if (isEOS && looping) {
       playInternal();
