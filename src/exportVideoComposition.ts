@@ -23,12 +23,23 @@ const OS = Platform.OS;
  * @param drawFrame The function used to draw the video frames.
  * @returns A promise that resolves when the export is complete.
  */
-export const exportVideoComposition = async (
-  videoComposition: VideoComposition,
-  options: ExportOptions,
-  drawFrame: FrameDrawer,
-  onProgress?: (progress: { framesCompleted: number; nbFrames: number }) => void
-): Promise<void> =>
+export const exportVideoComposition = async <T = undefined>({
+  videoComposition,
+  drawFrame,
+  before,
+  after,
+  onProgress,
+  ...options
+}: {
+  videoComposition: VideoComposition;
+  drawFrame: FrameDrawer<T>;
+  before?: () => T;
+  after?: (context: T) => void;
+  onProgress?: (progress: {
+    framesCompleted: number;
+    nbFrames: number;
+  }) => void;
+} & ExportOptions): Promise<void> =>
   new Promise<void>((resolve, reject) => {
     runOnNewThread(() => {
       'worklet';
@@ -58,7 +69,9 @@ export const exportVideoComposition = async (
           const frames = frameExtractor.decodeCompositionFrames(currentTime);
           const canvas = surface.getCanvas();
           canvas.clear(Skia.Color('#00000000'));
+          const context = before?.() as any;
           drawFrame({
+            context,
             canvas,
             videoComposition,
             currentTime,
@@ -66,6 +79,7 @@ export const exportVideoComposition = async (
             width: options.width,
             height: options.height,
           });
+          after?.(context);
           surface.flush();
 
           // On iOS and macOS, the first flush is not synchronous,

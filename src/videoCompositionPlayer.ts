@@ -16,7 +16,7 @@ import RNSkiaVideoModule from './RNSkiaVideoModule';
 import useEventListener from './utils/useEventListener';
 import { PixelRatio } from 'react-native';
 
-type UseVideoCompositionPlayerOptions = {
+type UseVideoCompositionPlayerOptions<T = undefined> = {
   /**
    * The video composition to play.
    * if null, the composition player won't be created.
@@ -25,7 +25,18 @@ type UseVideoCompositionPlayerOptions = {
   /**
    * The function used to draw the composition frames.
    */
-  drawFrame: FrameDrawer;
+  drawFrame: FrameDrawer<T>;
+  /**
+   * A function that is called before drawing each frame.
+   * the return value will be passed to the drawFrame function as context.
+   */
+  before?: () => T;
+  /**
+   * A function that is called after drawing each frame.
+   * the context returned by the before function will be passed to this function.
+   * This function can be used to clean up resources allocated during the drawFrame function.
+   */
+  after?: (context: T) => void;
   /**
    * The width of rendered frames.
    */
@@ -80,6 +91,8 @@ type UseVideoCompositionPlayerReturnType = {
 export const useVideoCompositionPlayer = ({
   composition,
   drawFrame,
+  before,
+  after,
   width,
   height,
   autoPlay = false,
@@ -164,8 +177,10 @@ export const useVideoCompositionPlayer = ({
     }
 
     const canvas = surface.getCanvas();
+    const context = before?.();
     drawFrame({
       canvas,
+      context,
       videoComposition: composition!,
       currentTime: framesExtractor.currentTime,
       frames: framesExtractor.decodeCompositionFrames(),
@@ -173,6 +188,7 @@ export const useVideoCompositionPlayer = ({
       height: height * pixelRatio,
     });
     surface.flush();
+    after?.(context);
 
     const previousFrame = currentFrame.value;
     try {

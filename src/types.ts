@@ -188,7 +188,12 @@ export type VideoCompositionItem = {
 /**
  * Function that draws a video composition frame to a canvas.
  */
-export type FrameDrawer = (args: {
+export type FrameDrawer<T = undefined> = (args: {
+  /**
+   * The context created by the `before` function in video composition player.
+   * or in export video composition.
+   */
+  context: T;
   /**
    * The canvas to draw the frame to.
    */
