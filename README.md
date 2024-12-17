@@ -82,7 +82,11 @@ const drawFrame: FrameDrawer = ({
 }) => {
   'worklet';
   const frame = frames[currentTime < 5 ? 'video1' : 'video2'];
-  const image = Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
+  const image = Skia.Image.MakeImageFromNativeTextureUnstable(
+    frame.texture,
+    width,
+    height,
+  );
   const paint = Skia.Paint();
   canvas.drawImage(image, 0, 0, paint)
 }
