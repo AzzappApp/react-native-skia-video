@@ -10,6 +10,11 @@ VideoCompositionFramesExtractor::create(
   return newInstance(composition, dispatcher);
 }
 
+void VideoCompositionFramesExtractor::prepare() const {
+  static const auto prepareMethod = getClass()->getMethod<void()>("prepare");
+  prepareMethod(self());
+}
+
 void VideoCompositionFramesExtractor::play() const {
   static const auto playMethod = getClass()->getMethod<void()>("play");
   playMethod(self());
@@ -54,7 +59,6 @@ VideoCompositionFramesExtractor::decodeCompositionFrames() {
   static const auto decodeCompositionFramesMethod =
       getClass()->getMethod<JMap<JString, VideoFrame>()>(
           "decodeCompositionFrames");
-  std::map<std::string, VideoFrame> result;
   return decodeCompositionFramesMethod(self());
 }
 

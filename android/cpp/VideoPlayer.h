@@ -23,6 +23,8 @@ public:
 
   void pause();
 
+  void setupGL();
+
   void seekTo(jlong location);
 
   jboolean getIsPlaying();

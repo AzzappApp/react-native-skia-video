@@ -29,7 +29,7 @@ class JSI_EXPORT VideoCompositionFramesExtractorHostObject
 public:
   VideoCompositionFramesExtractorHostObject(
       jsi::Runtime& runtime, std::shared_ptr<react::CallInvoker> callInvoker,
-      jsi::Object composition);
+      std::shared_ptr<VideoComposition> videoComposition);
   ~VideoCompositionFramesExtractorHostObject();
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
   void set(jsi::Runtime&, const jsi::PropNameID& name,
@@ -50,8 +50,9 @@ private:
   bool isPlaying = false;
   bool isLooping = false;
   bool initialized = false;
-  bool released = false;
+  std::atomic_flag released = ATOMIC_FLAG_INIT;
 
+  void prepare();
   void init();
   void play();
   void pause();

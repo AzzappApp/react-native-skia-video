@@ -1,4 +1,5 @@
 #include "VideoCompositionItemDecoder.h"
+#include "MTLTextureUtils.h"
 
 #import "AVAssetTrackUtils.h"
 #import <AVFoundation/AVFoundation.h>
@@ -30,6 +31,16 @@ VideoCompositionItemDecoder::VideoCompositionItemDecoder(
   rotation = AVAssetTrackUtils::GetTrackRotationInDegree(videoTrack);
   currentFrame = nullptr;
   this->setupReader(kCMTimeZero);
+
+  CGSize resolution = item->resolution;
+  if (resolution.width <= 0 || resolution.height <= 0) {
+    resolution.width = width;
+    resolution.height = height;
+  }
+  mtlTexture = [MTLTextureUtils createMTLTextureForVideoOutput:resolution];
+  if (!mtlTexture) {
+    throw std::runtime_error("Failed to create persistent Metal texture!");
+  }
 }
 
 void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
@@ -49,8 +60,7 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
                      position));
 
   NSDictionary* pixBuffAttributes = @{
-    (id)kCVPixelBufferPixelFormatTypeKey :
-        @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange),
+    (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
     (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
     (id)kCVPixelBufferMetalCompatibilityKey : @YES
   };
@@ -124,12 +134,12 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
       }
       auto timeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
       auto buffer = CMSampleBufferGetImageBuffer(sampleBuffer);
-      auto frame =
-          std::make_shared<VideoFrame>(buffer, width, height, rotation);
-      framesQueue->push_back(
-          std::make_pair(CMTimeGetSeconds(timeStamp), frame));
+      if (buffer) {
+        framesQueue->push_back(
+            std::make_pair(CMTimeGetSeconds(timeStamp), buffer));
+      }
+
       latestSampleTime = timeStamp;
-      CFRelease(sampleBuffer);
     }
   }
 }
@@ -141,7 +151,7 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
       CMTimeCompare(currentTime, lastRequestedTime) < 0) {
     hasLooped = false;
     for (const auto& frame : decodedFrames) {
-      frame.second->release();
+      CVPixelBufferRelease(frame.second);
     }
     decodedFrames = nextLoopFrames;
     nextLoopFrames.clear();
@@ -154,14 +164,14 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
           MAX((CMTimeGetSeconds(currentTime) - item->compositionStartTime), 0),
           NSEC_PER_SEC));
 
-  std::shared_ptr<VideoFrame> nextFrame = nullptr;
+  CVPixelBufferRef nextFrame = nil;
   auto it = decodedFrames.begin();
   while (it != decodedFrames.end()) {
     auto timestamp = CMTimeMakeWithSeconds(it->first, NSEC_PER_SEC);
     if (CMTimeCompare(timestamp, position) <= 0 ||
         (force && nextFrame == nullptr)) {
       if (nextFrame != nullptr) {
-        nextFrame->release();
+        CVPixelBufferRelease(nextFrame);
       }
       nextFrame = it->second;
       it = decodedFrames.erase(it);
@@ -169,7 +179,12 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
       break;
     }
   }
-  return nextFrame;
+  if (nextFrame) {
+    [MTLTextureUtils updateTexture:mtlTexture with:nextFrame];
+    CVPixelBufferRelease(nextFrame);
+    return std::make_shared<VideoFrame>(mtlTexture, width, height, rotation);
+  }
+  return nullptr;
 }
 
 void VideoCompositionItemDecoder::seekTo(CMTime currentTime) {
@@ -186,19 +201,18 @@ void VideoCompositionItemDecoder::release() {
       assetReader = nullptr;
     }
     for (const auto& frame : decodedFrames) {
-      frame.second->release();
+      CVPixelBufferRelease(frame.second);
     }
     decodedFrames.clear();
     for (const auto& frame : nextLoopFrames) {
-      frame.second->release();
-    }
-    if (currentFrame) {
-      currentFrame->release();
-      currentFrame = nullptr;
+      CVPixelBufferRelease(frame.second);
     }
     nextLoopFrames.clear();
     hasLooped = false;
     lastRequestedTime = kCMTimeInvalid;
+    [mtlTexture setPurgeableState:MTLPurgeableStateEmpty];
+    currentFrame = nullptr;
+    mtlTexture = nil;
   }
 }
 

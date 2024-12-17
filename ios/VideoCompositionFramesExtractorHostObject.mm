@@ -11,11 +11,168 @@ namespace RNSkiaVideo {
 VideoCompositionFramesExtractorHostObject::
     VideoCompositionFramesExtractorHostObject(
         jsi::Runtime& runtime, std::shared_ptr<react::CallInvoker> callInvoker,
-        jsi::Object jsComposition)
-    : EventEmitter(runtime, callInvoker) {
+        std::shared_ptr<VideoComposition> videoComposition)
+    : EventEmitter(runtime, callInvoker), composition(videoComposition) {
   lock = [[NSObject alloc] init];
-  composition = VideoComposition::fromJS(runtime, jsComposition);
+}
 
+VideoCompositionFramesExtractorHostObject::
+    ~VideoCompositionFramesExtractorHostObject() {
+  this->release();
+}
+
+std::vector<jsi::PropNameID>
+VideoCompositionFramesExtractorHostObject::getPropertyNames(jsi::Runtime& rt) {
+  std::vector<jsi::PropNameID> result;
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("prepare")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("play")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("pause")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("seekTo")));
+  result.push_back(
+      jsi::PropNameID::forUtf8(rt, std::string("decodeCompositionFrames")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("on")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("dispose")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("currentTime")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("isLooping")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("isPlaying")));
+  return result;
+}
+
+jsi::Value VideoCompositionFramesExtractorHostObject::get(
+    jsi::Runtime& runtime, const jsi::PropNameID& propNameId) {
+  auto propName = propNameId.utf8(runtime);
+  if (propName == "prepare") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "prepare"), 0,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          if (!released.test()) {
+            prepare();
+          }
+          return jsi::Value::undefined();
+        });
+  } else if (propName == "play") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "play"), 0,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          if (!released.test()) {
+            if (initialized) {
+              play();
+            } else {
+              playWhenReady = true;
+            }
+          }
+          return jsi::Value::undefined();
+        });
+  } else if (propName == "pause") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "pause"), 0,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          if (!released.test()) {
+            if (initialized) {
+              pause();
+            } else {
+              playWhenReady = false;
+            }
+          }
+          return jsi::Value::undefined();
+        });
+  } else if (propName == "seekTo") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "seekTo"), 1,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          if (!released.test()) {
+            seekTo(
+                CMTimeMakeWithSeconds(arguments[0].asNumber(), NSEC_PER_SEC));
+          }
+          return jsi::Value::undefined();
+        });
+  } else if (propName == "decodeCompositionFrames") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "decodeCompositionFrames"),
+        0,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          @synchronized(lock) {
+            auto frames = jsi::Object(runtime);
+            if (released.test() || !initialized) {
+              return frames;
+            }
+            auto currentTime = getCurrentTime();
+            for (const auto& entry : itemDecoders) {
+              auto itemId = entry.first;
+              auto decoder = entry.second;
+
+              auto previousFrame = currentFrames[itemId];
+              auto frame =
+                  decoder->acquireFrameForTime(currentTime, !previousFrame);
+              if (frame) {
+                currentFrames[itemId] = frame;
+              } else {
+                frame = previousFrame;
+              }
+              if (frame) {
+                frames.setProperty(
+                    runtime, entry.first.c_str(),
+                    jsi::Object::createFromHostObject(runtime, frame));
+              }
+            }
+            return frames;
+          }
+        });
+  } else if (propName == "on") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          @synchronized(lock) {
+            if (released.test()) {
+              return jsi::Function::createFromHostFunction(
+                  runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
+                  [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+                     const jsi::Value* arguments, size_t count) -> jsi::Value {
+                    return jsi::Value::undefined();
+                  });
+            }
+            auto name = arguments[0].asString(runtime).utf8(runtime);
+            auto handler = arguments[1].asObject(runtime).asFunction(runtime);
+            return this->on(name, std::move(handler));
+          }
+        });
+  } else if (propName == "dispose") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "dispose"), 0,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          this->release();
+          return jsi::Value::undefined();
+        });
+  } else if (propName == "currentTime") {
+    return jsi::Value(released.test() ? 0 : CMTimeGetSeconds(getCurrentTime()));
+  } else if (propName == "isLooping") {
+    return jsi::Value(!released.test() && isLooping);
+  } else if (propName == "isPlaying") {
+    return jsi::Value(!released.test() && isPlaying);
+  }
+  return jsi::Value::undefined();
+}
+
+void VideoCompositionFramesExtractorHostObject::set(
+    jsi::Runtime& runtime, const jsi::PropNameID& propNameId,
+    const jsi::Value& value) {
+  if (released.test()) {
+    return;
+  }
+  auto propName = propNameId.utf8(runtime);
+  if (propName == "isLooping") {
+    isLooping = value.asBool();
+  }
+}
+
+void VideoCompositionFramesExtractorHostObject::prepare() {
   dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(
       DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0);
   decoderQueue =
@@ -29,7 +186,7 @@ VideoCompositionFramesExtractorHostObject::
         dispatch_async(decoderQueue, ^{
           std::vector<std::future<void>> futures;
           @synchronized(lock) {
-            if (released || !initialized) {
+            if (released.test() || !initialized) {
               return;
             }
             auto currentTime = getCurrentTime();
@@ -60,158 +217,9 @@ VideoCompositionFramesExtractorHostObject::
       }];
   [displayLink start];
 }
-
-VideoCompositionFramesExtractorHostObject::
-    ~VideoCompositionFramesExtractorHostObject() {
-  this->release();
-}
-
-std::vector<jsi::PropNameID>
-VideoCompositionFramesExtractorHostObject::getPropertyNames(jsi::Runtime& rt) {
-  std::vector<jsi::PropNameID> result;
-  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("play")));
-  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("pause")));
-  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("seekTo")));
-  result.push_back(
-      jsi::PropNameID::forUtf8(rt, std::string("decodeCompositionFrames")));
-  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("on")));
-  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("dispose")));
-  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("currentTime")));
-  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("isLooping")));
-  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("isPlaying")));
-  return result;
-}
-
-jsi::Value VideoCompositionFramesExtractorHostObject::get(
-    jsi::Runtime& runtime, const jsi::PropNameID& propNameId) {
-  auto propName = propNameId.utf8(runtime);
-  if (propName == "play") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "play"), 0,
-        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
-               const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released) {
-            if (initialized) {
-              play();
-            } else {
-              playWhenReady = true;
-            }
-          }
-          return jsi::Value::undefined();
-        });
-  } else if (propName == "pause") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "pause"), 0,
-        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
-               const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released) {
-            if (initialized) {
-              pause();
-            } else {
-              playWhenReady = false;
-            }
-          }
-          return jsi::Value::undefined();
-        });
-  } else if (propName == "seekTo") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "seekTo"), 1,
-        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
-               const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released) {
-            seekTo(
-                CMTimeMakeWithSeconds(arguments[0].asNumber(), NSEC_PER_SEC));
-          }
-          return jsi::Value::undefined();
-        });
-  } else if (propName == "decodeCompositionFrames") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "decodeCompositionFrames"),
-        0,
-        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
-               const jsi::Value* arguments, size_t count) -> jsi::Value {
-          @synchronized(lock) {
-            auto frames = jsi::Object(runtime);
-            if (released || !initialized) {
-              return frames;
-            }
-            auto currentTime = getCurrentTime();
-            for (const auto& entry : itemDecoders) {
-              auto itemId = entry.first;
-              auto decoder = entry.second;
-
-              auto previousFrame = currentFrames[itemId];
-              auto frame =
-                  decoder->acquireFrameForTime(currentTime, !previousFrame);
-              if (frame) {
-                if (previousFrame) {
-                  previousFrame->release();
-                }
-                currentFrames[itemId] = frame;
-              } else {
-                frame = previousFrame;
-              }
-              if (frame) {
-                frames.setProperty(
-                    runtime, entry.first.c_str(),
-                    jsi::Object::createFromHostObject(runtime, frame));
-              }
-            }
-            return frames;
-          }
-        });
-  } else if (propName == "on") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
-        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
-               const jsi::Value* arguments, size_t count) -> jsi::Value {
-          @synchronized(lock) {
-            if (released) {
-              return jsi::Function::createFromHostFunction(
-                  runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
-                  [](jsi::Runtime& runtime, const jsi::Value& thisValue,
-                     const jsi::Value* arguments, size_t count) -> jsi::Value {
-                    return jsi::Value::undefined();
-                  });
-            }
-            auto name = arguments[0].asString(runtime).utf8(runtime);
-            auto handler = arguments[1].asObject(runtime).asFunction(runtime);
-            return this->on(name, std::move(handler));
-          }
-        });
-  } else if (propName == "dispose") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "dispose"), 0,
-        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
-               const jsi::Value* arguments, size_t count) -> jsi::Value {
-          this->release();
-          return jsi::Value::undefined();
-        });
-  } else if (propName == "currentTime") {
-    return jsi::Value(released ? 0 : CMTimeGetSeconds(getCurrentTime()));
-  } else if (propName == "isLooping") {
-    return jsi::Value(!released && isLooping);
-  } else if (propName == "isPlaying") {
-    return jsi::Value(!released && isPlaying);
-  }
-  return jsi::Value::undefined();
-}
-
-void VideoCompositionFramesExtractorHostObject::set(
-    jsi::Runtime& runtime, const jsi::PropNameID& propNameId,
-    const jsi::Value& value) {
-  if (released) {
-    return;
-  }
-  auto propName = propNameId.utf8(runtime);
-  if (propName == "isLooping") {
-    isLooping = value.asBool();
-  }
-}
-
 void VideoCompositionFramesExtractorHostObject::init() {
   @synchronized(lock) {
-    if (released) {
+    if (released.test()) {
       return;
     }
     try {
@@ -274,7 +282,7 @@ CMTime VideoCompositionFramesExtractorHostObject::getCurrentTime() {
 
 void VideoCompositionFramesExtractorHostObject::release() {
   @synchronized(lock) {
-    if (released) {
+    if (released.test_and_set()) {
       return;
     }
     try {
@@ -282,12 +290,6 @@ void VideoCompositionFramesExtractorHostObject::release() {
         auto decoder = entry.second;
         if (decoder) {
           entry.second->release();
-        }
-      }
-      for (const auto& entry : currentFrames) {
-        auto frame = entry.second;
-        if (frame) {
-          frame->release();
         }
       }
     } catch (...) {

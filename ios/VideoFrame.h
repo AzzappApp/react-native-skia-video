@@ -6,7 +6,7 @@
 //
 
 #pragma once
-#import <AVFoundation/AVFoundation.h>
+#import <Metal/Metal.h>
 #import <jsi/jsi.h>
 
 namespace RNSkiaVideo {
@@ -14,17 +14,14 @@ using namespace facebook;
 
 class JSI_EXPORT VideoFrame : public jsi::HostObject {
 public:
-  VideoFrame(CVPixelBufferRef pixelBuffer, double width, double height,
+  VideoFrame(id<MTLTexture> mtlTexture, double width, double height,
              int rotation);
-  ~VideoFrame();
 
   std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime& rt) override;
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
-  void release();
 
 private:
-  std::atomic_flag released = ATOMIC_FLAG_INIT;
-  CVPixelBufferRef pixelBuffer;
+  id<MTLTexture> mtlTexture;
   double width;
   double height;
   int rotation;

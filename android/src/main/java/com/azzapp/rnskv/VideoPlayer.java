@@ -1,31 +1,23 @@
 package com.azzapp.rnskv;
 
-import android.graphics.ImageFormat;
-import android.graphics.PixelFormat;
-import android.hardware.HardwareBuffer;
-import android.media.Image;
-import android.media.ImageReader;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.Looper;
 
 import androidx.annotation.NonNull;
-import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
-import androidx.media3.common.util.Log;
+import androidx.media3.common.VideoSize;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 
-import java.util.HashMap;
-import java.util.Map;
+import javax.microedition.khronos.egl.EGLContext;
 
 /**
  * A class that wraps ExoPlayer to play video, and extract frames from it using OpenGL
  */
+@UnstableApi
 public class VideoPlayer {
 
   private ExoPlayer player;
@@ -46,15 +38,15 @@ public class VideoPlayer {
 
   private boolean isSeeking = false;
 
-  private ImageReader imageReader;
+  private EGLResourcesHolder eglResourcesHolder;
 
-  private HandlerThread downScalerThread;
+  private GLFrameExtractor glFrameExtractor;
 
-  private VideoOutputDownScaler outputDownScaler;
+  private int videoWidth;
+  private int videoHeight;
 
-  private int rotationDegrees;
-
-  private VideoFrame currentFrame;
+  private final int outputWidth;
+  private final int outputHeight;
 
   private boolean released = false;
 
@@ -66,6 +58,8 @@ public class VideoPlayer {
   @UnstableApi
   public VideoPlayer(String uriStr, int width, int height, NativeEventDispatcher eventDispatcher) {
     this.eventDispatcher = eventDispatcher;
+    outputWidth = width;
+    outputHeight = height;
     mainHandler.post(() -> {
       if (released) {
         return;
@@ -96,31 +90,14 @@ public class VideoPlayer {
             if (!isInitialized) {
               isInitialized = true;
               duration = player.getDuration();
-              Format videoFormat = player.getVideoFormat();
-
-              rotationDegrees = videoFormat.rotationDegrees;
-
-              if (width > 0 && height > 0) {
-                imageReader = ImageReaderHelpers.createImageReader(
-                  PixelFormat.RGBA_8888, width, height);
-                downScalerThread = new HandlerThread("ReactNativeSkiaVideo-DownScaler-Thread");
-                downScalerThread.start();
-                Handler handler = new Handler(downScalerThread.getLooper());
-                handler.post(() -> {
-                  outputDownScaler = new VideoOutputDownScaler(
-                    imageReader.getSurface(), width, height
-                  );
-                  mainHandler.post(() -> {
-                    player.setVideoSurface(outputDownScaler.getInputSurface());
-                    handleReady(videoFormat);
-                  });
-                });
-              } else {
-                imageReader = ImageReaderHelpers.createImageReader(
-                  ImageFormat.PRIVATE, videoFormat.width, videoFormat.height);
-                player.setVideoSurface(imageReader.getSurface());
-                handleReady(videoFormat);
+              VideoSize videoSize = player.getVideoSize();
+;
+              videoHeight = videoSize.height;
+              videoWidth = videoSize.width;
+              if (glFrameExtractor != null) {
+                player.setVideoSurface(glFrameExtractor.getSurface());
               }
+              handleReady();
             }
             if (isSeeking) {
               isSeeking = false;
@@ -162,10 +139,9 @@ public class VideoPlayer {
 
   long previousBufferedPosition = 0;
 
-  private void handleReady(Format videoFormat) {
+  private void handleReady() {
     updateCurrentPosition();
-    dispatchEventIfNoReleased("ready", new int[]{
-      videoFormat.width, videoFormat.height, videoFormat.rotationDegrees});
+    dispatchEventIfNoReleased("ready", new int[]{videoWidth, videoHeight, 0});
   }
 
   private void dispatchBufferingUpdate() {
@@ -177,9 +153,7 @@ public class VideoPlayer {
       previousBufferedPosition = bufferedPosition;
       dispatchEventIfNoReleased("bufferingUpdate", bufferedPosition);
     }
-    mainHandler.postDelayed(() -> {
-      dispatchBufferingUpdate();
-    }, 500);
+    mainHandler.postDelayed(this::dispatchBufferingUpdate, 500);
   }
 
   private void updateCurrentPosition() {
@@ -187,9 +161,7 @@ public class VideoPlayer {
       return;
     }
     this.currentPosition = player.getCurrentPosition();
-    mainHandler.postDelayed(() -> {
-      updateCurrentPosition();
-    }, 50);
+    mainHandler.postDelayed(this::updateCurrentPosition, 50);
   }
 
   /**
@@ -212,6 +184,19 @@ public class VideoPlayer {
   public void seekTo(long location) {
     isSeeking = true;
     mainHandler.post(() -> player.seekTo(location));
+  }
+
+  public void setupGL() {
+    if (Looper.myLooper() != Looper.getMainLooper()) {
+      throw new RuntimeException("setupGL should be called on UI Thread");
+    }
+    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
+    eglResourcesHolder = EGLResourcesHolder.createWithPBBufferSurface(sharedContext);
+    eglResourcesHolder.makeCurrent();
+    glFrameExtractor = new GLFrameExtractor();
+    if (player != null) {
+      player.setVideoSurface(glFrameExtractor.getSurface());
+    }
   }
 
   /**
@@ -274,28 +259,27 @@ public class VideoPlayer {
    *
    * @return whether the frame was decoded successfully
    */
-  @UnstableApi
   public VideoFrame decodeNextFrame() {
     if (Looper.myLooper() != Looper.getMainLooper()) {
       throw new RuntimeException("decodeNextFrame should be called on UI Thread");
     }
-    if (imageReader == null) {
+    if (eglResourcesHolder == null && glFrameExtractor != null) {
       return null;
     }
-    Image image = imageReader.acquireLatestImage();
-    if (image == null) {
-      return null;
+    eglResourcesHolder.makeCurrent();
+    boolean downscale = outputWidth > 0 && outputHeight > 0;
+    int width = downscale ? outputWidth : videoWidth;
+    int height = downscale ? outputHeight : videoHeight;
+    if (width > 0 && height > 0 && glFrameExtractor.decodeNextFrame(width, height)) {
+      return new VideoFrame(
+        glFrameExtractor.getOutputTexId(),
+        width,
+        height,
+        0,
+        glFrameExtractor.getLatestTimeStampNs()
+      );
     }
-    VideoFrame nexFrame = VideoFrame.create(image, rotationDegrees);
-    if (nexFrame == null) {
-      image.close();
-      return null;
-    }
-    if (currentFrame != null) {
-      currentFrame.release();
-    }
-    currentFrame = nexFrame;
-    return currentFrame;
+    return null;
   }
 
   /**
@@ -303,20 +287,13 @@ public class VideoPlayer {
    */
   public void release() {
     released = true;
-    if (currentFrame != null) {
-      currentFrame.release();
-      currentFrame = null;
+    if (glFrameExtractor != null) {
+      glFrameExtractor.release();
+      glFrameExtractor = null;
     }
-    if (imageReader != null) {
-      imageReader.close();
-      imageReader = null;
-    }
-    if (outputDownScaler != null) {
-      outputDownScaler.release();
-    }
-    if (downScalerThread != null) {
-      downScalerThread.quit();
-      downScalerThread = null;
+    if (eglResourcesHolder != null) {
+      eglResourcesHolder.release();
+      glFrameExtractor = null;
     }
     mainHandler.post(() -> {
       if (player != null) {

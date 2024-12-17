@@ -5,6 +5,7 @@
 #include <map>
 
 #include "EventEmitter.h"
+#include "SkiaContextHolder.h"
 #include "VideoPlayer.h"
 
 using namespace facebook;
@@ -26,6 +27,7 @@ public:
 
 private:
   global_ref<NativeEventDispatcher> jEventDispatcher;
+  std::shared_ptr<SkiaContextHolder> skiaContextHolder;
   jni::global_ref<VideoPlayer> player;
   std::atomic_flag released = ATOMIC_FLAG_INIT;
   void release();

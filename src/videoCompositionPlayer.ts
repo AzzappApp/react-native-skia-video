@@ -1,10 +1,10 @@
-import { createPicture } from '@shopify/react-native-skia';
-import type { SkPicture } from '@shopify/react-native-skia';
+import type { SkImage, SkSurface } from '@shopify/react-native-skia';
+import { Skia } from '@shopify/react-native-skia';
 import {
   useSharedValue,
-  useDerivedValue,
   useFrameCallback,
-  type SharedValue,
+  runOnUI,
+  type DerivedValue,
 } from 'react-native-reanimated';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
@@ -14,8 +14,9 @@ import type {
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
 import useEventListener from './utils/useEventListener';
+import { PixelRatio } from 'react-native';
 
-type UseVideoCompositionPlayerOptions = {
+type UseVideoCompositionPlayerOptions<T = undefined> = {
   /**
    * The video composition to play.
    * if null, the composition player won't be created.
@@ -24,7 +25,18 @@ type UseVideoCompositionPlayerOptions = {
   /**
    * The function used to draw the composition frames.
    */
-  drawFrame: FrameDrawer;
+  drawFrame: FrameDrawer<T>;
+  /**
+   * A function that is called before drawing each frame.
+   * the return value will be passed to the drawFrame function as context.
+   */
+  beforeDrawFrame?: () => T;
+  /**
+   * A function that is called after drawing each frame.
+   * the context returned by the beforeDrawFrame function will be passed to this function.
+   * This function can be used to clean up resources allocated during the drawFrame function.
+   */
+  afterDrawFrame?: (context: T) => void;
   /**
    * The width of rendered frames.
    */
@@ -66,7 +78,7 @@ type UseVideoCompositionPlayerReturnType = {
   /**
    * The current drawn frame of the video composition.
    */
-  currentFrame: SharedValue<SkPicture>;
+  currentFrame: DerivedValue<SkImage | null>;
   /**
    * The video player controller.
    */
@@ -79,6 +91,8 @@ type UseVideoCompositionPlayerReturnType = {
 export const useVideoCompositionPlayer = ({
   composition,
   drawFrame,
+  beforeDrawFrame,
+  afterDrawFrame,
   width,
   height,
   autoPlay = false,
@@ -97,13 +111,19 @@ export const useVideoCompositionPlayer = ({
     return null;
   }, [isErrored, composition]);
 
-  const currentFrame = useSharedValue<SkPicture | null>(null);
+  useEffect(() => {
+    runOnUI(() => {
+      framesExtractor?.prepare();
+    })();
+  }, [framesExtractor]);
+
+  const currentFrame = useSharedValue<SkImage | null>(null);
   useEffect(
     () => () => {
       currentFrame.value = null;
       framesExtractor?.dispose();
     },
-    [framesExtractor, currentFrame]
+    [currentFrame, framesExtractor]
   );
 
   const retry = useCallback(() => {
@@ -134,32 +154,57 @@ export const useVideoCompositionPlayer = ({
     }
   }, [framesExtractor, autoPlay]);
 
+  const surfaceSharedValue = useSharedValue<SkSurface | null>(null);
+  const pixelRatio = PixelRatio.get();
   useFrameCallback(() => {
     'worklet';
     if (!framesExtractor) {
       return;
     }
 
-    currentFrame.value?.dispose();
-    currentFrame.value = createPicture(
-      (canvas) => {
-        drawFrame({
-          canvas,
-          videoComposition: composition!,
-          currentTime: framesExtractor.currentTime,
-          frames: framesExtractor.decodeCompositionFrames(),
-          width: width,
-          height: height,
-        });
-      },
-      { width, height }
-    );
+    let surface: SkSurface | null = surfaceSharedValue.value;
+
+    if (!surface) {
+      surface = Skia.Surface.MakeOffscreen(
+        width * pixelRatio,
+        height * pixelRatio
+      );
+      surfaceSharedValue.value = surface;
+    }
+    if (!surface) {
+      console.warn('Failed to create surface');
+      return;
+    }
+
+    const canvas = surface.getCanvas();
+    const context = beforeDrawFrame?.();
+    drawFrame({
+      canvas,
+      context,
+      videoComposition: composition!,
+      currentTime: framesExtractor.currentTime,
+      frames: framesExtractor.decodeCompositionFrames(),
+      width: width * pixelRatio,
+      height: height * pixelRatio,
+    });
+    surface.flush();
+    const previousFrame = currentFrame.value;
+    try {
+      currentFrame.value = Skia.Image.MakeImageFromNativeTextureUnstable(
+        surface.getNativeTextureUnstable(),
+        width * pixelRatio,
+        height * pixelRatio
+      );
+    } catch (error) {
+      console.warn('Failed to create image from texture', error);
+      return;
+    }
+    previousFrame?.dispose();
+    afterDrawFrame?.(context);
   }, true);
 
   return {
-    currentFrame: useDerivedValue(
-      () => currentFrame.value ?? createPicture(() => {})
-    ),
+    currentFrame,
     player: framesExtractor,
   };
 };

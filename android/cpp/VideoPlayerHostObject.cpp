@@ -2,8 +2,6 @@
 #include "JNIHelpers.h"
 
 namespace RNSkiaVideo {
-using namespace RNSkia;
-
 VideoPlayerHostObject::VideoPlayerHostObject(jsi::Runtime& runtime,
                                              const std::string& uri, int width,
                                              int height)
@@ -47,7 +45,13 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
             return jsi::Value::null();
           }
 
+          if (skiaContextHolder == nullptr) {
+            skiaContextHolder = std::make_shared<SkiaContextHolder>();
+            player->setupGL();
+          }
+
           auto frame = player->decodeNextFrame();
+          skiaContextHolder->makeCurrent();
           if (!frame) {
             return jsi::Value::null();
           }

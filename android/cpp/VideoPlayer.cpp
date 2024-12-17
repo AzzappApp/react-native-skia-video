@@ -13,6 +13,11 @@ void VideoPlayer::play() {
   playMethod(self());
 }
 
+void VideoPlayer::setupGL() {
+  static const auto setupGLMethod = getClass()->getMethod<void()>("setupGL");
+  setupGLMethod(self());
+}
+
 void VideoPlayer::pause() {
   static const auto pauseMethod = getClass()->getMethod<void()>("pause");
   pauseMethod(self());

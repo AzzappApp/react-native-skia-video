@@ -1,5 +1,6 @@
 package com.azzapp.rnskv;
 
+import android.graphics.Bitmap;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
@@ -11,6 +12,7 @@ import android.view.Surface;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
+import javax.microedition.khronos.egl.EGL10;
 import javax.microedition.khronos.egl.EGLContext;
 
 
@@ -35,7 +37,7 @@ public class VideoEncoder {
 
   private final int bitRate;
 
-  private String encoderName;
+  private final String encoderName;
 
   private MediaCodec encoder;
 
@@ -62,6 +64,7 @@ public class VideoEncoder {
    * @param height     the height of the video
    * @param frameRate  the frame rate of the video
    * @param bitRate    the bit rate of the video
+   * @param encoderName the name of the encoder to use, or null to use the default encoder
    */
   public VideoEncoder(
     String outputPath,
@@ -83,7 +86,8 @@ public class VideoEncoder {
   /**
    * Configures encoder and muxer state, and prepares the input Surface.
    */
-  public void prepare(EGLContext sharedContext) throws IOException {
+  public void prepare() throws IOException {
+    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
     encoder = encoderName != null
       ? MediaCodec.createByCodecName(encoderName)
       : MediaCodec.createEncoderByType(MIME_TYPE);
@@ -113,9 +117,12 @@ public class VideoEncoder {
     muxerStarted = false;
   }
 
-  public void writeFrame(long timeUS, int texture, boolean eos) {
+  public void makeGLContextCurrent() {
     eglResourcesHolder.makeCurrent();
+  }
 
+  public void encodeFrame(int texture, double time) {
+    long timeUS = TimeHelpers.secToUs(time);
     GLES20.glClearColor(0, 0, 0, 0);
     GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
     GLES20.glViewport(0, 0, width, height);
@@ -124,7 +131,11 @@ public class VideoEncoder {
     if (!eglResourcesHolder.swapBuffers()) {
       throw new RuntimeException("eglSwapBuffer failed");
     }
-    drainEncoder(eos);
+    drainEncoder(false);
+  }
+
+  public void finishWriting() {
+    drainEncoder(true);
   }
 
   /**
@@ -201,6 +212,9 @@ public class VideoEncoder {
    * Releases encoder resources.  May be called after partial / failed initialization.
    */
   public void release() {
+    if (eglResourcesHolder != null) {
+      eglResourcesHolder.release();
+    }
     if (encoder != null) {
       encoder.stop();
       encoder.release();
@@ -215,5 +229,30 @@ public class VideoEncoder {
       muxer.release();
       muxer = null;
     }
+  }
+
+  public Bitmap saveTexture(int texture, int width, int height) {
+    int[] frame = new int[1];
+    GLES20.glGenFramebuffers(1, frame, 0);
+    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frame[0]);
+    GLES20.glFramebufferTexture2D(
+      GLES20.GL_FRAMEBUFFER,
+      GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, texture,
+      0
+    );
+
+    ByteBuffer buffer = ByteBuffer.allocate(width * height * 4);
+    GLES20.glReadPixels(
+      0, 0, width, height, GLES20.GL_RGBA,
+      GLES20.GL_UNSIGNED_BYTE, buffer
+    );
+
+    Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+    bitmap.copyPixelsFromBuffer(buffer);
+
+    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+    GLES20.glDeleteFramebuffers(1, frame, 0);
+
+    return bitmap;
   }
 }

@@ -1,17 +1,15 @@
-// @ts-ignore
+// @ts-expect-error unused
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import type { SkCanvas, SkSurface, Skia } from '@shopify/react-native-skia';
-import type { WorkletRuntime } from 'react-native-reanimated';
 
 /**
  * Represents a video frame.
  */
 export type VideoFrame = {
   /**
-   * The memory address of the native buffer.
-   * @see Skia.Image.MakeImageFromNativeBuffer
+   * The native texture of the frame.
    */
-  buffer: bigint | null;
+  texture: unknown;
   /**
    * The width in pixels of the frame.
    */
@@ -190,7 +188,12 @@ export type VideoCompositionItem = {
 /**
  * Function that draws a video composition frame to a canvas.
  */
-export type FrameDrawer = (args: {
+export type FrameDrawer<T = undefined> = (args: {
+  /**
+   * The context created by the `before` function in video composition player.
+   * or in export video composition.
+   */
+  context: T;
   /**
    * The canvas to draw the frame to.
    */
@@ -221,6 +224,10 @@ export type FrameDrawer = (args: {
  * The video composition frames extractor interface.
  */
 export type VideoCompositionFramesExtractor = {
+  /**
+   * Prepares the video composition frames extractor for extracting the frames.
+   */
+  prepare(): void;
   /**
    * Starts extracting the frames of the video composition.
    */
@@ -269,6 +276,49 @@ export type VideoCompositionFramesExtractor = {
    * Events dispatched by the video composition frames extractor when an error occurs.
    */
   on(name: 'error', listener: (error: any) => void): () => void;
+};
+
+/**
+ * The video composition sync extractor interface.
+ */
+export type VideoCompositionFramesExtractorSync = {
+  /**
+   * Starts extracting the frames of the video composition.
+   */
+  start(): void;
+  /**
+   * Decodes the frames until reaching the specified time.
+   * This method will block the current thread until the frames are decoded.
+   *
+   * @returns The decoded video frames of the composition items.
+   */
+  decodeCompositionFrames(currentTime: number): Record<string, VideoFrame>;
+  /**
+   * Disposes of the video composition frames extractor.
+   */
+  dispose(): void;
+};
+
+/**
+ * The video composition encoder interface.
+ */
+export type VideoEncoder = {
+  /**
+   * Prepares the video composition encoder for writing.
+   */
+  prepare(): void;
+  /**
+   * Encodes the video frame to the video composition.
+   */
+  encodeFrame(texture: unknown, time: number): void;
+  /*
+   * Finish writing the video to the output file.
+   */
+  finishWriting(): void;
+  /**
+   * Disposes of the video composition encoder.
+   */
+  dispose(): void;
 };
 
 /**
@@ -322,23 +372,34 @@ export type RNSkiaVideoModule = {
    * @returns The video composition frames extractor.
    */
   createVideoCompositionFramesExtractor: (
+    /**
+     * The video composition to extract frames from.
+     */
     composition: VideoComposition
   ) => VideoCompositionFramesExtractor;
   /**
-   * Exports the video composition to a video file.
+   * Creates a synchronous video composition frames extractor for the specified video composition.
+   * @param composition The video composition.
+   * @returns The video composition frames extractor.
    */
-  exportVideoComposition: (
-    videoComposition: VideoComposition,
-    options: ExportOptions,
-    workletRuntime: WorkletRuntime,
-    drawFrame: any, // ShareableRef<FrameDrawer>
-    onCompletion: () => void,
-    onError: (error: any) => void,
-    onProgress: ((frame: number) => void) | null,
-    // android only
-    surface: SkSurface | null
-  ) => Promise<void>;
+  createVideoCompositionFramesExtractorSync: (
+    /**
+     * The video composition to extract frames from.
+     */
+    composition: VideoComposition
+  ) => VideoCompositionFramesExtractorSync;
 
+  /**
+   * Creates a video composition encoder for the specified export options.
+   * @param options The export options for the video composition.
+   * @returns The video composition encoder.
+   */
+  createVideoEncoder: (
+    /**
+     * The export options for the video composition.
+     */
+    options: ExportOptions
+  ) => VideoEncoder;
   /**
    * Returns the decoding capabilities of the current platform for the specified mimetype.
    *
@@ -403,4 +464,17 @@ export type RNSkiaVideoModule = {
         bitRate: number;
       }[]
     | null;
+
+  /**
+   * Runs the specified function with the JNI class loader.
+   * @platform android
+   */
+  runWithJNIClassLoader?(fn: () => void): void;
+
+  /**
+   * Sleeps for the specified number of microseconds.
+   * @param usec The number of microseconds to sleep.
+   * @platform ios
+   */
+  usleep?(usec: number): void;
 };

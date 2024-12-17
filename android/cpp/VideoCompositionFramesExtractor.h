@@ -22,6 +22,8 @@ public:
       alias_ref<VideoComposition> composition,
       alias_ref<RNSkiaVideo::NativeEventDispatcher> dispatcher);
 
+  void prepare() const;
+
   void play() const;
 
   void pause() const;

@@ -5,6 +5,7 @@
 
 #import "RNSVVideoPlayer.h"
 #import "AVAssetTrackUtils.h"
+#import "MTLTextureUtils.h"
 
 static void* timeRangeContext = &timeRangeContext;
 static void* statusContext = &statusContext;
@@ -15,8 +16,9 @@ static void* rateContext = &rateContext;
 
 @implementation RNSVVideoPlayer {
   AVPlayer* _player;
-  CADisplayLink* _displayLink;
   AVPlayerItemVideoOutput* _videoOutput;
+  id<MTLTexture> _mtlTexture;
+  CADisplayLink* _displayLink;
   id<RNSVVideoPlayerDelegate> _delegate;
   Boolean _complete;
   Boolean _waitingForFrame;
@@ -33,8 +35,7 @@ static void* rateContext = &rateContext;
   AVAsset* asset = [AVAsset assetWithURL:url];
   self.resolution = resolution;
   NSDictionary* pixBuffAttributes = @{
-    (id)kCVPixelBufferPixelFormatTypeKey :
-        @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange),
+    (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
     (id)kCVPixelBufferMetalCompatibilityKey : @YES
   };
   if (!CGSizeEqualToSize(CGSizeZero, resolution)) {
@@ -101,13 +102,25 @@ static void* rateContext = &rateContext;
       (float)((volume < 0.0) ? 0.0 : ((volume > 1.0) ? 1.0 : volume));
 }
 
-- (nullable CVPixelBufferRef)copyPixelBufferForTime:(CMTime)time {
-  CVPixelBufferRef buffer = NULL;
+- (nullable id<MTLTexture>)getNextTextureForTime:(CMTime)time {
+  id<MTLTexture> texture = NULL;
   if ([_videoOutput hasNewPixelBufferForItemTime:time]) {
-    buffer = [_videoOutput copyPixelBufferForItemTime:time
-                                   itemTimeForDisplay:nil];
+    auto buffer = [_videoOutput copyPixelBufferForItemTime:time
+                                        itemTimeForDisplay:nil];
+    if (buffer) {
+      size_t width = CVPixelBufferGetWidth(buffer);
+      size_t height = CVPixelBufferGetHeight(buffer);
+      if (!_mtlTexture || width != _mtlTexture.width ||
+          height != _mtlTexture.height) {
+        _mtlTexture = [MTLTextureUtils
+            createMTLTextureForVideoOutput:CGSizeMake(width, height)];
+      }
+      [MTLTextureUtils updateTexture:_mtlTexture with:buffer];
+      CVPixelBufferRelease(buffer);
+      texture = _mtlTexture;
+    }
   }
-  return buffer;
+  return texture;
 }
 
 - (void)seekTo:(CMTime)time

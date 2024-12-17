@@ -1,18 +1,9 @@
 package com.azzapp.rnskv;
 
-import android.graphics.ImageFormat;
-import android.graphics.PixelFormat;
-import android.media.Image;
-import android.media.ImageReader;
-import android.os.Handler;
-import android.os.Looper;
-import android.util.Log;
-
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Objects;
+
+import javax.microedition.khronos.egl.EGLContext;
 
 /**
  * A class to decode a video composition and extract frames from the video items.
@@ -23,9 +14,9 @@ public class VideoCompositionDecoder {
 
   private final HashMap<VideoComposition.Item, VideoCompositionItemDecoder> decoders;
 
-  private final List<VideoOutputDownScaler> videoOutputDownScalers;
+  private EGLResourcesHolder eglResourcesHolder;
 
-  private final HashMap<VideoComposition.Item, ImageReader> imageReaders;
+  private final HashMap<VideoComposition.Item, GLFrameExtractor> glFrameExtractors;
 
   private final HashMap<String, VideoFrame> videoFrames = new HashMap<>();
 
@@ -45,8 +36,7 @@ public class VideoCompositionDecoder {
   public VideoCompositionDecoder(VideoComposition composition) {
     this.composition = composition;
     decoders = new HashMap<>();
-    videoOutputDownScalers = new ArrayList<>();
-    imageReaders = new HashMap<>();
+    glFrameExtractors = new HashMap<>();
     composition.getItems().forEach(item -> {
       VideoCompositionItemDecoder decoder = new VideoCompositionItemDecoder(item);
       decoder.setOnErrorListener(error -> {
@@ -73,39 +63,23 @@ public class VideoCompositionDecoder {
   /**
    * Prepares the items decoders and the image readers.
    */
-  public void prepare() {
-    Handler handler = new Handler(Objects.requireNonNull(Looper.myLooper()));
+  public void prepare(EGLContext sharedContext) {
+    eglResourcesHolder = EGLResourcesHolder.createWithPBBufferSurface(sharedContext);
+    eglResourcesHolder.makeCurrent();
     decoders.values().forEach(decoder -> {
       try {
         decoder.prepare();
 
         VideoComposition.Item item = decoder.getItem();
-        boolean shouldDownScale = item.getWidth() > 0 && item.getHeight() > 0;
+        GLFrameExtractor glFrameExtractor = new GLFrameExtractor();
 
-        ImageReader imageReader = shouldDownScale
-          ? ImageReaderHelpers.createImageReader(
-              PixelFormat.RGBA_8888, item.getWidth() , item.getHeight())
-          : ImageReaderHelpers.createImageReader(
-              ImageFormat.PRIVATE, decoder.getVideoWidth(), decoder.getVideoHeight());
-
-        imageReader.setOnImageAvailableListener(reader -> {
+        glFrameExtractor.setOnFrameAvailableListener(() -> {
           if (onItemImageAvailableListener != null) {
             onItemImageAvailableListener.onItemImageAvailable(item);
           }
-        }, handler);
-        imageReaders.put(item, imageReader);
-
-        if (shouldDownScale) {
-          VideoOutputDownScaler videoOutputDownScaler = new VideoOutputDownScaler(
-            imageReader.getSurface(),
-            item.getWidth(),
-            item.getHeight()
-          );
-          videoOutputDownScalers.add(videoOutputDownScaler);
-          decoder.setSurface(videoOutputDownScaler.getInputSurface());
-        } else {
-          decoder.setSurface(imageReader.getSurface());
-        }
+        });
+        glFrameExtractors.put(item, glFrameExtractor);
+        decoder.setSurface(glFrameExtractor.getSurface());
       } catch (Exception e) {
         throw new RuntimeException(e);
       }
@@ -121,6 +95,7 @@ public class VideoCompositionDecoder {
 
   /**
    * Sets the listener to be called when an image is available.
+   *
    * @param onItemImageAvailableListener The listener to be called.
    */
   public void setOnItemImageAvailableListener(OnItemImageAvailableListener onItemImageAvailableListener) {
@@ -129,6 +104,7 @@ public class VideoCompositionDecoder {
 
   /**
    * Sets the listener to be called when an error occurs.
+   *
    * @param onErrorListener The listener to be called.
    */
   public void setOnErrorListener(OnErrorListener onErrorListener) {
@@ -137,6 +113,7 @@ public class VideoCompositionDecoder {
 
   /**
    * Sets the listener to be called when a frame has been decoded.
+   *
    * @param onFrameAvailableListener The listener to be called.
    */
   public void setOnFrameAvailableListener(OnFrameAvailableListener onFrameAvailableListener) {
@@ -145,6 +122,7 @@ public class VideoCompositionDecoder {
 
   /**
    * Sets the listener to be called when an item reaches its end.
+   *
    * @param onItemEndReachedListener The listener to be called.
    */
   public void setOnItemEndReachedListener(OnItemEndReachedListener onItemEndReachedListener) {
@@ -153,6 +131,7 @@ public class VideoCompositionDecoder {
 
   /**
    * Renders the video composition at the given position.
+   *
    * @param currentPositionUs The current position in microseconds.
    * @return A map with the rendered times for each item.
    */
@@ -165,30 +144,37 @@ public class VideoCompositionDecoder {
   }
 
   /**
-   * Gets the updated video frames.
+   * Updates the video frames of the composition and return them
+   *
    * @return A map with the updated video frames.
    */
-  public Map<String, VideoFrame> getUpdatedVideoFrames() {
+  public Map<String, VideoFrame> updateVideosFrames() {
     for (VideoComposition.Item item : composition.getItems()) {
-      ImageReader imageReader = imageReaders.get(item);
+      GLFrameExtractor glFrameExtractor = glFrameExtractors.get(item);
       VideoCompositionItemDecoder decoder = decoders.get(item);
-      if (imageReader == null || decoder == null) {
+      if (eglResourcesHolder == null || glFrameExtractor == null || decoder == null) {
         continue;
       }
-      Image image = imageReader.acquireLatestImage();
-      if (image == null) {
+      eglResourcesHolder.makeCurrent();
+      int itemWidth = item.getWidth();
+      int itemHeight = item.getHeight();
+      boolean shouldDownScale = itemWidth > 0 && itemHeight > 0;
+      int frameWidth = shouldDownScale ? itemWidth : decoder.getVideoWidth();
+      int frameHeight = shouldDownScale ? itemHeight : decoder.getVideoHeight();
+      if (decoder.getRotation() == 90 || decoder.getRotation() == 270) {
+        int temp = frameWidth;
+        frameWidth = frameHeight;
+        frameHeight = temp;
+      } 
+      if (!glFrameExtractor.decodeNextFrame(frameWidth, frameHeight)) {
         continue;
       }
-      VideoFrame nextFrame = VideoFrame.create(image, decoder.getRotation());
-      if (nextFrame == null) {
-        image.close();
-        continue;
-      }
+      VideoFrame nextFrame = new VideoFrame(
+        glFrameExtractor.getOutputTexId(),
+        frameWidth, frameHeight, 0,
+        glFrameExtractor.getLatestTimeStampNs()
+      );
       String id = item.getId();
-      VideoFrame currentFrame = videoFrames.get(id);
-      if (currentFrame != null) {
-        currentFrame.release();
-      }
       videoFrames.put(id, nextFrame);
     }
     return videoFrames;
@@ -196,6 +182,7 @@ public class VideoCompositionDecoder {
 
   /**
    * Seeks to the given position.
+   *
    * @param position The position to seek to in microseconds.
    */
   synchronized public void seekTo(long position) {
@@ -208,12 +195,12 @@ public class VideoCompositionDecoder {
   synchronized public void release() {
     decoders.values().forEach(VideoCompositionItemDecoder::release);
     decoders.clear();
-    videoFrames.values().forEach(VideoFrame::release);
     videoFrames.clear();
-    imageReaders.values().forEach(ImageReader::close);
-    imageReaders.clear();
-    videoOutputDownScalers.forEach(VideoOutputDownScaler::release);
-    videoOutputDownScalers.clear();
+    glFrameExtractors.values().forEach(GLFrameExtractor::release);
+    glFrameExtractors.clear();
+    if (eglResourcesHolder != null) {
+      eglResourcesHolder.release();
+    }
   }
 
   /**

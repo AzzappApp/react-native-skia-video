@@ -1,5 +1,6 @@
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
+#import <Metal/Metal.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -12,7 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)bufferingUpdate:(NSArray<NSValue*>*)loadedTimeRanges;
 - (void)videoError:(nullable NSError*)error;
 - (void)complete;
-- (void)isPlaying:(Boolean)playing;
+- (void)isPlaying:(BOOL)playing;
 
 @end
 
@@ -30,7 +31,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithURL:(NSURL*)url
                    delegate:(id<RNSVVideoPlayerDelegate>)delegate
                  resolution:(CGSize)resolution;
-- (nullable CVPixelBufferRef)copyPixelBufferForTime:(CMTime)time;
+- (nullable id<MTLTexture>)getNextTextureForTime:(CMTime)time;
 - (void)pause;
 - (void)play;
 - (void)seekTo:(CMTime)time completionHandler:(void (^)(BOOL))completionHandle;

@@ -1,4 +1,3 @@
-/* eslint-disable react/no-unstable-nested-components */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import pexelsClient from './helpers/pexelsClient';
 import type { Video } from 'pexels';
@@ -34,7 +33,7 @@ import ReactNativeBlobUtil, {
 } from 'react-native-blob-util';
 import {
   Canvas,
-  Picture,
+  Image as ImageSkia,
   Skia,
   type SkImage,
 } from '@shopify/react-native-skia';
@@ -196,7 +195,11 @@ const drawFrame: FrameDrawer = ({
     );
     let image: SkImage;
     try {
-      image = Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
+      image = Skia.Image.MakeImageFromNativeTextureUnstable(
+        frame.texture,
+        frame.width,
+        frame.height
+      );
     } catch (error) {
       console.log('error', error);
       continue;
@@ -234,7 +237,7 @@ const VideoCompositionPreview = ({
     useState<VideoComposition | null>(null);
 
   useEffect(() => {
-    let promises: StatefulPromise<any>[] = [];
+    const promises: StatefulPromise<any>[] = [];
 
     const fetchFiles = async () => {
       const videoUrls: Record<number, StatefulPromise<FetchBlobResponse>> = {};
@@ -346,16 +349,14 @@ const VideoCompositionPreview = ({
 
       const outPath =
         ReactNativeBlobUtil.fs.dirs.CacheDir + '/' + createId() + '.mp4';
-      exportVideoComposition(
+      exportVideoComposition({
         videoComposition,
-        {
-          outPath,
-          ...encoderConfigs,
-        },
         drawFrame,
-        (progress) =>
-          setExportProgress(progress.framesCompleted / progress.nbFrames)
-      ).then(
+        onProgress: (progress) =>
+          setExportProgress(progress.framesCompleted / progress.nbFrames),
+        outPath,
+        ...encoderConfigs,
+      }).then(
         () => {
           setExportedPath(outPath);
         },
@@ -394,8 +395,15 @@ const VideoCompositionPreview = ({
                 width: windowWidth,
                 height: windowWidth,
               }}
+              opaque
             >
-              <Picture picture={currentFrame} />
+              <ImageSkia
+                image={currentFrame}
+                x={0}
+                y={0}
+                width={windowWidth}
+                height={windowWidth}
+              />
             </Canvas>
             <View style={{ opacity: videoComposition ? 1 : 0 }}>
               <Button

@@ -30,8 +30,9 @@ private:
   AVURLAsset* asset;
   AVAssetTrack* videoTrack;
   AVAssetReader* assetReader;
-  std::list<std::pair<double, std::shared_ptr<VideoFrame>>> decodedFrames;
-  std::list<std::pair<double, std::shared_ptr<VideoFrame>>> nextLoopFrames;
+  id<MTLTexture> mtlTexture;
+  std::list<std::pair<double, CVPixelBufferRef>> decodedFrames;
+  std::list<std::pair<double, CVPixelBufferRef>> nextLoopFrames;
   CMTime lastRequestedTime = kCMTimeInvalid;
   std::shared_ptr<VideoFrame> currentFrame;
 

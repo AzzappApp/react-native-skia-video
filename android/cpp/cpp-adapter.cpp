@@ -1,13 +1,12 @@
 #include "NativeEventDispatcher.h"
 #include "VideoCapabilities.h"
-#include "VideoCompositionExporter.h"
 #include "VideoCompositionFramesExtractorHostObject.h"
+#include "VideoCompositionFramesExtractorSyncHostObject.h"
+#include "VideoEncoderHostObject.h"
 #include "VideoPlayerHostObject.h"
-#include <ReactCommon/CallInvokerHolder.h>
-#include <worklets/WorkletRuntime/WorkletRuntime.h>
+#include <fbjni/fbjni.h>
 #include <jni.h>
 #include <jsi/jsi.h>
-#include <react-native-skia/JsiSkSurface.h>
 
 using namespace facebook;
 using namespace RNSkiaVideo;
@@ -29,8 +28,8 @@ void install(jsi::Runtime& jsiRuntime) {
         int height = -1;
         if (count >= 2 && arguments[1].isObject()) {
           auto res = arguments[1].asObject(runtime);
-          width = res.getProperty(runtime, "width").asNumber();
-          height = res.getProperty(runtime, "height").asNumber();
+          width = (int)res.getProperty(runtime, "width").asNumber();
+          height = (int)res.getProperty(runtime, "height").asNumber();
         }
         auto instance = std::make_shared<VideoPlayerHostObject>(
             runtime, arguments[0].asString(runtime).utf8(runtime), width,
@@ -65,41 +64,64 @@ void install(jsi::Runtime& jsiRuntime) {
   RNSVModule.setProperty(jsiRuntime, "createVideoCompositionFramesExtractor",
                          std::move(createVideoCompositionFramesExtractor));
 
-  auto exportVideoComposition = jsi::Function::createFromHostFunction(
-      jsiRuntime,
-      jsi::PropNameID::forAscii(jsiRuntime, "exportVideoComposition"), 6,
+  auto createVideoCompositionFramesExtractorSync =
+      jsi::Function::createFromHostFunction(
+          jsiRuntime,
+          jsi::PropNameID::forAscii(
+              jsiRuntime, "createVideoCompositionFramesExtractorSync"),
+          1,
+          [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+             const jsi::Value* arguments, size_t count) -> jsi::Value {
+            if (count != 1 || !arguments[0].isObject()) {
+              throw jsi::JSError(runtime,
+                                 "createVideoCompositionFramesExtractorSync(.."
+                                 ") expects one arguments (object)!");
+            }
+
+            auto instance =
+                std::make_shared<VideoCompositionFramesExtractorSyncHostObject>(
+                    runtime, arguments[0].asObject(runtime));
+            return jsi::Object::createFromHostObject(runtime, instance);
+          });
+
+  RNSVModule.setProperty(jsiRuntime,
+                         "createVideoCompositionFramesExtractorSync",
+                         std::move(createVideoCompositionFramesExtractorSync));
+
+  auto createVideoEncoder = jsi::Function::createFromHostFunction(
+      jsiRuntime, jsi::PropNameID::forAscii(jsiRuntime, "createVideoEncoder"),
+      1,
       [](jsi::Runtime& runtime, const jsi::Value& thisValue,
          const jsi::Value* arguments, size_t count) -> jsi::Value {
-        if (count != 8) {
-          throw jsi::JSError(
-              runtime,
-              "SkiaVideo.exportVideoComposition(..) expects 6"
-              "arguments (composition, options, workletRuntime, "
-              "drawFrame, onSuccess, onError, onProgress?, SkSurface)!");
+        if (count != 1 || !arguments[0].isObject()) {
+          throw jsi::JSError(runtime, "ReactNativeSkiaVideo."
+                                      "createVideoEncoder(.."
+                                      ") expects one arguments (object)!");
         }
 
-        auto onSuccess = std::make_shared<jsi::Function>(
-            arguments[4].asObject(runtime).asFunction(runtime));
-        auto onError = std::make_shared<jsi::Function>(
-            arguments[5].asObject(runtime).asFunction(runtime));
-        std::shared_ptr<jsi::Function> onProgress = nullptr;
-        if (arguments[6].isObject()) {
-          onProgress = std::make_shared<jsi::Function>(
-              arguments[6].asObject(runtime).asFunction(runtime));
+        auto options = arguments[0].asObject(runtime);
+        auto outPath = options.getProperty(runtime, "outPath")
+                           .asString(runtime)
+                           .utf8(runtime);
+        int width = (int)options.getProperty(runtime, "width").asNumber();
+        int height = (int)options.getProperty(runtime, "height").asNumber();
+        int frameRate =
+            (int)options.getProperty(runtime, "frameRate").asNumber();
+        int bitRate = (int)options.getProperty(runtime, "bitRate").asNumber();
+        std::optional<std::string> encoderName = std::nullopt;
+        if (options.hasProperty(runtime, "encoderName")) {
+          auto value = options.getProperty(runtime, "encoderName");
+          if (value.isString()) {
+            encoderName = value.asString(runtime).utf8(runtime);
+          }
         }
 
-        return VideoCompositionExporter::exportVideoComposition(
-            runtime, arguments[0].asObject(runtime),
-            arguments[1].asObject(runtime),
-            worklets::extractWorkletRuntime(runtime, arguments[2]),
-            worklets::extractShareableOrThrow<worklets::ShareableWorklet>(
-                runtime, arguments[3]),
-            onSuccess, onError, onProgress,
-            std::static_pointer_cast<RNSkia::JsiSkSurface>(
-                arguments[7].asObject(runtime).asHostObject(runtime)));
+        auto instance = std::make_shared<VideoEncoderHostObject>(
+            outPath, width, height, frameRate, bitRate, encoderName);
+        return jsi::Object::createFromHostObject(runtime, instance);
       });
-  RNSVModule.setProperty(jsiRuntime, "exportVideoComposition",
-                         std::move(exportVideoComposition));
+  RNSVModule.setProperty(jsiRuntime, "createVideoEncoder",
+                         std::move(createVideoEncoder));
 
   auto getDecodingCapabilitiesFor = jsi::Function::createFromHostFunction(
       jsiRuntime,
@@ -132,10 +154,10 @@ void install(jsi::Runtime& jsiRuntime) {
       jsi::PropNameID::forAscii(jsiRuntime, "getDecodingCapabilitiesFor"), 4,
       [](jsi::Runtime& runtime, const jsi::Value& thisValue,
          const jsi::Value* arguments, size_t count) -> jsi::Value {
-        int width = arguments[0].asNumber();
-        int height = arguments[1].asNumber();
-        int framerate = arguments[2].asNumber();
-        int bitrate = arguments[3].asNumber();
+        int width = (int)arguments[0].asNumber();
+        int height = (int)arguments[1].asNumber();
+        int framerate = (int)arguments[2].asNumber();
+        int bitrate = (int)arguments[3].asNumber();
 
         auto encoderInfos = VideoCapabilities::getValidEncoderConfigurations(
             width, height, framerate, bitrate);
@@ -171,6 +193,23 @@ void install(jsi::Runtime& jsiRuntime) {
   RNSVModule.setProperty(jsiRuntime, "getValidEncoderConfigurations",
                          std::move(getValidEncoderConfigurations));
 
+  auto runWithJNIClassLoader = jsi::Function::createFromHostFunction(
+      jsiRuntime,
+      jsi::PropNameID::forAscii(jsiRuntime, "runWithJNIClassLoader"), 1,
+      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+         const jsi::Value* arguments, size_t count) -> jsi::Value {
+        auto jsiCallback = std::make_shared<jsi::Function>(
+            arguments[0].asObject(runtime).asFunction(runtime));
+        jni::Environment::ensureCurrentThreadIsAttached();
+        jni::ThreadScope::WithClassLoader(
+            [jsiCallback = std::move(jsiCallback), &runtime]() {
+              jsiCallback->call(runtime);
+            });
+        return jsi::Value::undefined();
+      });
+  RNSVModule.setProperty(jsiRuntime, "runWithJNIClassLoader",
+                         std::move(runWithJNIClassLoader));
+
   jsiRuntime.global().setProperty(jsiRuntime, "RNSkiaVideo",
                                   std::move(RNSVModule));
 }
@@ -186,8 +225,6 @@ Java_com_azzapp_rnskv_ReactNativeSkiaVideoModule_nativeInstall(JNIEnv* env,
 }
 
 jint JNI_OnLoad(JavaVM* vm, void*) {
-  return facebook::jni::initialize(vm, [] {
-    NativeEventDispatcher::registerNatives();
-    VideoCompositionExporter::registerNatives();
-  });
+  return facebook::jni::initialize(
+      vm, [] { NativeEventDispatcher::registerNatives(); });
 }
