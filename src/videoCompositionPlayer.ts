@@ -123,7 +123,7 @@ export const useVideoCompositionPlayer = ({
       currentFrame.value = null;
       framesExtractor?.dispose();
     },
-    [framesExtractor, currentFrame]
+    [currentFrame, framesExtractor]
   );
 
   const retry = useCallback(() => {

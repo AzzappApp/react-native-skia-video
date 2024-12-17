@@ -1,4 +1,3 @@
-/* eslint-disable react/no-unstable-nested-components */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import pexelsClient from './helpers/pexelsClient';
 import type { Video } from 'pexels';
@@ -238,7 +237,7 @@ const VideoCompositionPreview = ({
     useState<VideoComposition | null>(null);
 
   useEffect(() => {
-    let promises: StatefulPromise<any>[] = [];
+    const promises: StatefulPromise<any>[] = [];
 
     const fetchFiles = async () => {
       const videoUrls: Record<number, StatefulPromise<FetchBlobResponse>> = {};

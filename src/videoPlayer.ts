@@ -175,7 +175,7 @@ export const useVideoPlayer = ({
     if (!player || (!player.isPlaying && currentFrame.value)) {
       return;
     }
-    let nextFrame = player.decodeNextFrame();
+    const nextFrame = player.decodeNextFrame();
     if (nextFrame) {
       currentFrame.value = nextFrame;
     }

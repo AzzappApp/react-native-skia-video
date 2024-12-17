@@ -1,7 +1,7 @@
 import { NativeModules, Platform } from 'react-native';
 import type { RNSkiaVideoModule } from './types';
 
-// @ts-expect-error
+// @ts-expect-error __turboModuleProxy is not yet added to the type definitions
 const isTurboModuleEnabled = global.__turboModuleProxy != null;
 
 const ReactNativeSkiaVideoModule = isTurboModuleEnabled

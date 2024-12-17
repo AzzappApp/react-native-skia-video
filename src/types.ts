@@ -1,4 +1,4 @@
-// @ts-ignore
+// @ts-expect-error unused
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import type { SkCanvas, SkSurface, Skia } from '@shopify/react-native-skia';
 
