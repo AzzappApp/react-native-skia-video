@@ -350,16 +350,14 @@ const VideoCompositionPreview = ({
 
       const outPath =
         ReactNativeBlobUtil.fs.dirs.CacheDir + '/' + createId() + '.mp4';
-      exportVideoComposition(
+      exportVideoComposition({
         videoComposition,
-        {
-          outPath,
-          ...encoderConfigs,
-        },
         drawFrame,
-        (progress) =>
-          setExportProgress(progress.framesCompleted / progress.nbFrames)
-      ).then(
+        onProgress: (progress) =>
+          setExportProgress(progress.framesCompleted / progress.nbFrames),
+        outPath,
+        ...encoderConfigs,
+      }).then(
         () => {
           setExportedPath(outPath);
         },
