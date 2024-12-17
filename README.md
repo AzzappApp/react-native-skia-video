@@ -29,7 +29,11 @@ const MyVideoPlayer = ({ uri, width, height }) =>{
     if (!frame) {
       return null;
     }
-    return Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
+    return Skia.Image.MakeImageFromNativeTextureUnstable(
+      frame.texture,
+      frame.width,
+      frame.height
+    );
   });
 
   return (
@@ -95,7 +99,7 @@ const MyVideoCompositionPlayer = ({ width, height }) =>{
 
   return (
     <Canvas style={{ width, height }}>
-      <Picture picture={currentFrame} />
+      <Image image={currentFrame} x={0} y={0} width={width} height={height} />
     </Canvas>
   );
 }
@@ -106,18 +110,15 @@ To export a composition, use the `exportVideoComposition` function:
 ```js
 import { exportVideoComposition } from '@azzapp/react-native-skia-video'
 
-
-exportVideoComposition(
+exportVideoComposition({
   videoComposition,
-  {
-    outPath: '/path/to/output',
-    bitRate: 3500000,
-    frameRate: 60,
-    width: 1920,
-    height: 1080,
-  },
-  drawFrame
-).then(() => {
+  drawFrame,
+  outPath: '/path/to/output',
+  bitRate: 3500000,
+  frameRate: 60,
+  width: 1920,
+  height: 1080,
+}).then(() => {
   console.log('Video exported successfully!')
 })
 ```
