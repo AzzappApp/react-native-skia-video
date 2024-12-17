@@ -18,23 +18,41 @@ const OS = Platform.OS;
 
 /**
  * Exports a video composition to a video file.
- * @param videoComposition The video composition to export.
- * @param options The export options.
- * @param drawFrame The function used to draw the video frames.
+ *
  * @returns A promise that resolves when the export is complete.
  */
 export const exportVideoComposition = async <T = undefined>({
   videoComposition,
   drawFrame,
-  before,
-  after,
+  beforeDrawFrame,
+  afterDrawFrame,
   onProgress,
   ...options
 }: {
+  /**
+   * The video composition to export.
+   */
   videoComposition: VideoComposition;
+  /**
+   * The function used to draw the video frames.
+   */
   drawFrame: FrameDrawer<T>;
-  before?: () => T;
-  after?: (context: T) => void;
+  /**
+   * A function that is called before drawing each frame.
+   * The return value will be passed to the drawFrame function as context.
+   *
+   * @returns The context that will be passed to the drawFrame function.
+   */
+  beforeDrawFrame?: () => T;
+  /**
+   * A function that is called after drawing each frame.
+   * @param context The context returned by the beforeDrawFrame function.
+   */
+  afterDrawFrame?: (context: T) => void;
+  /**
+   * A callback that is called when a frame is drawn.
+   * @returns
+   */
   onProgress?: (progress: {
     framesCompleted: number;
     nbFrames: number;
@@ -69,7 +87,7 @@ export const exportVideoComposition = async <T = undefined>({
           const frames = frameExtractor.decodeCompositionFrames(currentTime);
           const canvas = surface.getCanvas();
           canvas.clear(Skia.Color('#00000000'));
-          const context = before?.() as any;
+          const context = beforeDrawFrame?.() as any;
           drawFrame({
             context,
             canvas,
@@ -79,7 +97,6 @@ export const exportVideoComposition = async <T = undefined>({
             width: options.width,
             height: options.height,
           });
-          after?.(context);
           surface.flush();
 
           // On iOS and macOS, the first flush is not synchronous,
@@ -89,6 +106,7 @@ export const exportVideoComposition = async <T = undefined>({
           }
           const texture = surface.getNativeTextureUnstable();
           encoder.encodeFrame(texture, currentTime);
+          afterDrawFrame?.(context);
           if (onProgress) {
             runOnJS(onProgress)({
               framesCompleted: i + 1,

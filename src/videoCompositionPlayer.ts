@@ -30,13 +30,13 @@ type UseVideoCompositionPlayerOptions<T = undefined> = {
    * A function that is called before drawing each frame.
    * the return value will be passed to the drawFrame function as context.
    */
-  before?: () => T;
+  beforeDrawFrame?: () => T;
   /**
    * A function that is called after drawing each frame.
-   * the context returned by the before function will be passed to this function.
+   * the context returned by the beforeDrawFrame function will be passed to this function.
    * This function can be used to clean up resources allocated during the drawFrame function.
    */
-  after?: (context: T) => void;
+  afterDrawFrame?: (context: T) => void;
   /**
    * The width of rendered frames.
    */
@@ -91,8 +91,8 @@ type UseVideoCompositionPlayerReturnType = {
 export const useVideoCompositionPlayer = ({
   composition,
   drawFrame,
-  before,
-  after,
+  beforeDrawFrame,
+  afterDrawFrame,
   width,
   height,
   autoPlay = false,
@@ -177,7 +177,7 @@ export const useVideoCompositionPlayer = ({
     }
 
     const canvas = surface.getCanvas();
-    const context = before?.();
+    const context = beforeDrawFrame?.();
     drawFrame({
       canvas,
       context,
@@ -188,8 +188,6 @@ export const useVideoCompositionPlayer = ({
       height: height * pixelRatio,
     });
     surface.flush();
-    after?.(context);
-
     const previousFrame = currentFrame.value;
     try {
       currentFrame.value = Skia.Image.MakeImageFromNativeTextureUnstable(
@@ -202,6 +200,7 @@ export const useVideoCompositionPlayer = ({
       return;
     }
     previousFrame?.dispose();
+    afterDrawFrame?.(context);
   }, true);
 
   return {
