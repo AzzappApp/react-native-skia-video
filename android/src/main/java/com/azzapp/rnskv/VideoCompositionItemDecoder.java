@@ -276,7 +276,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
 
     List<Frame> framesToRenders = new ArrayList<>();
     for (Frame frame : pendingFrames) {
-      if (frame.presentationTimeUs - startTimeUs < compositionTimeUs - compositionStartTimeUs || !hasRenderedFrame) {
+      if (frame.presentationTimeUs - startTimeUs <= compositionTimeUs - compositionStartTimeUs || !hasRenderedFrame) {
         framesToRenders.add(frame);
         hasRenderedFrame = true;
       }
