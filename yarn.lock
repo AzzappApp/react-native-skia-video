@@ -38,7 +38,7 @@ __metadata:
     pexels: ^1.4.0
     react: 18.3.1
     react-native: 0.76.0
-    react-native-blob-util: ^0.21.1
+    react-native-blob-util: ^0.19.9
     react-native-reanimated: 3.16.1
     react-native-safe-area-context: ^4.12.0
     react-native-screens: ^3.35.0
@@ -12366,16 +12366,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-blob-util@npm:^0.21.1":
-  version: 0.21.1
-  resolution: "react-native-blob-util@npm:0.21.1"
+"react-native-blob-util@npm:^0.19.9":
+  version: 0.19.11
+  resolution: "react-native-blob-util@npm:0.19.11"
   dependencies:
     base-64: 0.1.0
     glob: ^10.3.10
   peerDependencies:
     react: "*"
     react-native: "*"
-  checksum: 458080d019acc0f76d3fc628228626e46ce5acafe2667673fd884d690d5c13b7aae11bbd2f1eaa6d4dc2053b0b54d8bf3c075e2bee0fdec05820de418851ad9d
+  checksum: 13f18e4fdca5b93236f309734aad625164c6fb5bf7191d1dc2fe4fdb385961c6802418968026fb2012ad01bda0ac092dbbcf3639d1efcd4a6361064d5b6957d0
   languageName: node
   linkType: hard
 
