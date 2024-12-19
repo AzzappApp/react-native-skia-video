@@ -327,7 +327,7 @@ const VideoCompositionPreview = ({
         bitRate: 12000000,
         frameRate: 60,
         width: 1920,
-        height: 1920,
+        height: 1080,
       };
 
       const validConfigs =
