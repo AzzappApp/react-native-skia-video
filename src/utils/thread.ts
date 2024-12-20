@@ -1,14 +1,10 @@
-import {
-  createWorkletRuntime,
-  runOnRuntime,
-  type WorkletRuntime,
-} from 'react-native-reanimated';
+import { createWorkletRuntime, runOnRuntime } from 'react-native-reanimated';
 import { Platform } from 'react-native';
 import RNSkiaVideoModule from '../RNSkiaVideoModule';
 
 const isAndroid = Platform.OS === 'android';
 
-const runOnNewThread = (fn: (runtime: WorkletRuntime) => void) => {
+const runOnNewThread = (fn: () => void) => {
   const exportRuntime = createWorkletRuntime(
     'RNSkiaVideoExportRuntime-' + performance.now()
   );
@@ -18,10 +14,10 @@ const runOnNewThread = (fn: (runtime: WorkletRuntime) => void) => {
     if (isAndroid) {
       RNSkiaVideoModule.runWithJNIClassLoader?.(() => {
         'worklet';
-        fn(exportRuntime);
+        fn();
       });
     } else {
-      fn(exportRuntime);
+      fn();
     }
   })();
 };
