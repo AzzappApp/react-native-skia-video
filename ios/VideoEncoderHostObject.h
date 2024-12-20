@@ -22,7 +22,6 @@ private:
   int frameRate;
   id<MTLDevice> device;
   id<MTLCommandQueue> commandQueue;
-  CVMetalTextureCacheRef metalTextureCache;
   AVAssetWriter* assetWriter;
   AVAssetWriterInput* assetWriterInput;
 
