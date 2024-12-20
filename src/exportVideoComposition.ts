@@ -1,6 +1,6 @@
 import { runOnJS } from 'react-native-reanimated';
 import { Platform } from 'react-native';
-import { Skia } from '@shopify/react-native-skia';
+import { Skia, BlendMode } from '@shopify/react-native-skia';
 import type { SkSurface } from '@shopify/react-native-skia';
 import type {
   ExportOptions,
@@ -82,11 +82,12 @@ export const exportVideoComposition = async <T = undefined>({
         frameExtractor.start();
 
         const nbFrames = videoComposition.duration * options.frameRate;
+        const canvas = surface.getCanvas();
+        const clearColor = Skia.Color('#00000000');
         for (let i = 0; i < nbFrames; i++) {
           const currentTime = i / options.frameRate;
           const frames = frameExtractor.decodeCompositionFrames(currentTime);
-          const canvas = surface.getCanvas();
-          canvas.clear(Skia.Color('#00000000'));
+          canvas.drawColor(clearColor, BlendMode.Clear);
           const context = beforeDrawFrame?.() as any;
           drawFrame({
             context,

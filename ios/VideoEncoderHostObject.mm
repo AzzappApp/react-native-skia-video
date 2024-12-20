@@ -122,73 +122,61 @@ void VideoEncoderHostObject::prepare() {
 
   device = MTLCreateSystemDefaultDevice();
   commandQueue = [device newCommandQueue];
+  CVMetalTextureCacheCreate(NULL, NULL, device, NULL, &metalTextureCache);
 }
 
 void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
                                          CMTime time) {
-  // Assuming mlTexture is your MTLResourceStorageModePrivate texture
-  MTLTextureDescriptor* descriptor = [MTLTextureDescriptor
-      texture2DDescriptorWithPixelFormat:mlTexture.pixelFormat
-                                   width:mlTexture.width
-                                  height:mlTexture.height
-                               mipmapped:NO];
-  descriptor.storageMode = MTLStorageModeShared;
-  descriptor.pixelFormat = MTLPixelFormatBGRA8Unorm;
-  id<MTLTexture> cpuAccessibleTexture =
-      [device newTextureWithDescriptor:descriptor];
+  // Create CVPixelBuffer with Metal compatibility
+  CVPixelBufferRef pixelBuffer = NULL;
+  NSDictionary* attributes = @{
+    (NSString*)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
+    (NSString*)kCVPixelBufferWidthKey : @(mlTexture.width),
+    (NSString*)kCVPixelBufferHeightKey : @(mlTexture.height),
+    (NSString*)kCVPixelBufferMetalCompatibilityKey : @YES
+  };
+  CVReturn status =
+      CVPixelBufferCreate(kCFAllocatorDefault, mlTexture.width,
+                          mlTexture.height, kCVPixelFormatType_32BGRA,
+                          (__bridge CFDictionaryRef)attributes, &pixelBuffer);
 
-  id<MTLCommandBuffer> commandBuffer =
-      [commandQueue commandBufferWithUnretainedReferences];
+  if (status != kCVReturnSuccess) {
+    throw createErrorWithMessage(@"Could not create CVPixelBuffer");
+  }
+
+  CVMetalTextureRef metalTexture = NULL;
+  CVReturn textureStatus = CVMetalTextureCacheCreateTextureFromImage(
+      NULL, metalTextureCache, pixelBuffer, NULL, MTLPixelFormatBGRA8Unorm,
+      mlTexture.width, mlTexture.height, 0, &metalTexture);
+
+  if (textureStatus != kCVReturnSuccess || metalTexture == NULL) {
+    CVPixelBufferRelease(pixelBuffer);
+    throw createErrorWithMessage(
+        @"Could not create Metal texture from CVPixelBuffer");
+  }
+
+  id<MTLTexture> cvTexture = CVMetalTextureGetTexture(metalTexture);
+
+  id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
   id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
   [blitEncoder copyFromTexture:mlTexture
                    sourceSlice:0
                    sourceLevel:0
                   sourceOrigin:MTLOriginMake(0, 0, 0)
                     sourceSize:MTLSizeMake(mlTexture.width, mlTexture.height, 1)
-                     toTexture:cpuAccessibleTexture
+                     toTexture:cvTexture
               destinationSlice:0
               destinationLevel:0
              destinationOrigin:MTLOriginMake(0, 0, 0)];
-
   [blitEncoder endEncoding];
   [commandBuffer commit];
   [commandBuffer waitUntilCompleted];
-
-  CVPixelBufferRef pixelBuffer = NULL;
-  NSDictionary* attributes = @{
-    (NSString*)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
-    (NSString*)kCVPixelBufferWidthKey : @(width),
-    (NSString*)kCVPixelBufferHeightKey : @(height),
-    (NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
-  };
-  CVReturn status = CVPixelBufferCreate(
-      kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
-      (__bridge CFDictionaryRef)attributes, &pixelBuffer);
-
-  if (status != kCVReturnSuccess) {
-    throw createErrorWithMessage(@"Could not extract pixels from frame");
-    return;
-  }
-  CVPixelBufferLockBaseAddress(pixelBuffer, 0);
-  void* pixelBufferBytes = CVPixelBufferGetBaseAddress(pixelBuffer);
-  if (pixelBufferBytes == NULL) {
-    throw createErrorWithMessage(@"Could not extract pixels from frame");
-  }
-  size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
-
-  MTLRegion region = MTLRegionMake2D(0, 0, width, height);
-
-  [cpuAccessibleTexture getBytes:pixelBufferBytes
-                     bytesPerRow:bytesPerRow
-                      fromRegion:region
-                     mipmapLevel:0];
-  CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
 
   int attempt = 0;
   while (!assetWriterInput.isReadyForMoreMediaData) {
     if (attempt > 100) {
       CVPixelBufferRelease(pixelBuffer);
-      [cpuAccessibleTexture setPurgeableState:MTLPurgeableStateEmpty];
+      CFRelease(metalTexture);
       throw createErrorWithMessage(@"AVAssetWriter unavailable");
     }
     attempt++;
@@ -224,7 +212,8 @@ void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
     CFRelease(formatDescription);
   };
   CVPixelBufferRelease(pixelBuffer);
-  [cpuAccessibleTexture setPurgeableState:MTLPurgeableStateEmpty];
+  CFRelease(metalTexture);
+
   if (error) {
     throw error;
   }

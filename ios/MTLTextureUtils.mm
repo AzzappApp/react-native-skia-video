@@ -28,6 +28,19 @@ inline id<MTLCommandQueue> getCommandQueue() {
   return commandQueue;
 }
 
+static CVMetalTextureCacheRef metalTextureCache = NULL;
+CVMetalTextureCacheRef getMetalTextureCache() {
+  if (!metalTextureCache) {
+    CVReturn status = CVMetalTextureCacheCreate(
+        kCFAllocatorDefault, NULL, getDevice(), NULL, &metalTextureCache);
+    if (status != kCVReturnSuccess) {
+      NSLog(@"Failed to create CVMetalTextureCache: %d", status);
+      metalTextureCache = NULL;
+    }
+  }
+  return metalTextureCache;
+}
+
 + (nullable id<MTLTexture>)createMTLTextureForVideoOutput:(CGSize)size {
   MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
   descriptor.pixelFormat = MTLPixelFormatBGRA8Unorm;
@@ -46,13 +59,6 @@ inline id<MTLCommandQueue> getCommandQueue() {
 
   size_t width = CVPixelBufferGetWidth(pixelBuffer);
   size_t height = CVPixelBufferGetHeight(pixelBuffer);
-  size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
-  void* baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer);
-
-  if (!baseAddress) {
-    CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
-    throw std::runtime_error("Failed to get base address of CVPixelBuffer!");
-  }
 
   if (width > mtlTexture.width || height > mtlTexture.height) {
     CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
@@ -60,42 +66,43 @@ inline id<MTLCommandQueue> getCommandQueue() {
         "Pixel buffer dimensions exceed texture dimensions!");
   }
 
-  auto device = getDevice();
-  auto commandQueue = getCommandQueue();
+  // Use CVMetalTextureCache to create a Metal texture directly from the pixel
+  // buffer
+  CVMetalTextureRef cvMetalTexture = NULL;
+  CVReturn status = CVMetalTextureCacheCreateTextureFromImage(
+      NULL, getMetalTextureCache(), pixelBuffer, NULL, MTLPixelFormatBGRA8Unorm,
+      width, height, 0, &cvMetalTexture);
 
-  id<MTLBuffer> stagingBuffer =
-      [device newBufferWithLength:bytesPerRow * height
-                          options:MTLResourceStorageModeShared];
-  if (!stagingBuffer) {
+  if (status != kCVReturnSuccess || !cvMetalTexture) {
     CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
-    throw std::runtime_error("Failed to create staging buffer!");
+    throw std::runtime_error(
+        "Failed to create Metal texture from CVPixelBuffer!");
   }
 
-  memcpy(stagingBuffer.contents, baseAddress, bytesPerRow * height);
+  id<MTLTexture> tempTexture = CVMetalTextureGetTexture(cvMetalTexture);
 
-  id<MTLCommandBuffer> commandBuffer =
-      [commandQueue commandBufferWithUnretainedReferences];
+  // Copy the Metal-compatible texture to the destination texture
+  auto commandQueue = getCommandQueue();
+  id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
   id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
 
   MTLRegion region = MTLRegionMake2D(0, 0, width, height);
 
-  [blitEncoder copyFromBuffer:stagingBuffer
-                 sourceOffset:0
-            sourceBytesPerRow:bytesPerRow
-          sourceBytesPerImage:bytesPerRow * height
-                   sourceSize:region.size
-                    toTexture:mtlTexture
-             destinationSlice:0
-             destinationLevel:0
-            destinationOrigin:region.origin];
+  [blitEncoder copyFromTexture:tempTexture
+                   sourceSlice:0
+                   sourceLevel:0
+                  sourceOrigin:region.origin
+                    sourceSize:region.size
+                     toTexture:mtlTexture
+              destinationSlice:0
+              destinationLevel:0
+             destinationOrigin:region.origin];
 
   [blitEncoder endEncoding];
   [commandBuffer commit];
   [commandBuffer waitUntilCompleted];
 
-  [stagingBuffer setPurgeableState:MTLPurgeableStateEmpty];
-  stagingBuffer = nil;
-
+  CFRelease(cvMetalTexture);
   CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
 }
 
