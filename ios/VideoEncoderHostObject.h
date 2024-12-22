@@ -22,8 +22,10 @@ private:
   int frameRate;
   id<MTLDevice> device;
   id<MTLCommandQueue> commandQueue;
+  id<MTLTexture> cpuAccessibleTexture;
   AVAssetWriter* assetWriter;
   AVAssetWriterInput* assetWriterInput;
+  CVPixelBufferRef pixelBuffer;
 
   void prepare();
   void encodeFrame(id<MTLTexture> mlTexture, CMTime time);

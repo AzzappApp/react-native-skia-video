@@ -136,7 +136,9 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
       auto buffer = CMSampleBufferGetImageBuffer(sampleBuffer);
       if (buffer) {
         framesQueue->push_back(
-            std::make_pair(CMTimeGetSeconds(timeStamp), buffer));
+            std::make_pair(CMTimeGetSeconds(timeStamp), sampleBuffer));
+      } else {
+        CFRelease(sampleBuffer);
       }
 
       latestSampleTime = timeStamp;
@@ -151,7 +153,7 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
       CMTimeCompare(currentTime, lastRequestedTime) < 0) {
     hasLooped = false;
     for (const auto& frame : decodedFrames) {
-      CVPixelBufferRelease(frame.second);
+      CFRelease(frame.second);
     }
     decodedFrames = nextLoopFrames;
     nextLoopFrames.clear();
@@ -164,14 +166,14 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
           MAX((CMTimeGetSeconds(currentTime) - item->compositionStartTime), 0),
           NSEC_PER_SEC));
 
-  CVPixelBufferRef nextFrame = nil;
+  CMSampleBufferRef nextFrame = nil;
   auto it = decodedFrames.begin();
   while (it != decodedFrames.end()) {
     auto timestamp = CMTimeMakeWithSeconds(it->first, NSEC_PER_SEC);
     if (CMTimeCompare(timestamp, position) <= 0 ||
         (force && nextFrame == nullptr)) {
       if (nextFrame != nullptr) {
-        CVPixelBufferRelease(nextFrame);
+        CFRelease(nextFrame);
       }
       nextFrame = it->second;
       it = decodedFrames.erase(it);
@@ -180,8 +182,9 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
     }
   }
   if (nextFrame) {
-    [MTLTextureUtils updateTexture:mtlTexture with:nextFrame];
-    CVPixelBufferRelease(nextFrame);
+    CVPixelBufferRef buffer = CMSampleBufferGetImageBuffer(nextFrame);
+    [MTLTextureUtils updateTexture:mtlTexture with:buffer];
+    CFRelease(nextFrame);
     return std::make_shared<VideoFrame>(mtlTexture, width, height, rotation);
   }
   return nullptr;
@@ -201,11 +204,11 @@ void VideoCompositionItemDecoder::release() {
       assetReader = nullptr;
     }
     for (const auto& frame : decodedFrames) {
-      CVPixelBufferRelease(frame.second);
+      CFRelease(frame.second);
     }
     decodedFrames.clear();
     for (const auto& frame : nextLoopFrames) {
-      CVPixelBufferRelease(frame.second);
+      CFRelease(frame.second);
     }
     nextLoopFrames.clear();
     hasLooped = false;

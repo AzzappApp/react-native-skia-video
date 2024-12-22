@@ -122,21 +122,34 @@ void VideoEncoderHostObject::prepare() {
 
   device = MTLCreateSystemDefaultDevice();
   commandQueue = [device newCommandQueue];
+
+  NSDictionary* attributes = @{
+    (NSString*)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
+    (NSString*)kCVPixelBufferWidthKey : @(width),
+    (NSString*)kCVPixelBufferHeightKey : @(height),
+    (NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
+  };
+  CVReturn status = CVPixelBufferCreate(
+      kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
+      (__bridge CFDictionaryRef)attributes, &pixelBuffer);
+
+  if (status != kCVReturnSuccess) {
+    throw createErrorWithMessage(@"Could not extract pixels from frame");
+    return;
+  }
+
+  MTLTextureDescriptor* descriptor = [MTLTextureDescriptor
+      texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                   width:width
+                                  height:height
+                               mipmapped:NO];
+  descriptor.storageMode = MTLStorageModeShared;
+  descriptor.pixelFormat = MTLPixelFormatBGRA8Unorm;
+  cpuAccessibleTexture = [device newTextureWithDescriptor:descriptor];
 }
 
 void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
                                          CMTime time) {
-  // Assuming mlTexture is your MTLResourceStorageModePrivate texture
-  MTLTextureDescriptor* descriptor = [MTLTextureDescriptor
-      texture2DDescriptorWithPixelFormat:mlTexture.pixelFormat
-                                   width:mlTexture.width
-                                  height:mlTexture.height
-                               mipmapped:NO];
-  descriptor.storageMode = MTLStorageModeShared;
-  descriptor.pixelFormat = MTLPixelFormatBGRA8Unorm;
-  id<MTLTexture> cpuAccessibleTexture =
-      [device newTextureWithDescriptor:descriptor];
-
   id<MTLCommandBuffer> commandBuffer =
       [commandQueue commandBufferWithUnretainedReferences];
   id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
@@ -154,21 +167,6 @@ void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
   [commandBuffer commit];
   [commandBuffer waitUntilCompleted];
 
-  CVPixelBufferRef pixelBuffer = NULL;
-  NSDictionary* attributes = @{
-    (NSString*)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
-    (NSString*)kCVPixelBufferWidthKey : @(width),
-    (NSString*)kCVPixelBufferHeightKey : @(height),
-    (NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
-  };
-  CVReturn status = CVPixelBufferCreate(
-      kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
-      (__bridge CFDictionaryRef)attributes, &pixelBuffer);
-
-  if (status != kCVReturnSuccess) {
-    throw createErrorWithMessage(@"Could not extract pixels from frame");
-    return;
-  }
   CVPixelBufferLockBaseAddress(pixelBuffer, 0);
   void* pixelBufferBytes = CVPixelBufferGetBaseAddress(pixelBuffer);
   if (pixelBufferBytes == NULL) {
@@ -187,8 +185,6 @@ void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
   int attempt = 0;
   while (!assetWriterInput.isReadyForMoreMediaData) {
     if (attempt > 100) {
-      CVPixelBufferRelease(pixelBuffer);
-      [cpuAccessibleTexture setPurgeableState:MTLPurgeableStateEmpty];
       throw createErrorWithMessage(@"AVAssetWriter unavailable");
     }
     attempt++;
@@ -223,8 +219,6 @@ void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
   if (formatDescription) {
     CFRelease(formatDescription);
   };
-  CVPixelBufferRelease(pixelBuffer);
-  [cpuAccessibleTexture setPurgeableState:MTLPurgeableStateEmpty];
   if (error) {
     throw error;
   }
@@ -253,10 +247,16 @@ void VideoEncoderHostObject::release() {
   if (assetWriter && assetWriter.status == AVAssetWriterStatusWriting) {
     [assetWriter cancelWriting];
   }
-  assetWriter = nullptr;
-  assetWriterInput = nullptr;
-  commandQueue = nullptr;
-  device = nullptr;
+  assetWriter = nil;
+  assetWriterInput = nil;
+  CVPixelBufferRelease(pixelBuffer);
+  pixelBuffer = NULL;
+  if (cpuAccessibleTexture) {
+    [cpuAccessibleTexture setPurgeableState:MTLPurgeableStateEmpty];
+  }
+  cpuAccessibleTexture = nil;
+  commandQueue = nil;
+  device = nil;
 }
 
 } // namespace RNSkiaVideo
