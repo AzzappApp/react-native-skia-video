@@ -1,5 +1,5 @@
 PODS:
-  - azzapp-react-native-skia-video (0.8.0):
+  - azzapp-react-native-skia-video (0.8.3):
     - DoubleConversion
     - glog
     - hermes-engine
@@ -1354,7 +1354,7 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
-  - react-native-skia (1.7.6):
+  - react-native-skia (1.12.3):
     - DoubleConversion
     - glog
     - hermes-engine
@@ -2045,7 +2045,7 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
 SPEC CHECKSUMS:
-  azzapp-react-native-skia-video: 710cf33b86652d5d421157e4b201f334956c885d
+  azzapp-react-native-skia-video: e4ca82fb8e00dcae5b57953c8930447da16e9ba1
   boost: 1dca942403ed9342f98334bf4c3621f011aa7946
   DoubleConversion: f16ae600a246532c4020132d54af21d0ddb2a385
   FBLazyVector: aa59bef5c46e93168bffcf3dc37ee1e176de799a
@@ -2084,7 +2084,7 @@ SPEC CHECKSUMS:
   React-microtasksnativemodule: 0b7db04c18f6bb01ef5b1f9007c3229abecc35dd
   react-native-blob-util: e6a3b23a99ac2c3d9fa48722db049a1e1808efc2
   react-native-safe-area-context: 458f6b948437afcb59198016b26bbd02ff9c3b47
-  react-native-skia: ec846c55d65ee069fc6c6c075938447426a7b4a9
+  react-native-skia: 8760a8b66710b0bdb4693b79a629f4d4a6d67fc6
   react-native-slider: 124ce99f9cd2d04c79f020da6dee9f8d38a6b8c7
   React-nativeconfig: 72c10ff34863148ef90df9c9c8eacba99d2faaaa
   React-NativeModulesApple: 5ec49182fa000b2215ee1bed03e2867f8323ccf5

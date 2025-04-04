@@ -33,7 +33,7 @@ __metadata:
     "@react-native/typescript-config": 0.76.0
     "@react-navigation/native": ^6.1.18
     "@react-navigation/native-stack": ^6.11.0
-    "@shopify/react-native-skia": ^1.7.6
+    "@shopify/react-native-skia": ^1.12.3
     babel-plugin-module-resolver: ^5.0.0
     pexels: ^1.4.0
     react: 18.3.1
@@ -54,7 +54,7 @@ __metadata:
     "@evilmartians/lefthook": ^1.9.2
     "@react-native/eslint-config": ^0.76.5
     "@release-it/conventional-changelog": ^9.0.3
-    "@shopify/react-native-skia": ^1.7.6
+    "@shopify/react-native-skia": ^1.12.3
     "@types/jest": ^29.5.5
     "@types/react": ^18.3.12
     "@typescript-eslint/eslint-plugin": ^8.15.0
@@ -4025,15 +4025,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@shopify/react-native-skia@npm:^1.7.6":
-  version: 1.7.6
-  resolution: "@shopify/react-native-skia@npm:1.7.6"
+"@shopify/react-native-skia@npm:^1.12.3":
+  version: 1.12.3
+  resolution: "@shopify/react-native-skia@npm:1.12.3"
   dependencies:
-    canvaskit-wasm: 0.39.1
+    canvaskit-wasm: 0.40.0
     react-reconciler: 0.27.0
   peerDependencies:
-    react: ">=18.0"
-    react-native: ">=0.64"
+    react: ">=18.0 <19.0.0"
+    react-native: ">=0.64 <0.78.0"
     react-native-reanimated: ">=2.0.0"
   peerDependenciesMeta:
     react-native:
@@ -4041,8 +4041,8 @@ __metadata:
     react-native-reanimated:
       optional: true
   bin:
-    setup-skia-web: ./scripts/setup-canvaskit.js
-  checksum: 2735073ded0fabdd4c5a031796e3555c6cea7dc389edf91f769c0c5fc3f8f93b2c40ed40a0c1d0ee444c010cc6344e614819aab01d1d814380edec22515c2235
+    setup-skia-web: scripts/setup-canvaskit.js
+  checksum: 12fdd38c1bb7574edf59b52971105b6ca3cbf1b0716d8c0d95ebbf41eee8c8d81b7392692c64c05f765e97fa6ea02d7a898e0d91be5d5f8cd6356b5a5b29d282
   languageName: node
   linkType: hard
 
@@ -5563,12 +5563,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"canvaskit-wasm@npm:0.39.1":
-  version: 0.39.1
-  resolution: "canvaskit-wasm@npm:0.39.1"
+"canvaskit-wasm@npm:0.40.0":
+  version: 0.40.0
+  resolution: "canvaskit-wasm@npm:0.40.0"
   dependencies:
     "@webgpu/types": 0.1.21
-  checksum: da62926fc81f424a781e148b4d76bb5fc9b0188f136090b3b287522dc653cb002bfb406e2eff45b55fcc1cafbc7629f988e20ad6c777bab85c1bb09e1091a5e2
+  checksum: 983e6b2a32babcbf0a8c29412fee57305d55b7e9603d5ba1e4c68f082fb649433cd1eb8cfddf17dda6dc041ef2c77eb9d9c7f0cba852f6f75f4e78809547d9c5
   languageName: node
   linkType: hard
 
