@@ -41,6 +41,10 @@ public:
 
   void setIsLooping(jboolean isLooping);
 
+  jfloat getPlaybackSpeed();
+
+  void setPlaybackSpeed(jfloat playbackSpeed);
+
   local_ref<VideoFrame> decodeNextFrame();
 
   void release();
