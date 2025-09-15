@@ -219,7 +219,7 @@ const VideoPlayerExample = () => {
             onPress={() => (isPlaying ? player?.pause() : player?.play())}
             disabled={loading}
           />
-          <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>
+          <Text style={{ color: '#000', fontSize: 16, fontWeight: '600' }}>
             Speed: {playbackSpeed}x
           </Text>
         </View>
@@ -252,7 +252,7 @@ const VideoPlayerExample = () => {
           ))}
         </View>
         <Button
-          title={`Reset Speed (${playbackSpeed}x)`}
+          title={`Reset Speed`}
           onPress={() => setPlaybackSpeed(1.0)}
           disabled={loading}
         />
