@@ -7,7 +7,7 @@ Video encoding/decoding support for [React Native Skia](https://github.com/Shopi
 ## Installation
 
 ```sh
-npm install @azzapp/react-native-skia-video
+npm install @sheunglaili/react-native-skia-video
 ```
 
 ## Usage
@@ -18,7 +18,7 @@ The `useVideoPlayer` is a custom React hook used in the context of a video playe
 
 ```js
 import { Canvas, Image, Skia } from '@shopify/react-native-skia';
-import { useVideoPlayer } from '@azzapp/react-native-skia-video';
+import { useVideoPlayer } from '@sheunglaili/react-native-skia-video';
 
 const MyVideoPlayer = ({ uri, width, height }) =>{
 
@@ -53,7 +53,7 @@ To preview a composition, use the `useVideoCompositionPlayer` hook:
 
 ```js
 import { Canvas, Picture, Skia } from '@shopify/react-native-skia';
-import { useVideoCompositionPlayer } from '@azzapp/react-native-skia-video'
+import { useVideoCompositionPlayer } from '@sheunglaili/react-native-skia-video'
 
 const videoComposition = {
   duration: 10,
@@ -112,7 +112,7 @@ const MyVideoCompositionPlayer = ({ width, height }) =>{
 To export a composition, use the `exportVideoComposition` function:
 
 ```js
-import { exportVideoComposition } from '@azzapp/react-native-skia-video'
+import { exportVideoComposition } from '@sheunglaili/react-native-skia-video'
 
 exportVideoComposition({
   videoComposition,

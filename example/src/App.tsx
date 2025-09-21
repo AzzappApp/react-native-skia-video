@@ -7,7 +7,7 @@ import {
 import VideoPlayerExample from './VideoPlayerExample';
 import VideoCompositionExample from './VideoCompositionExample';
 import { useEffect, useState } from 'react';
-import { getDecodingCapabilitiesFor } from '@azzapp/react-native-skia-video';
+import { getDecodingCapabilitiesFor } from '@sheunglaili/react-native-skia-video';
 
 type RootStackParamList = {
   Home: undefined;
@@ -60,7 +60,7 @@ function App() {
       <Stack.Navigator>
         <Stack.Screen
           name="Home"
-          options={{ title: '@azzapp/react-native-skia-video' }}
+          options={{ title: '@sheunglaili/react-native-skia-video' }}
           component={HomeScreen}
         />
         <Stack.Screen

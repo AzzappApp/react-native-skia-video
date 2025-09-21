@@ -12,7 +12,7 @@ import {
 import {
   useVideoPlayer,
   type BufferingRange,
-} from '@azzapp/react-native-skia-video';
+} from '@sheunglaili/react-native-skia-video';
 import Slider from '@react-native-community/slider';
 import Animated, {
   useAnimatedProps,
