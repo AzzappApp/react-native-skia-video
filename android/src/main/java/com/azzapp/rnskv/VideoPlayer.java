@@ -9,6 +9,7 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.VideoSize;
+import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 
@@ -27,6 +28,8 @@ public class VideoPlayer {
   private boolean isInitialized = false;
 
   private float volume = 1f;
+
+  private float playbackSpeed = 1f;
 
   private long duration = 0L;
 
@@ -252,6 +255,27 @@ public class VideoPlayer {
   public void setIsLooping(boolean value) {
     isLooping = value;
     mainHandler.post(() -> player.setRepeatMode(value ? Player.REPEAT_MODE_ALL : Player.REPEAT_MODE_OFF));
+  }
+
+  /**
+   * @return the playback speed of the video
+   */
+  public float getPlaybackSpeed() {
+    return playbackSpeed;
+  }
+
+  /**
+   * Set the playback speed of the video
+   *
+   * @param value the playback speed to set (must be greater than 0)
+   */
+  public void setPlaybackSpeed(float value) {
+    playbackSpeed = Math.max(0.1f, value); // Minimum speed of 0.1x
+    mainHandler.post(() -> {
+      if (player != null) {
+        player.setPlaybackParameters(new PlaybackParameters(playbackSpeed, 1.0f));
+      }
+    });
   }
 
   /**

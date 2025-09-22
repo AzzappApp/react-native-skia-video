@@ -39,6 +39,11 @@ type UseVideoPlayerOptions = {
    */
   volume?: number;
   /**
+   * The playback speed of the video.
+   * The value should be greater than 0. 1.0 is normal speed, 2.0 is double speed, 0.5 is half speed.
+   */
+  playbackSpeed?: number;
+  /**
    * Callback that is called when the video is ready to play.
    * @param dimensions The dimensions of the video.
    */
@@ -105,6 +110,7 @@ export const useVideoPlayer = ({
   autoPlay = false,
   isLooping = false,
   volume = 1,
+  playbackSpeed = 1,
   onReadyToPlay,
   onBufferingStart,
   onBufferingEnd,
@@ -155,6 +161,12 @@ export const useVideoPlayer = ({
       player.volume = volume;
     }
   }, [player, volume]);
+
+  useEffect(() => {
+    if (player) {
+      player.playbackSpeed = playbackSpeed;
+    }
+  }, [player, playbackSpeed]);
 
   useEventListener(player, 'ready', onReadyToPlay);
   useEventListener(player, 'bufferingStart', onBufferingStart);

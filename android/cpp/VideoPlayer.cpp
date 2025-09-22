@@ -70,6 +70,18 @@ void VideoPlayer::setIsLooping(jboolean isLooping) {
   setIsLoopingMethod(self(), isLooping);
 }
 
+jfloat VideoPlayer::getPlaybackSpeed() {
+  static const auto getPlaybackSpeedMethod =
+      getClass()->getMethod<jfloat()>("getPlaybackSpeed");
+  return getPlaybackSpeedMethod(self());
+}
+
+void VideoPlayer::setPlaybackSpeed(jfloat playbackSpeed) {
+  static const auto setPlaybackSpeedMethod =
+      getClass()->getMethod<void(jfloat)>("setPlaybackSpeed");
+  setPlaybackSpeedMethod(self(), playbackSpeed);
+}
+
 local_ref<VideoFrame> VideoPlayer::decodeNextFrame() {
   static const auto decodeNextFrameMethod =
       getClass()->getMethod<VideoFrame()>("decodeNextFrame");

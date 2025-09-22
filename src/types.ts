@@ -95,6 +95,11 @@ export type VideoPlayer = {
    */
   volume: number;
   /**
+   * The playback speed of the video.
+   * The value should be greater than 0. 1.0 is normal speed, 2.0 is double speed, 0.5 is half speed.
+   */
+  playbackSpeed: number;
+  /**
    * Disposes of the video player.
    */
   dispose(): void;

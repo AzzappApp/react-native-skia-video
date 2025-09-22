@@ -102,6 +102,10 @@ static void* rateContext = &rateContext;
       (float)((volume < 0.0) ? 0.0 : ((volume > 1.0) ? 1.0 : volume));
 }
 
+- (void)setPlaybackSpeed:(float)playbackSpeed {
+  _player.rate = MAX(0.1f, playbackSpeed);
+}
+
 - (nullable id<MTLTexture>)getNextTextureForTime:(CMTime)time {
   id<MTLTexture> texture = NULL;
   if ([_videoOutput hasNewPixelBufferForItemTime:time]) {

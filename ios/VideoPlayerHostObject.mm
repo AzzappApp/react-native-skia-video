@@ -38,6 +38,7 @@ VideoPlayerHostObject::getPropertyNames(jsi::Runtime& rt) {
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("currentTime")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("duration")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("volume")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("playbackSpeed")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("isLooping")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("isPlaying")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("dispose")));
@@ -146,6 +147,12 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
     }
     float volume = player.volume;
     return jsi::Value(volume);
+  } else if (propName == "playbackSpeed") {
+    if (released.test()) {
+      return jsi::Value(1);
+    }
+    float playbackSpeed = player.playbackSpeed;
+    return jsi::Value(playbackSpeed);
   } else if (propName == "isLooping") {
     if (released.test()) {
       return jsi::Value(false);
@@ -170,6 +177,8 @@ void VideoPlayerHostObject::set(jsi::Runtime& runtime,
   auto propName = propNameId.utf8(runtime);
   if (propName == "volume") {
     player.volume = value.asNumber();
+  } else if (propName == "playbackSpeed") {
+    player.playbackSpeed = value.asNumber();
   } else if (propName == "isLooping") {
     player.isLooping = value.asBool();
   }

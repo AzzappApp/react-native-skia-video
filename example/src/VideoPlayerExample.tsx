@@ -5,6 +5,7 @@ import {
   Button,
   PixelRatio,
   Platform,
+  Text,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -28,11 +29,13 @@ const VideoPlayerExample = () => {
   const [loading, setLoading] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [blur, setBlur] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
 
   const loadRandomVideo = useCallback(() => {
     setLoading(true);
     setVideo(null);
     setLoadedRanges([]);
+    setPlaybackSpeed(1.0);
     pexelsClient.videos
       .popular({ per_page: 1, page: Math.round(Math.random() * 1000) })
       .then(
@@ -101,6 +104,7 @@ const VideoPlayerExample = () => {
     uri: video?.video_files.find((file) => file.quality === 'hd')?.link ?? null,
     autoPlay: true,
     isLooping: true,
+    playbackSpeed,
     onReadyToPlay,
     onPlayingStatusChange,
     onBufferingUpdate,
@@ -209,11 +213,16 @@ const VideoPlayerExample = () => {
           minimumTrackTintColor={'#F00'}
         />
 
-        <Button
-          title={isPlaying ? 'Pause' : 'Play'}
-          onPress={() => (isPlaying ? player?.pause() : player?.play())}
-          disabled={loading}
-        />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <Button
+            title={isPlaying ? 'Pause' : 'Play'}
+            onPress={() => (isPlaying ? player?.pause() : player?.play())}
+            disabled={loading}
+          />
+          <Text style={{ color: '#000', fontSize: 16, fontWeight: '600' }}>
+            Speed: {playbackSpeed}x
+          </Text>
+        </View>
         <Button
           title={'Load Random Video'}
           onPress={loadRandomVideo}
@@ -222,6 +231,30 @@ const VideoPlayerExample = () => {
         <Button
           title={blur ? 'Unblur' : 'Blur'}
           onPress={() => setBlur((blur) => !blur)}
+        />
+        <View
+          style={{
+            flexDirection: 'row',
+            gap: 10,
+            flexWrap: 'wrap',
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+        >
+          {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((speed) => (
+            <Button
+              key={speed}
+              title={`${speed}x`}
+              onPress={() => setPlaybackSpeed(speed)}
+              color={playbackSpeed === speed ? '#007AFF' : undefined}
+              disabled={loading}
+            />
+          ))}
+        </View>
+        <Button
+          title={`Reset Speed`}
+          onPress={() => setPlaybackSpeed(1.0)}
+          disabled={loading}
         />
       </View>
     </View>
