@@ -19,7 +19,7 @@ VideoCompositionItemDecoder::VideoCompositionItemDecoder(
   videoTrack = [[asset tracksWithMediaType:AVMediaTypeVideo] firstObject];
   if (!videoTrack) {
     throw [NSError
-        errorWithDomain:@"com.azzapp.rnskv"
+        errorWithDomain:@"com.sheunglaili.rnskv"
                    code:0
                userInfo:@{
                  NSLocalizedDescriptionKey : [NSString

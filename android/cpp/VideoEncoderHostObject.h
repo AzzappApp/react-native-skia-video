@@ -13,7 +13,7 @@ using namespace jni;
 struct VideoEncoder : public jni::JavaClass<VideoEncoder> {
 
 public:
-  static constexpr auto kJavaDescriptor = "Lcom/azzapp/rnskv/VideoEncoder;";
+  static constexpr auto kJavaDescriptor = "Lcom/sheunglaili/rnskv/VideoEncoder;";
 
   local_ref<VideoEncoder> static create(std::string& outPath, int width,
                                         int height, int frameRate, int bitRate,

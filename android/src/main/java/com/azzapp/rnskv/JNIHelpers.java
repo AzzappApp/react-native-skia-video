@@ -1,4 +1,4 @@
-package com.azzapp.rnskv;
+package com.sheunglaili.rnskv;
 
 /**
  * Helper class to get the Skia platform context.

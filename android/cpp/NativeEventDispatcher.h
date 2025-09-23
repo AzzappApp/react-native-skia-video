@@ -15,7 +15,7 @@ public:
 
 struct NativeEventDispatcher : public JavaClass<NativeEventDispatcher> {
   static constexpr auto kJavaDescriptor =
-      "Lcom/azzapp/rnskv/NativeEventDispatcher;";
+      "Lcom/sheunglaili/rnskv/NativeEventDispatcher;";
 
   static jni::local_ref<NativeEventDispatcher>
   create(const JEventReceiver* receiver);

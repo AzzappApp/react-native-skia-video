@@ -2,7 +2,7 @@
   "compilerOptions": {
     "rootDir": ".",
     "paths": {
-      "@azzapp/react-native-skia-video": ["./src/index"]
+      "@sheunglaili/react-native-skia-video": ["./src/index"]
     },
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,

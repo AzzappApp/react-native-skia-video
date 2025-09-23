@@ -1,4 +1,4 @@
-package com.azzapp.rnskv;
+package com.sheunglaili.rnskv;
 
 public class TimeHelpers {
   public static long secToUs(double sec) {

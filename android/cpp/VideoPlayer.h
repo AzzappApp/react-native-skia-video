@@ -13,7 +13,7 @@ using namespace facebook;
 struct VideoPlayer : public jni::JavaClass<VideoPlayer> {
 
 public:
-  static constexpr auto kJavaDescriptor = "Lcom/azzapp/rnskv/VideoPlayer;";
+  static constexpr auto kJavaDescriptor = "Lcom/sheunglaili/rnskv/VideoPlayer;";
 
   static jni::local_ref<VideoPlayer>
   create(const std::string& uri, int width, int height,

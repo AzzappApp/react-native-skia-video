@@ -10,7 +10,7 @@ using namespace jni;
 struct DecoderInfo : JavaClass<DecoderInfo> {
 public:
   static constexpr auto kJavaDescriptor =
-      "Lcom/azzapp/rnskv/VideoCapabilities$DecoderInfo;";
+      "Lcom/sheunglaili/rnskv/VideoCapabilities$DecoderInfo;";
   jint getMaxInstances() const;
   jint getMaxWidth() const;
   jint getMaxHeight() const;
@@ -19,7 +19,7 @@ public:
 struct EncoderInfo : JavaClass<EncoderInfo> {
 public:
   static constexpr auto kJavaDescriptor =
-      "Lcom/azzapp/rnskv/VideoCapabilities$EncoderInfo;";
+      "Lcom/sheunglaili/rnskv/VideoCapabilities$EncoderInfo;";
   std::string getEncoderName() const;
   jboolean getHardwareAccelerated() const;
   jint getWidth() const;
@@ -31,7 +31,7 @@ public:
 struct VideoCapabilities : JavaClass<VideoCapabilities> {
 public:
   static constexpr auto kJavaDescriptor =
-      "Lcom/azzapp/rnskv/VideoCapabilities;";
+      "Lcom/sheunglaili/rnskv/VideoCapabilities;";
   static jni::local_ref<DecoderInfo>
   getDecodingCapabilitiesFor(std::string mimeType);
   static jni::local_ref<JList<EncoderInfo>>

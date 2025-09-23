@@ -215,7 +215,7 @@ void install(jsi::Runtime& jsiRuntime) {
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_azzapp_rnskv_ReactNativeSkiaVideoModule_nativeInstall(JNIEnv* env,
+Java_com_sheunglaili_rnskv_ReactNativeSkiaVideoModule_nativeInstall(JNIEnv* env,
                                                                jobject clazz,
                                                                jlong jsiPtr) {
   auto runtime = reinterpret_cast<jsi::Runtime*>(jsiPtr);

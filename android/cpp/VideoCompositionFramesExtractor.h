@@ -16,7 +16,7 @@ struct VideoCompositionFramesExtractor
 
 public:
   static constexpr auto kJavaDescriptor =
-      "Lcom/azzapp/rnskv/VideoCompositionFramesExtractor;";
+      "Lcom/sheunglaili/rnskv/VideoCompositionFramesExtractor;";
 
   local_ref<VideoCompositionFramesExtractor> static create(
       alias_ref<VideoComposition> composition,

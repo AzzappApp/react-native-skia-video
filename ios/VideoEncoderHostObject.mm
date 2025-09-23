@@ -4,7 +4,7 @@
 #import <future>
 
 NS_INLINE NSError* createErrorWithMessage(NSString* message) {
-  return [NSError errorWithDomain:@"com.azzapp.rnskv"
+  return [NSError errorWithDomain:@"com.sheunglaili.rnskv"
                              code:0
                          userInfo:@{NSLocalizedDescriptionKey : message}];
 }

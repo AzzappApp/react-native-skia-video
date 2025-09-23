@@ -1,4 +1,4 @@
-package com.azzapp.rnskv;
+package com.sheunglaili.rnskv;
 
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;

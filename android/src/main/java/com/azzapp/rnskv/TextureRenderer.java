@@ -1,4 +1,4 @@
-package com.azzapp.rnskv;
+package com.sheunglaili.rnskv;
 
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;

@@ -1,4 +1,4 @@
-package com.azzapp.rnskv;
+package com.sheunglaili.rnskv;
 
 import android.graphics.SurfaceTexture;
 import android.opengl.GLES11Ext;

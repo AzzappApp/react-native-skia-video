@@ -1,6 +1,6 @@
 //
 //  MTLTextureUtils.h
-//  azzapp-react-native-skia-video
+//  sheunglaili-react-native-skia-video
 //
 //  Created by François de Campredon on 02/12/2024.
 //

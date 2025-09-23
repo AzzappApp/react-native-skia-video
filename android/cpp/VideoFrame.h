@@ -11,7 +11,7 @@ using namespace jni;
 
 struct VideoFrame : JavaClass<VideoFrame> {
 public:
-  static constexpr auto kJavaDescriptor = "Lcom/azzapp/rnskv/VideoFrame;";
+  static constexpr auto kJavaDescriptor = "Lcom/sheunglaili/rnskv/VideoFrame;";
   AHardwareBuffer* getHardwareBuffer();
   jint getTexture();
   jint getWidth();

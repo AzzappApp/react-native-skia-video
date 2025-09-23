@@ -1,6 +1,6 @@
 //
 //  VideoPlayerHostObject.m
-//  azzapp-react-native-skia-video
+//  sheunglaili-react-native-skia-video
 //
 //  Created by François de Campredon on 03/05/2024.
 //

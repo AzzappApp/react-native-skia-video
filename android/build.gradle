@@ -82,7 +82,7 @@ def reactNativeArchitectures() {
 
 android {
   if (supportsNamespace()) {
-    namespace "com.azzapp.rnskv"
+    namespace "com.sheunglaili.rnskv"
 
     sourceSets {
       main {
@@ -204,6 +204,6 @@ if (isNewArchitectureEnabled()) {
   react {
     jsRootDir = file("../src/")
     libraryName = "ReactNativeSkiaVideo"
-    codegenJavaPackageName = "com.azzapp.rnskv"
+    codegenJavaPackageName = "com.sheunglaili.rnskv"
   }
 }

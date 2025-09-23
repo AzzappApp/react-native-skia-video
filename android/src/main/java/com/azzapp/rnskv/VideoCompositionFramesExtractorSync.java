@@ -1,4 +1,4 @@
-package com.azzapp.rnskv;
+package com.sheunglaili.rnskv;
 
 import android.os.Handler;
 import android.os.HandlerThread;

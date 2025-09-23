@@ -1,4 +1,4 @@
-package com.azzapp.rnskv;
+package com.sheunglaili.rnskv;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -165,7 +165,7 @@ public class VideoCompositionDecoder {
         int temp = frameWidth;
         frameWidth = frameHeight;
         frameHeight = temp;
-      } 
+      }
       if (!glFrameExtractor.decodeNextFrame(frameWidth, frameHeight)) {
         continue;
       }

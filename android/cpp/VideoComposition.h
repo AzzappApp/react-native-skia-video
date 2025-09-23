@@ -12,7 +12,7 @@ using namespace jni;
 
 struct VideoCompositionItem : public JavaClass<VideoCompositionItem> {
   static constexpr auto kJavaDescriptor =
-      "Lcom/azzapp/rnskv/VideoComposition$Item;";
+      "Lcom/sheunglaili/rnskv/VideoComposition$Item;";
   static local_ref<VideoCompositionItem>
   create(std::string& id, std::string& path, double compositionStartTime,
          double startTime, double duration);
@@ -25,7 +25,7 @@ struct VideoCompositionItem : public JavaClass<VideoCompositionItem> {
 };
 
 struct VideoComposition : public JavaClass<VideoComposition> {
-  static constexpr auto kJavaDescriptor = "Lcom/azzapp/rnskv/VideoComposition;";
+  static constexpr auto kJavaDescriptor = "Lcom/sheunglaili/rnskv/VideoComposition;";
   static local_ref<VideoComposition>
   create(double duration, alias_ref<JList<VideoCompositionItem>> items);
   static local_ref<VideoComposition> fromJSIObject(jsi::Runtime& runtime,

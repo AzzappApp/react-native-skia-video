@@ -1,4 +1,4 @@
-package com.azzapp.rnskv;
+package com.sheunglaili.rnskv;
 
 import android.opengl.EGL14;
 import android.opengl.EGLExt;

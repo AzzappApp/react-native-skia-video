@@ -12,7 +12,7 @@ using namespace facebook;
 using namespace jni;
 
 struct JNIHelpers : public JavaClass<JNIHelpers> {
-  static constexpr auto kJavaDescriptor = "Lcom/azzapp/rnskv/JNIHelpers;";
+  static constexpr auto kJavaDescriptor = "Lcom/sheunglaili/rnskv/JNIHelpers;";
 
   static std::shared_ptr<facebook::react::CallInvoker> getCallInvoker();
 };

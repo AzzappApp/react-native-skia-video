@@ -1,5 +1,5 @@
 {
-  "name": "@azzapp/react-native-skia-video",
+  "name": "@sheunglaili/react-native-skia-video",
   "version": "0.8.3",
   "description": "video support for react-native-skia",
   "main": "lib/commonjs/index",
@@ -26,7 +26,7 @@
     "!**/.*"
   ],
   "scripts": {
-    "example": "yarn workspace @azzapp/react-native-skia-video-example",
+    "example": "yarn workspace @sheunglaili/react-native-skia-video-example",
     "test": "jest",
     "typecheck": "tsc --noEmit",
     "format-cxx": "./scripts/clang-format.sh",
@@ -46,14 +46,14 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AzzappApp/react-native-skia-video.git"
+    "url": "git+https://github.com/sheunglaili/react-native-skia-video.git"
   },
   "author": "Azzapp <contact@azzapp.com> (http://www.azzapp.com)",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/AzzappApp/react-native-skia-video.git/issues"
+    "url": "https://github.com/sheunglaili/react-native-skia-video.git/issues"
   },
-  "homepage": "https://github.com/AzzappApp/react-native-skia-video.git#readme",
+  "homepage": "https://github.com/sheunglaili/react-native-skia-video.git#readme",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "public"

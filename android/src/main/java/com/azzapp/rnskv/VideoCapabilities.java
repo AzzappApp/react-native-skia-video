@@ -1,4 +1,4 @@
-package com.azzapp.rnskv;
+package com.sheunglaili.rnskv;
 
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
