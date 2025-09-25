@@ -26,6 +26,7 @@ VideoPlayerHostObject::getPropertyNames(jsi::Runtime& rt) {
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("currentTime")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("duration")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("volume")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("playbackSpeed")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("isLooping")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("isPlaying")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("dispose")));
@@ -97,6 +98,8 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
                                       : (double)player->getDuration() / 1000.0);
   } else if (propName == "volume") {
     return jsi::Value(released.test() ? 0 : (double)player->getVolume());
+  } else if (propName == "playbackSpeed") {
+    return jsi::Value(released.test() ? 1 : (double)player->getPlaybackSpeed());
   } else if (propName == "isLooping") {
     return jsi::Value(!(released.test()) && player->getIsLooping());
   } else if (propName == "isPlaying") {
@@ -140,6 +143,8 @@ void VideoPlayerHostObject::set(facebook::jsi::Runtime& runtime,
   }
   if (propName == "volume") {
     player->setVolume(value.asNumber());
+  } else if (propName == "playbackSpeed") {
+    player->setPlaybackSpeed(value.asNumber());
   } else if (propName == "isLooping") {
     player->setIsLooping(value.asBool());
   }

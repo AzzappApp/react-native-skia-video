@@ -22,6 +22,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) CMTime currentTime;
 @property(nonatomic, readonly) CMTime duration;
 @property(nonatomic) float volume;
+@property(nonatomic) float playbackSpeed;
 @property(nonatomic, readonly) BOOL disposed;
 @property(nonatomic, readonly) BOOL isInitialized;
 @property(nonatomic, readonly) BOOL isPlaying;
