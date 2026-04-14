@@ -118,6 +118,7 @@ public class VideoEncoder {
   }
 
   public void makeGLContextCurrent() {
+    GLES20.glFinish();
     eglResourcesHolder.makeCurrent();
   }
 
