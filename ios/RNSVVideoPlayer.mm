@@ -22,6 +22,7 @@ static void* rateContext = &rateContext;
   id<RNSVVideoPlayerDelegate> _delegate;
   Boolean _complete;
   Boolean _waitingForFrame;
+  float _playbackSpeed;
 }
 
 - (instancetype)initWithURL:(NSURL*)url
@@ -31,6 +32,7 @@ static void* rateContext = &rateContext;
   _delegate = delegate;
   _complete = NO;
   _waitingForFrame = YES;
+  _playbackSpeed = 1.0f;
 
   AVAsset* asset = [AVAsset assetWithURL:url];
   self.resolution = resolution;
@@ -102,8 +104,15 @@ static void* rateContext = &rateContext;
       (float)((volume < 0.0) ? 0.0 : ((volume > 1.0) ? 1.0 : volume));
 }
 
+- (float)playbackSpeed {
+  return _playbackSpeed;
+}
+
 - (void)setPlaybackSpeed:(float)playbackSpeed {
-  _player.rate = MAX(0.1f, playbackSpeed);
+  _playbackSpeed = MAX(0.1f, playbackSpeed);
+  if (_isPlaying) {
+    _player.rate = _playbackSpeed;
+  }
 }
 
 - (nullable id<MTLTexture>)getNextTextureForTime:(CMTime)time {
@@ -346,7 +355,7 @@ static void* rateContext = &rateContext;
     return;
   }
   if (_isPlaying && _player.rate == 0) {
-    [_player play];
+    _player.rate = _playbackSpeed;
   } else if (!_isPlaying && _player.rate != 0) {
     [_player pause];
   }
@@ -384,3 +393,4 @@ static void* rateContext = &rateContext;
 }
 
 @end
+
