@@ -129,12 +129,18 @@ void VideoEncoderHostObject::prepare() {
     (NSString*)kCVPixelBufferHeightKey : @(height),
     (NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
   };
-  CVReturn status = CVPixelBufferCreate(
-      kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
-      (__bridge CFDictionaryRef)attributes, &pixelBuffer);
+  // Allocate a fresh buffer per frame from this pool instead of reusing a
+  // single CVPixelBuffer. AVAssetWriter encodes appended buffers
+  // asynchronously, so a reused buffer could be overwritten by the next frame
+  // while the encoder is still reading it, producing torn frames on fast
+  // motion. The pool only recycles a buffer once every reference to it (the
+  // encoder's included) is gone.
+  CVReturn status = CVPixelBufferPoolCreate(
+      kCFAllocatorDefault, NULL, (__bridge CFDictionaryRef)attributes,
+      &pixelBufferPool);
 
   if (status != kCVReturnSuccess) {
-    throw createErrorWithMessage(@"Could not extract pixels from frame");
+    throw createErrorWithMessage(@"Could not create pixel buffer pool");
     return;
   }
 
@@ -167,9 +173,21 @@ void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
   [commandBuffer commit];
   [commandBuffer waitUntilCompleted];
 
+  // Vend a fresh buffer from the pool for every frame so the bytes we write
+  // below can never be overwritten while a previous frame is still being
+  // encoded.
+  CVPixelBufferRef pixelBuffer = NULL;
+  CVReturn status = CVPixelBufferPoolCreatePixelBuffer(
+      kCFAllocatorDefault, pixelBufferPool, &pixelBuffer);
+  if (status != kCVReturnSuccess || pixelBuffer == NULL) {
+    throw createErrorWithMessage(@"Could not allocate pixel buffer from pool");
+  }
+
   CVPixelBufferLockBaseAddress(pixelBuffer, 0);
   void* pixelBufferBytes = CVPixelBufferGetBaseAddress(pixelBuffer);
   if (pixelBufferBytes == NULL) {
+    CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+    CVPixelBufferRelease(pixelBuffer);
     throw createErrorWithMessage(@"Could not extract pixels from frame");
   }
   size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
@@ -185,6 +203,7 @@ void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
   int attempt = 0;
   while (!assetWriterInput.isReadyForMoreMediaData) {
     if (attempt > 100) {
+      CVPixelBufferRelease(pixelBuffer);
       throw createErrorWithMessage(@"AVAssetWriter unavailable");
     }
     attempt++;
@@ -198,7 +217,7 @@ void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
   CMSampleTimingInfo timingInfo = {.presentationTimeStamp = time,
                                    .decodeTimeStamp = kCMTimeInvalid};
 
-  NSError* error;
+  NSError* error = nil;
   if (CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer, true,
                                          NULL, NULL, formatDescription,
                                          &timingInfo, &sampleBuffer) != 0) {
@@ -219,6 +238,7 @@ void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
   if (formatDescription) {
     CFRelease(formatDescription);
   };
+  CVPixelBufferRelease(pixelBuffer);
   if (error) {
     throw error;
   }
@@ -249,8 +269,10 @@ void VideoEncoderHostObject::release() {
   }
   assetWriter = nil;
   assetWriterInput = nil;
-  CVPixelBufferRelease(pixelBuffer);
-  pixelBuffer = NULL;
+  if (pixelBufferPool) {
+    CVPixelBufferPoolRelease(pixelBufferPool);
+    pixelBufferPool = NULL;
+  }
   if (cpuAccessibleTexture) {
     [cpuAccessibleTexture setPurgeableState:MTLPurgeableStateEmpty];
   }

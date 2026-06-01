@@ -25,7 +25,7 @@ private:
   id<MTLTexture> cpuAccessibleTexture;
   AVAssetWriter* assetWriter;
   AVAssetWriterInput* assetWriterInput;
-  CVPixelBufferRef pixelBuffer;
+  CVPixelBufferPoolRef pixelBufferPool;
 
   void prepare();
   void encodeFrame(id<MTLTexture> mlTexture, CMTime time);
