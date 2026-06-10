@@ -135,6 +135,10 @@ void VideoEncoderHostObject::prepare() {
   // while the encoder is still reading it, producing torn frames on fast
   // motion. The pool only recycles a buffer once every reference to it (the
   // encoder's included) is gone.
+  if (pixelBufferPool) {
+    CVPixelBufferPoolRelease(pixelBufferPool);
+    pixelBufferPool = NULL;
+  }
   CVReturn status = CVPixelBufferPoolCreate(
       kCFAllocatorDefault, NULL, (__bridge CFDictionaryRef)attributes,
       &pixelBufferPool);
