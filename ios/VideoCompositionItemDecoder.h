@@ -29,6 +29,7 @@ private:
   int rotation;
   AVURLAsset* asset;
   AVAssetTrack* videoTrack;
+  NSArray<AVAssetTrackSegment*>* segments;
   AVAssetReader* assetReader;
   id<MTLTexture> mtlTexture;
   std::list<std::pair<double, CMSampleBufferRef>> decodedFrames;
@@ -37,6 +38,7 @@ private:
   std::shared_ptr<VideoFrame> currentFrame;
 
   void setupReader(CMTime initialTime);
+  double mapSourceTimeToTarget(CMTime sourceTime);
 };
 
 } // namespace RNSkiaVideo
