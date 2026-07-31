@@ -1,4 +1,4 @@
-import { runOnJS } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import { Platform } from 'react-native';
 import { Skia, BlendMode } from '@shopify/react-native-skia';
 import type { SkSurface } from '@shopify/react-native-skia';
@@ -64,6 +64,7 @@ export const exportVideoComposition = async <T = undefined>({
 
       let surface: SkSurface | null = null;
       let frameExtractor: VideoCompositionFramesExtractorSync | null = null;
+      // eslint-disable-next-line no-useless-assignment -- TS needs the initializer for definite assignment
       let encoder: VideoEncoder | null = null;
       const { width, height } = options;
       try {
@@ -109,14 +110,14 @@ export const exportVideoComposition = async <T = undefined>({
           encoder.encodeFrame(texture, currentTime);
           afterDrawFrame?.(context);
           if (onProgress) {
-            runOnJS(onProgress)({
+            scheduleOnRN(onProgress, {
               framesCompleted: i + 1,
               nbFrames,
             });
           }
         }
       } catch (e) {
-        runOnJS(reject)(e);
+        scheduleOnRN(reject, e);
         return;
       } finally {
         frameExtractor?.dispose();
@@ -126,11 +127,11 @@ export const exportVideoComposition = async <T = undefined>({
       try {
         encoder!.finishWriting();
       } catch (e) {
-        runOnJS(reject)(e);
+        scheduleOnRN(reject, e);
         return;
       } finally {
         encoder?.dispose();
       }
-      runOnJS(resolve)();
+      scheduleOnRN(resolve, undefined);
     });
   });

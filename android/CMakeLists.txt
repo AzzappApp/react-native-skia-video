@@ -1,11 +1,11 @@
-cmake_minimum_required(VERSION 3.4.1)
+cmake_minimum_required(VERSION 3.22.1)
 project(ReactNativeSkiaVideo)
 
 set(PACKAGE_NAME "react-native-skia-video")
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DFOLLY_NO_CONFIG=1")
 
 set(CMAKE_VERBOSE_MAKEFILE ON)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 set(build_DIR ${CMAKE_SOURCE_DIR}/build)
 
@@ -68,50 +68,18 @@ find_library(
         log
 )
 
-unset(REACT_LIB CACHE)
-unset(REACTNATIVEJNI_LIB CACHE)
-unset(RUNTIMEEXECUTOR_LIB CACHE)
-unset(TURBOMODULES_LIB CACHE)
-if(${REACT_NATIVE_VERSION} GREATER_EQUAL 76)
-        set (REACT_LIB "ReactAndroid::reactnative")
-else()
-        set (REACT_LIB "ReactAndroid::react_nativemodule_core")
-        set (REACTNATIVEJNI_LIB "ReactAndroid::reactnativejni")
-        set (RUNTIMEEXECUTOR_LIB "ReactAndroid::runtimeexecutor")
-        set (TURBOMODULES_LIB "ReactAndroid::turbomodulejsijni")
-endif()
-
-
-if(${REACT_NATIVE_VERSION} GREATER_EQUAL 76)
-        target_link_libraries(
-                ${PACKAGE_NAME}
-                ${LOG_LIB}
-                android
-                fbjni::fbjni
-                ${REACT_LIB}
-                ReactAndroid::jsi
-                -ljnigraphics
-                -lGLESv2
-                -lEGL
-                -landroid
-        )
-else()
-        target_link_libraries(
-                ${PACKAGE_NAME}
-                ${LOG_LIB}
-                android
-                fbjni::fbjni
-                ${REACT_LIB}
-                ReactAndroid::jsi
-                ${REACTNATIVEJNI_LIB}
-                ${RUNTIMEEXECUTOR_LIB} 
-                ${TURBOMODULES_LIB}
-                -ljnigraphics
-                -lGLESv2
-                -lEGL
-                -landroid
-        )
-endif()
+target_link_libraries(
+        ${PACKAGE_NAME}
+        ${LOG_LIB}
+        android
+        fbjni::fbjni
+        ReactAndroid::reactnative
+        ReactAndroid::jsi
+        -ljnigraphics
+        -lGLESv2
+        -lEGL
+        -landroid
+)
 
 
 # Enable Android 16kb native library alignment

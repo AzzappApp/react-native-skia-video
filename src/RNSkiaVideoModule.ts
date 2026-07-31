@@ -1,14 +1,8 @@
-import { NativeModules, Platform } from 'react-native';
+import { Platform } from 'react-native';
 import type { RNSkiaVideoModule } from './types';
+import NativeReactNativeSkiaVideo from './NativeReactNativeSkiaVideo';
 
-// @ts-expect-error __turboModuleProxy is not yet added to the type definitions
-const isTurboModuleEnabled = global.__turboModuleProxy != null;
-
-const ReactNativeSkiaVideoModule = isTurboModuleEnabled
-  ? require('./NativeReactNativeSkiaVideo').default
-  : NativeModules.ReactNativeSkiaVideo;
-
-if (!ReactNativeSkiaVideoModule) {
+if (!NativeReactNativeSkiaVideo) {
   throw new Error(
     `The package '@azzapp/react-native-skia-video' doesn't seem to be linked. Make sure: \n\n` +
       Platform.select({ ios: "- You have run 'pod install'\n", default: '' }) +
@@ -17,6 +11,6 @@ if (!ReactNativeSkiaVideoModule) {
   );
 }
 
-ReactNativeSkiaVideoModule.install();
+NativeReactNativeSkiaVideo.install();
 
 export default (global as any).RNSkiaVideo as RNSkiaVideoModule;

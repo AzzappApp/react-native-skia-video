@@ -5,4 +5,4 @@ export interface Spec extends TurboModule {
   install(): boolean;
 }
 
-export default TurboModuleRegistry.getEnforcing<Spec>('ReactNativeSkiaVideo');
+export default TurboModuleRegistry.get<Spec>('ReactNativeSkiaVideo');

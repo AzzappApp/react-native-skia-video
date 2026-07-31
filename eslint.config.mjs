@@ -1,36 +1,24 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { fixupConfigRules, fixupPluginRules } from '@eslint/compat';
 import js from '@eslint/js';
-import { FlatCompat } from '@eslint/eslintrc';
+import { fixupPluginRules } from '@eslint/compat';
 import globals from 'globals';
-import reactNative from 'eslint-plugin-react-native';
+import tseslint from 'typescript-eslint';
+import react from 'eslint-plugin-react';
+import reactHooks from 'eslint-plugin-react-hooks';
+import prettierRecommended from 'eslint-plugin-prettier/recommended';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-  recommendedConfig: js.configs.recommended,
-  allConfig: js.configs.all,
-});
-
-export default [
-  ...fixupConfigRules(
-    compat.extends(
-      'eslint:recommended',
-      'plugin:prettier/recommended',
-      'plugin:@typescript-eslint/recommended',
-      'plugin:react-hooks/recommended',
-      'plugin:react/recommended'
-    )
-  ),
+export default tseslint.config(
   {
-    ignores: ['nodes_modules', 'lib/'],
+    ignores: ['node_modules', 'lib/', '.yarn/', 'coverage/'],
   },
+  js.configs.recommended,
+  tseslint.configs.recommended,
   {
-    plugins: {
-      'react-native': fixupPluginRules(reactNative),
-    },
+    ...react.configs.flat.recommended,
+    plugins: { react: fixupPluginRules(react) },
+  },
+  reactHooks.configs.flat.recommended,
+  prettierRecommended,
+  {
     languageOptions: {
       globals: {
         ...globals.node,
@@ -38,10 +26,18 @@ export default [
       ecmaVersion: 2022,
       sourceType: 'module',
     },
+    settings: {
+      react: {
+        version: 'detect',
+      },
+    },
     rules: {
       'react/react-in-jsx-scope': 'off',
+      // These React Compiler rules don't understand Reanimated shared values
+      // and the imperative native player objects this library exposes.
+      'react-hooks/immutability': 'off',
+      'react-hooks/set-state-in-effect': 'off',
       '@typescript-eslint/no-shadow': 'off',
-      'react-native/no-inline-styles': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-require-imports': 'off',
       'prettier/prettier': [
@@ -55,5 +51,5 @@ export default [
         },
       ],
     },
-  },
-];
+  }
+);

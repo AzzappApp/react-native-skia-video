@@ -6,12 +6,12 @@ import com.facebook.react.bridge.NativeModule;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.module.model.ReactModuleInfo;
 import com.facebook.react.module.model.ReactModuleInfoProvider;
-import com.facebook.react.TurboReactPackage;
+import com.facebook.react.BaseReactPackage;
 
 import java.util.HashMap;
 import java.util.Map;
 
-public class ReactNativeSkiaVideoPackage extends TurboReactPackage {
+public class ReactNativeSkiaVideoPackage extends BaseReactPackage {
 
   @Nullable
   @Override
@@ -27,7 +27,6 @@ public class ReactNativeSkiaVideoPackage extends TurboReactPackage {
   public ReactModuleInfoProvider getReactModuleInfoProvider() {
     return () -> {
       final Map<String, ReactModuleInfo> moduleInfos = new HashMap<>();
-      boolean isTurboModule = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED;
       moduleInfos.put(
         ReactNativeSkiaVideoModule.NAME,
         new ReactModuleInfo(
@@ -35,9 +34,8 @@ public class ReactNativeSkiaVideoPackage extends TurboReactPackage {
           ReactNativeSkiaVideoModule.NAME,
           false, // canOverrideExistingModule
           false, // needsEagerInit
-          true, // hasConstants
           false, // isCxxModule
-          isTurboModule // isTurboModule
+          true // isTurboModule
         ));
       return moduleInfos;
     };
