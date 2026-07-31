@@ -34,7 +34,7 @@
     "@react-native/babel-preset": "0.86.2",
     "@react-native/metro-config": "0.86.2",
     "@react-native/typescript-config": "0.86.2",
-    "babel-plugin-module-resolver": "^5.0.3"
+    "react-native-monorepo-config": "^0.4.0"
   },
   "engines": {
     "node": ">=22.11.0"

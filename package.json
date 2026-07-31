@@ -2,11 +2,16 @@
   "name": "@azzapp/react-native-skia-video",
   "version": "0.9.1",
   "description": "video support for react-native-skia",
-  "main": "lib/commonjs/index",
-  "module": "lib/module/index",
-  "types": "lib/typescript/src/index.d.ts",
-  "react-native": "src/index",
-  "source": "src/index",
+  "main": "./lib/module/index.js",
+  "types": "./lib/typescript/src/index.d.ts",
+  "exports": {
+    ".": {
+      "azzapp-react-native-skia-video-source": "./src/index.tsx",
+      "types": "./lib/typescript/src/index.d.ts",
+      "default": "./lib/module/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
     "src",
     "lib",
@@ -28,12 +33,13 @@
   "scripts": {
     "example": "yarn workspace @azzapp/react-native-skia-video-example",
     "test": "jest",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc",
     "format-cxx": "./scripts/clang-format.sh",
     "lint": "eslint \"**/*.{js,ts,tsx}\"",
     "clean": "del-cli android/build example/android/build example/android/app/build example/ios/build lib",
     "prepare": "bob build",
-    "release": "release-it"
+    "check-package": "publint --strict",
+    "release": "release-it --only-version"
   },
   "keywords": [
     "react-native",
@@ -81,6 +87,7 @@
     "globals": "^17.8.0",
     "jest": "^29.7.0",
     "prettier": "^3.9.6",
+    "publint": "^0.3.22",
     "react": "19.2.3",
     "react-native": "0.86.2",
     "react-native-builder-bob": "^0.43.0",
@@ -136,8 +143,12 @@
     "source": "src",
     "output": "lib",
     "targets": [
-      "commonjs",
-      "module",
+      [
+        "module",
+        {
+          "esm": true
+        }
+      ],
       [
         "typescript",
         {

@@ -8,12 +8,20 @@ import prettierRecommended from 'eslint-plugin-prettier/recommended';
 
 export default tseslint.config(
   {
-    ignores: ['node_modules', 'lib/', '.yarn/', 'coverage/'],
+    ignores: [
+      'node_modules',
+      'lib/',
+      '.yarn/',
+      '.turbo/',
+      'coverage/',
+      'example/vendor/',
+    ],
   },
   js.configs.recommended,
   tseslint.configs.recommended,
   {
     ...react.configs.flat.recommended,
+    // eslint-plugin-react still relies on ESLint APIs removed in v10.
     plugins: { react: fixupPluginRules(react) },
   },
   reactHooks.configs.flat.recommended,
@@ -40,16 +48,7 @@ export default tseslint.config(
       '@typescript-eslint/no-shadow': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-require-imports': 'off',
-      'prettier/prettier': [
-        'error',
-        {
-          quoteProps: 'consistent',
-          singleQuote: true,
-          tabWidth: 2,
-          trailingComma: 'es5',
-          useTabs: false,
-        },
-      ],
+      'prettier/prettier': 'error',
     },
   }
 );

@@ -6,12 +6,17 @@
     },
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,
+    "customConditions": [
+      "azzapp-react-native-skia-video-source",
+      "react-native-strict-api"
+    ],
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "jsx": "react-jsx",
     "lib": ["esnext"],
     "module": "esnext",
     "moduleResolution": "bundler",
+    "noEmit": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitReturns": true,
     "noUncheckedIndexedAccess": true,
