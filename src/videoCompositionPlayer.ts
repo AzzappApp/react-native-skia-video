@@ -190,16 +190,26 @@ export const useVideoCompositionPlayer = ({
     surface.flush();
     const previousFrame = currentFrame.value;
     try {
-      currentFrame.value = Skia.Image.MakeImageFromNativeTextureUnstable(
+      // Recycle the previous SkImage (outputImage) to avoid allocating a new
+      // JSI object on every frame.
+      const nextFrame = Skia.Image.MakeImageFromNativeTextureUnstable(
         surface.getNativeTextureUnstable(),
         width * pixelRatio,
-        height * pixelRatio
+        height * pixelRatio,
+        false,
+        previousFrame ?? undefined
       );
+      if (nextFrame === previousFrame) {
+        // The recycled image keeps the same identity, so listeners (the Skia
+        // canvas) must be forced to re-run.
+        currentFrame.modify(undefined, true);
+      } else {
+        currentFrame.value = nextFrame;
+      }
     } catch (error) {
       console.warn('Failed to create image from texture', error);
       return;
     }
-    previousFrame?.dispose();
     afterDrawFrame?.(context);
   }, true);
 

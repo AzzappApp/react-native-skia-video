@@ -469,11 +469,4 @@ export type RNSkiaVideoModule = {
         bitRate: number;
       }[]
     | null;
-
-  /**
-   * Sleeps for the specified number of microseconds.
-   * @param usec The number of microseconds to sleep.
-   * @platform ios
-   */
-  usleep?(usec: number): void;
 };

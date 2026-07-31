@@ -177,6 +177,10 @@ const drawFrame: FrameDrawer = ({
 
   const durationMS = videoComposition.duration;
 
+  // A single SkImage recycled (outputImage) for every item of the tick:
+  // drawImageRect captures the underlying Skia image synchronously, so the
+  // wrapper can be safely rebound to the next item's texture.
+  let reusableImage: SkImage | undefined;
   for (const item of items) {
     const frame = frames[item.id];
     if (!frame) {
@@ -198,8 +202,11 @@ const drawFrame: FrameDrawer = ({
       image = Skia.Image.MakeImageFromNativeTextureUnstable(
         frame.texture,
         frame.width,
-        frame.height
+        frame.height,
+        false,
+        reusableImage
       );
+      reusableImage = image;
     } catch (error) {
       console.log('error', error);
       continue;
