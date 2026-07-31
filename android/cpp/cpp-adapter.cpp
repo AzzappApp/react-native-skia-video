@@ -193,23 +193,6 @@ void install(jsi::Runtime& jsiRuntime) {
   RNSVModule.setProperty(jsiRuntime, "getValidEncoderConfigurations",
                          std::move(getValidEncoderConfigurations));
 
-  auto runWithJNIClassLoader = jsi::Function::createFromHostFunction(
-      jsiRuntime,
-      jsi::PropNameID::forAscii(jsiRuntime, "runWithJNIClassLoader"), 1,
-      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
-         const jsi::Value* arguments, size_t count) -> jsi::Value {
-        auto jsiCallback = std::make_shared<jsi::Function>(
-            arguments[0].asObject(runtime).asFunction(runtime));
-        jni::Environment::ensureCurrentThreadIsAttached();
-        jni::ThreadScope::WithClassLoader(
-            [jsiCallback = std::move(jsiCallback), &runtime]() {
-              jsiCallback->call(runtime);
-            });
-        return jsi::Value::undefined();
-      });
-  RNSVModule.setProperty(jsiRuntime, "runWithJNIClassLoader",
-                         std::move(runWithJNIClassLoader));
-
   jsiRuntime.global().setProperty(jsiRuntime, "RNSkiaVideo",
                                   std::move(RNSVModule));
 }

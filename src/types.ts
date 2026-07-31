@@ -471,12 +471,6 @@ export type RNSkiaVideoModule = {
     | null;
 
   /**
-   * Runs the specified function with the JNI class loader.
-   * @platform android
-   */
-  runWithJNIClassLoader?(fn: () => void): void;
-
-  /**
    * Sleeps for the specified number of microseconds.
    * @param usec The number of microseconds to sleep.
    * @platform ios
