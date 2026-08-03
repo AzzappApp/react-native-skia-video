@@ -118,9 +118,6 @@ public class VideoEncoder {
   }
 
   public void makeGLContextCurrent() {
-    // The Skia surface is synchronously flushed (surface.flush(true)) before
-    // encodeFrame is called, so the frame is fully rendered before we switch
-    // to the encoder's EGL context.
     eglResourcesHolder.makeCurrent();
   }
 
