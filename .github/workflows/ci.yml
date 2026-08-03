@@ -140,6 +140,10 @@ jobs:
             echo "turbo_cache_hit=1" >> $GITHUB_ENV
           fi
 
+      # Deliberately no restore-keys: a Pods/ directory restored from a different
+      # Podfile.lock keeps the previous React Native version in Pods/Local
+      # Podspecs, and `pod install` then fails on a hermes-engine mismatch.
+      # Only an exact Podfile.lock match can be reused.
       - name: Cache cocoapods
         if: env.turbo_cache_hit != 1
         id: cocoapods-cache
@@ -148,8 +152,20 @@ jobs:
           path: |
             **/ios/Pods
           key: ${{ runner.os }}-cocoapods-${{ hashFiles('example/ios/Podfile.lock') }}
+
+      # These download caches are keyed by version and checksum internally, so
+      # they stay valid across Podfile.lock changes and save re-downloading the
+      # prebuilt React Native artifacts (~125 MB) on every run.
+      - name: Cache cocoapods downloads
+        if: env.turbo_cache_hit != 1
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/CocoaPods
+            ~/Library/Caches/ReactNative
+          key: ${{ runner.os }}-pod-downloads-${{ hashFiles('example/ios/Podfile.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cocoapods-
+            ${{ runner.os }}-pod-downloads-
 
       - name: Install cocoapods
         if: env.turbo_cache_hit != 1 && steps.cocoapods-cache.outputs.cache-hit != 'true'
