@@ -146,7 +146,6 @@ jobs:
       # Only an exact Podfile.lock match can be reused.
       - name: Cache cocoapods
         if: env.turbo_cache_hit != 1
-        id: cocoapods-cache
         uses: actions/cache@v4
         with:
           path: |
@@ -167,8 +166,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pod-downloads-
 
+      # Runs even when the Pods cache hits: `pod install` also generates the
+      # codegen sources under example/ios/build/generated, which are not
+      # cached, and the build fails on the missing files without them.
       - name: Install cocoapods
-        if: env.turbo_cache_hit != 1 && steps.cocoapods-cache.outputs.cache-hit != 'true'
+        if: env.turbo_cache_hit != 1
         run: |
           cd example
           bundle install
