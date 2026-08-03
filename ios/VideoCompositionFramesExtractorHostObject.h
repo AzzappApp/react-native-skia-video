@@ -50,6 +50,10 @@ private:
   bool isPlaying = false;
   bool isLooping = false;
   bool initialized = false;
+  bool completeEmitted = false;
+  // Plays the audio of the composition; when present it is also the master
+  // clock of the playback.
+  AVPlayer* audioPlayer;
   std::atomic_flag released = ATOMIC_FLAG_INIT;
 
   void prepare();

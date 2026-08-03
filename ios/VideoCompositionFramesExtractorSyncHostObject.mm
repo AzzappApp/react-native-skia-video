@@ -39,6 +39,9 @@ jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           try {
             for (const auto& item : composition->items) {
+              if (!item->isVideo) {
+                continue;
+              }
               itemDecoders[item->id] =
                   std::make_shared<VideoCompositionItemDecoder>(item, false);
             }

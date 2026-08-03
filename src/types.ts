@@ -160,13 +160,13 @@ export type VideoComposition = {
   duration: number;
 };
 
-export type VideoCompositionItem = {
+type VideoCompositionItemBase = {
   /**
    * The unique identifier of the item.
    */
   id: string;
   /**
-   * The path to the video file.
+   * The path to the media file.
    * only support local file path
    */
   path: string;
@@ -175,20 +175,54 @@ export type VideoCompositionItem = {
    */
   compositionStartTime: number;
   /**
-   * The start time in seconds of the item within the video.
+   * The start time in seconds of the item within the media.
    */
   startTime: number;
   /**
    * The duration in seconds of the item.
    */
   duration: number;
+};
+
+/**
+ * A video item of a composition. Produces frames passed to the `drawFrame`
+ * function. Video items are silent by default; set `audio` to also play
+ * the audio track of the video file.
+ */
+export type VideoCompositionVideoItem = VideoCompositionItemBase & {
+  kind?: 'video';
   /**
    * If provided, the resolution to scale the video to.
    * If not provided, the original resolution of the video will be used.
    * Downscaling the video can improve performance.
    */
   resolution?: { width: number; height: number };
+  /**
+   * If set, the audio track of the video file will be played (during
+   * playback) and mixed into the exported video (during export), following
+   * the same time mapping as the video frames.
+   * Defaults to false (video items are silent).
+   */
+  audio?: boolean | { volume?: number };
 };
+
+/**
+ * An audio item of a composition. Does not produce frames; its audio track
+ * is played during playback and mixed into the exported video during export.
+ * The source file can be an audio file or a video file (in which case its
+ * audio track is used).
+ */
+export type VideoCompositionAudioItem = VideoCompositionItemBase & {
+  kind: 'audio';
+  /**
+   * The volume of the item, between 0 and 1.
+   * Defaults to 1.
+   */
+  volume?: number;
+};
+
+export type VideoCompositionItem =
+  VideoCompositionVideoItem | VideoCompositionAudioItem;
 
 /**
  * Function that draws a video composition frame to a canvas.
@@ -213,6 +247,7 @@ export type FrameDrawer<T = undefined> = (args: {
   currentTime: number;
   /**
    * The decoded video frames of the composition items.
+   * Only video items produce frames; audio items never appear in this map.
    */
   frames: Record<string, VideoFrame>;
   /**
@@ -355,6 +390,24 @@ export type ExportOptions = {
    * @platform android
    */
   encoderName?: string | null;
+  /**
+   * The bit rate of the exported audio track in bits per second.
+   * Only used if the composition contains audio.
+   * @default 128000
+   */
+  audioBitRate?: number;
+  /**
+   * The sample rate of the exported audio track in Hz.
+   * Only used if the composition contains audio.
+   * @default 44100
+   */
+  audioSampleRate?: number;
+  /**
+   * The number of channels of the exported audio track (1 = mono, 2 = stereo).
+   * Only used if the composition contains audio.
+   * @default 2
+   */
+  audioChannelCount?: number;
 };
 
 export type RNSkiaVideoModule = {
@@ -397,13 +450,19 @@ export type RNSkiaVideoModule = {
   /**
    * Creates a video composition encoder for the specified export options.
    * @param options The export options for the video composition.
+   * @param composition The video composition being exported; used to encode
+   * the audio tracks of the composition items (if any).
    * @returns The video composition encoder.
    */
   createVideoEncoder: (
     /**
      * The export options for the video composition.
      */
-    options: ExportOptions
+    options: ExportOptions,
+    /**
+     * The video composition being exported (used for audio encoding).
+     */
+    composition?: VideoComposition | null
   ) => VideoEncoder;
   /**
    * Returns the decoding capabilities of the current platform for the specified mimetype.

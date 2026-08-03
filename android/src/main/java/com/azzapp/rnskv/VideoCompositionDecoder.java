@@ -38,6 +38,9 @@ public class VideoCompositionDecoder {
     decoders = new HashMap<>();
     glFrameExtractors = new HashMap<>();
     composition.getItems().forEach(item -> {
+      if (!item.isVideo()) {
+        return;
+      }
       VideoCompositionItemDecoder decoder = new VideoCompositionItemDecoder(item);
       decoder.setOnErrorListener(error -> {
         if (onErrorListener != null) {
@@ -150,6 +153,9 @@ public class VideoCompositionDecoder {
    */
   public Map<String, VideoFrame> updateVideosFrames() {
     for (VideoComposition.Item item : composition.getItems()) {
+      if (!item.isVideo()) {
+        continue;
+      }
       GLFrameExtractor glFrameExtractor = glFrameExtractors.get(item);
       VideoCompositionItemDecoder decoder = decoders.get(item);
       if (eglResourcesHolder == null || glFrameExtractor == null || decoder == null) {

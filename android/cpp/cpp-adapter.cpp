@@ -90,10 +90,10 @@ void install(jsi::Runtime& jsiRuntime) {
 
   auto createVideoEncoder = jsi::Function::createFromHostFunction(
       jsiRuntime, jsi::PropNameID::forAscii(jsiRuntime, "createVideoEncoder"),
-      1,
+      2,
       [](jsi::Runtime& runtime, const jsi::Value& thisValue,
          const jsi::Value* arguments, size_t count) -> jsi::Value {
-        if (count != 1 || !arguments[0].isObject()) {
+        if (count < 1 || !arguments[0].isObject()) {
           throw jsi::JSError(runtime, "ReactNativeSkiaVideo."
                                       "createVideoEncoder(.."
                                       ") expects one arguments (object)!");
@@ -115,9 +115,37 @@ void install(jsi::Runtime& jsiRuntime) {
             encoderName = value.asString(runtime).utf8(runtime);
           }
         }
+        int audioSampleRate = 44100;
+        int audioChannelCount = 2;
+        int audioBitRate = 128000;
+        if (options.hasProperty(runtime, "audioSampleRate")) {
+          auto value = options.getProperty(runtime, "audioSampleRate");
+          if (value.isNumber()) {
+            audioSampleRate = (int)value.asNumber();
+          }
+        }
+        if (options.hasProperty(runtime, "audioChannelCount")) {
+          auto value = options.getProperty(runtime, "audioChannelCount");
+          if (value.isNumber()) {
+            audioChannelCount = (int)value.asNumber();
+          }
+        }
+        if (options.hasProperty(runtime, "audioBitRate")) {
+          auto value = options.getProperty(runtime, "audioBitRate");
+          if (value.isNumber()) {
+            audioBitRate = (int)value.asNumber();
+          }
+        }
+
+        local_ref<VideoComposition> composition = nullptr;
+        if (count >= 2 && arguments[1].isObject()) {
+          auto jsComposition = arguments[1].asObject(runtime);
+          composition = VideoComposition::fromJSIObject(runtime, jsComposition);
+        }
 
         auto instance = std::make_shared<VideoEncoderHostObject>(
-            outPath, width, height, frameRate, bitRate, encoderName);
+            outPath, width, height, frameRate, bitRate, encoderName,
+            composition, audioSampleRate, audioChannelCount, audioBitRate);
         return jsi::Object::createFromHostObject(runtime, instance);
       });
   RNSVModule.setProperty(jsiRuntime, "createVideoEncoder",

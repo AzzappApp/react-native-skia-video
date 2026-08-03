@@ -13,6 +13,10 @@ import { runOnNewThread } from './utils/thread';
 
 const Promise = global.Promise;
 
+const DEFAULT_AUDIO_BIT_RATE = 128000;
+const DEFAULT_AUDIO_SAMPLE_RATE = 44100;
+const DEFAULT_AUDIO_CHANNEL_COUNT = 2;
+
 /**
  * Exports a video composition to a video file.
  *
@@ -70,7 +74,17 @@ export const exportVideoComposition = async <T = undefined>({
           throw new Error('Failed to create Skia surface');
         }
 
-        encoder = RNSkiaVideoModule.createVideoEncoder(options);
+        encoder = RNSkiaVideoModule.createVideoEncoder(
+          {
+            ...options,
+            audioBitRate: options.audioBitRate ?? DEFAULT_AUDIO_BIT_RATE,
+            audioSampleRate:
+              options.audioSampleRate ?? DEFAULT_AUDIO_SAMPLE_RATE,
+            audioChannelCount:
+              options.audioChannelCount ?? DEFAULT_AUDIO_CHANNEL_COUNT,
+          },
+          videoComposition
+        );
         encoder.prepare();
 
         frameExtractor =

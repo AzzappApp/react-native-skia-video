@@ -27,6 +27,15 @@ public class VideoComposition {
     return duration;
   }
 
+  public boolean hasAudio() {
+    for (Item item : items) {
+      if (item.isAudioEnabled()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public static class Item {
     private String id;
     private String path;
@@ -35,6 +44,9 @@ public class VideoComposition {
     private double duration;
     private int width = -1;
     private int height = -1;
+    private boolean isVideo = true;
+    private boolean audioEnabled = false;
+    private double audioVolume = 1.0;
 
     public Item() {
     }
@@ -79,6 +91,18 @@ public class VideoComposition {
 
     public int getHeight() {
       return height;
+    }
+
+    public boolean isVideo() {
+      return isVideo;
+    }
+
+    public boolean isAudioEnabled() {
+      return audioEnabled;
+    }
+
+    public double getAudioVolume() {
+      return audioVolume;
     }
   }
 }

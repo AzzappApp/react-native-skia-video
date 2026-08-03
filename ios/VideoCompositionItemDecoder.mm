@@ -8,14 +8,17 @@
 namespace RNSkiaVideo {
 
 VideoCompositionItemDecoder::VideoCompositionItemDecoder(
-    std::shared_ptr<VideoCompositionItem> item, bool realTime) {
+    std::shared_ptr<VideoCompositionItem> item, bool realTime,
+    AVURLAsset* sharedAsset) {
   this->item = item;
   this->realTime = realTime;
   lock = [[NSObject alloc] init];
   NSString* path =
       [NSString stringWithCString:item->path.c_str()
                          encoding:[NSString defaultCStringEncoding]];
-  asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:nil];
+  asset = sharedAsset
+              ?: [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path]
+                                     options:nil];
   videoTrack = [[asset tracksWithMediaType:AVMediaTypeVideo] firstObject];
   if (!videoTrack) {
     throw [NSError

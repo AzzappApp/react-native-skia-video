@@ -17,7 +17,11 @@ public:
 
   local_ref<VideoEncoder> static create(std::string& outPath, int width,
                                         int height, int frameRate, int bitRate,
-                                        std::optional<std::string> encoderName);
+                                        std::optional<std::string> encoderName,
+                                        alias_ref<VideoComposition> composition,
+                                        int audioSampleRate,
+                                        int audioChannelCount,
+                                        int audioBitRate);
 
   void prepare() const;
 
@@ -34,7 +38,10 @@ class JSI_EXPORT VideoEncoderHostObject : public jsi::HostObject {
 public:
   VideoEncoderHostObject(std::string& outPath, int width, int height,
                          int frameRate, int bitRate,
-                         std::optional<std::string> encoderName);
+                         std::optional<std::string> encoderName,
+                         alias_ref<VideoComposition> composition,
+                         int audioSampleRate, int audioChannelCount,
+                         int audioBitRate);
   ~VideoEncoderHostObject() override;
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
   std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime& rt) override;

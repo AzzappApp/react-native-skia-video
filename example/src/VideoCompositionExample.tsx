@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import pexelsClient from './helpers/pexelsClient';
 import type { Video } from 'pexels';
 import {
@@ -13,6 +13,7 @@ import {
   Text,
   Platform,
   Alert,
+  Switch,
 } from 'react-native';
 import {
   createNativeStackNavigator,
@@ -166,6 +167,11 @@ const PexelsVideoPicker = ({
   );
 };
 
+// Public domain recording: "E lucevan le stelle" (Tosca, Puccini)
+// sung by Enrico Caruso, 1909.
+const MUSIC_URL =
+  'https://archive.org/download/78_e-lucevan-le-stelle_enrico-caruso-puccini_gbia0011420a/E%20Lucevan%20Le%20Stelle%20-%20Enrico%20Caruso%20-%20Puccini.mp3';
+
 const drawFrame: FrameDrawer = ({
   videoComposition,
   canvas,
@@ -177,6 +183,7 @@ const drawFrame: FrameDrawer = ({
   'worklet';
   const items = videoComposition.items.filter(
     (item) =>
+      item.kind !== 'audio' &&
       item.compositionStartTime <= currentTime &&
       item.compositionStartTime + item.duration >= currentTime
   );
@@ -248,13 +255,21 @@ const VideoCompositionPreview = ({
     params: { videos },
   },
 }: NativeStackScreenProps<StackParamList, 'PreviewComposition'>) => {
-  const [videoComposition, setVideoComposition] =
+  const [baseComposition, setBaseComposition] =
     useState<VideoComposition | null>(null);
+  const [musicPath, setMusicPath] = useState<string | null>(null);
+  const [musicEnabled, setMusicEnabled] = useState(true);
 
   useEffect(() => {
     const promises: StatefulPromise<any>[] = [];
 
     const fetchFiles = async () => {
+      const musicPromise = ReactNativeBlobUtil.config({
+        fileCache: true,
+        appendExt: 'mp3',
+      }).fetch('GET', MUSIC_URL);
+      promises.push(musicPromise);
+
       const videoUrls: Record<number, StatefulPromise<FetchBlobResponse>> = {};
       for (const video of videos) {
         const uri =
@@ -286,6 +301,13 @@ const VideoCompositionPreview = ({
         }
         return;
       }
+      try {
+        setMusicPath((await musicPromise).path());
+      } catch (error) {
+        if (!(error instanceof ReactNativeBlobUtil.CanceledFetchError)) {
+          console.error(error);
+        }
+      }
       const videoWithFiles = videos
         .map((video) => ({
           ...video,
@@ -307,12 +329,13 @@ const VideoCompositionPreview = ({
             startTime: 0,
             compositionStartTime: currentTime,
             duration,
+            audio: true,
           };
           currentTime += duration - 1;
           return item;
         }),
       };
-      setVideoComposition(composition);
+      setBaseComposition(composition);
     };
 
     fetchFiles();
@@ -323,6 +346,30 @@ const VideoCompositionPreview = ({
       });
     };
   }, [videos]);
+
+  const videoComposition = useMemo<VideoComposition | null>(() => {
+    if (!baseComposition) {
+      return null;
+    }
+    if (!musicEnabled || !musicPath) {
+      return baseComposition;
+    }
+    return {
+      ...baseComposition,
+      items: [
+        ...baseComposition.items,
+        {
+          id: 'music',
+          kind: 'audio',
+          path: musicPath,
+          compositionStartTime: 0,
+          startTime: 0,
+          duration: baseComposition.duration,
+          volume: 0.3,
+        },
+      ],
+    };
+  }, [baseComposition, musicEnabled, musicPath]);
 
   const [exporting, setExporting] = useState(false);
   const [exportedPath, setExportedPath] = useState<string | null>(null);
@@ -470,6 +517,16 @@ const VideoCompositionPreview = ({
                 maximumTrackTintColor={'#CCC'}
                 minimumTrackTintColor={'#F00'}
               />
+              <View
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
+              >
+                <Text style={{ color: 'black' }}>Background music</Text>
+                <Switch
+                  value={musicEnabled && musicPath != null}
+                  disabled={musicPath == null}
+                  onValueChange={setMusicEnabled}
+                />
+              </View>
               <View
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
               >

@@ -1,6 +1,7 @@
 #include "VideoCompositionFramesExtractorHostObject.h"
 
 #import "AVAssetTrackUtils.h"
+#import "AudioCompositionUtils.h"
 #import "JSIUtils.h"
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
@@ -191,14 +192,29 @@ void VideoCompositionFramesExtractorHostObject::prepare() {
             }
             auto currentTime = getCurrentTime();
             if (CMTimeGetSeconds(currentTime) >= composition->duration) {
-              emit("complete", jsi::Value::null());
+              if (!completeEmitted) {
+                completeEmitted = true;
+                emit("complete", jsi::Value::null());
+              }
               if (isLooping) {
                 currentTime = kCMTimeZero;
                 startDate = [NSDate date];
+                if (audioPlayer) {
+                  [audioPlayer seekToTime:kCMTimeZero
+                          toleranceBefore:kCMTimeZero
+                           toleranceAfter:kCMTimeZero
+                        completionHandler:^(BOOL){
+                        }];
+                }
               } else {
                 isPlaying = false;
+                if (audioPlayer) {
+                  [audioPlayer pause];
+                }
                 return;
               }
+            } else {
+              completeEmitted = false;
             }
             for (const auto& entry : itemDecoders) {
               auto decoder = entry.second;
@@ -223,12 +239,38 @@ void VideoCompositionFramesExtractorHostObject::init() {
       return;
     }
     try {
+      // Assets are shared between the video decoders and the audio
+      // composition so a same file is never opened twice.
+      NSMutableDictionary<NSString*, AVURLAsset*>* assetCache =
+          [NSMutableDictionary dictionary];
       for (const auto& item : composition->items) {
-        itemDecoders[item->id] =
-            std::make_shared<VideoCompositionItemDecoder>(item, true);
+        if (!item->isVideo) {
+          continue;
+        }
+        itemDecoders[item->id] = std::make_shared<VideoCompositionItemDecoder>(
+            item, true, getOrCreateAsset(item->path, assetCache));
+      }
+      if (composition->hasAudio()) {
+        auto audioComposition = buildAudioComposition(composition, assetCache);
+        if (audioComposition.composition) {
+          AVPlayerItem* playerItem =
+              [AVPlayerItem playerItemWithAsset:audioComposition.composition];
+          if (audioComposition.audioMix) {
+            playerItem.audioMix = audioComposition.audioMix;
+          }
+          audioPlayer = [AVPlayer playerWithPlayerItem:playerItem];
+          audioPlayer.actionAtItemEnd = AVPlayerActionAtItemEndNone;
+          audioPlayer.automaticallyWaitsToMinimizeStalling = NO;
+          if (CMTimeCompare(pausePosition, kCMTimeZero) > 0) {
+            [audioPlayer seekToTime:pausePosition
+                    toleranceBefore:kCMTimeZero
+                     toleranceAfter:kCMTimeZero];
+          }
+        }
       }
     } catch (NSError* error) {
       itemDecoders.clear();
+      audioPlayer = nil;
       emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {
         return RNSkiaVideo::NSErrorToJSI(runtime, error);
       });
@@ -243,6 +285,14 @@ void VideoCompositionFramesExtractorHostObject::init() {
 }
 
 void VideoCompositionFramesExtractorHostObject::play() {
+  if (audioPlayer) {
+    if (CMTimeGetSeconds(audioPlayer.currentTime) >= composition->duration) {
+      [audioPlayer seekToTime:kCMTimeZero
+              toleranceBefore:kCMTimeZero
+               toleranceAfter:kCMTimeZero];
+    }
+    [audioPlayer play];
+  }
   startDate =
       [NSDate dateWithTimeIntervalSinceNow:-CMTimeGetSeconds(pausePosition)];
   pausePosition = kCMTimeZero;
@@ -255,6 +305,9 @@ void VideoCompositionFramesExtractorHostObject::pause() {
   }
   pausePosition = getCurrentTime();
   isPlaying = false;
+  if (audioPlayer) {
+    [audioPlayer pause];
+  }
 }
 
 void VideoCompositionFramesExtractorHostObject::seekTo(CMTime time) {
@@ -262,6 +315,11 @@ void VideoCompositionFramesExtractorHostObject::seekTo(CMTime time) {
     startDate = [NSDate dateWithTimeIntervalSinceNow:-CMTimeGetSeconds(time)];
   } else {
     pausePosition = time;
+  }
+  if (audioPlayer) {
+    [audioPlayer seekToTime:time
+            toleranceBefore:kCMTimeZero
+             toleranceAfter:kCMTimeZero];
   }
   @synchronized(lock) {
     for (const auto& entry : itemDecoders) {
@@ -272,6 +330,13 @@ void VideoCompositionFramesExtractorHostObject::seekTo(CMTime time) {
 
 CMTime VideoCompositionFramesExtractorHostObject::getCurrentTime() {
   if (isPlaying) {
+    // When the composition has audio, the audio player is the master clock.
+    if (audioPlayer) {
+      CMTime time = audioPlayer.currentTime;
+      if (CMTIME_IS_NUMERIC(time)) {
+        return time;
+      }
+    }
     NSTimeInterval elapsedTime =
         [[NSDate date] timeIntervalSinceDate:startDate];
     return CMTimeMakeWithSeconds(elapsedTime, NSEC_PER_SEC);
@@ -296,6 +361,11 @@ void VideoCompositionFramesExtractorHostObject::release() {
     }
     itemDecoders.clear();
     currentFrames.clear();
+    if (audioPlayer) {
+      [audioPlayer pause];
+      [audioPlayer replaceCurrentItemWithPlayerItem:nil];
+      audioPlayer = nil;
+    }
   }
   removeAllListeners();
   if (displayLink != nullptr) {

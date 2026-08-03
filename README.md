@@ -127,7 +127,46 @@ exportVideoComposition({
 })
 ```
 
-> Please note that the Video Composition system currently does not support sound.
+#### Audio
+
+Video items are silent by default. To play the audio track of a video item
+(both during playback and export), set its `audio` option:
+
+```js
+const videoComposition = {
+  duration: 10,
+  items: [
+    {
+      id: 'video1',
+      path: 'path/to/video.mp4',
+      compositionStartTime: 0,
+      startTime: 0,
+      duration: 10,
+      // plays the audio track of video.mp4, in sync with its frames
+      audio: { volume: 0.8 }, // or simply `audio: true`
+    },
+    // additional audio (music, voice over...) can be added with an audio
+    // item; the source can be an audio file or the audio track of any
+    // video file
+    {
+      id: 'music',
+      kind: 'audio',
+      path: 'path/to/music.mp3',
+      compositionStartTime: 0,
+      startTime: 12,
+      duration: 10,
+      volume: 0.3,
+    },
+  ],
+};
+```
+
+Audio items never appear in the `frames` map passed to `drawFrame`.
+Overlapping audio is mixed together. During playback the audio is played in
+sync with the composition; during export it is encoded (AAC) into the output
+file. The exported audio can be configured through the `audioBitRate`
+(default 128kbps), `audioSampleRate` (default 44100Hz) and
+`audioChannelCount` (default 2) export options.
 
 
 ### Video Capabilities (Android only)

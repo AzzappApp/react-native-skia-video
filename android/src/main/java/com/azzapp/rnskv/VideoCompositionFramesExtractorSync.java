@@ -103,6 +103,9 @@ public class VideoCompositionFramesExtractorSync {
   private void checkIfFrameDecoded() {
     boolean allItemsReady = true;
     for (VideoComposition.Item item : composition.getItems()) {
+      if (!item.isVideo()) {
+        continue;
+      }
       if (!itemsTimes.containsKey(item)) {
         allItemsReady = false;
         continue;
@@ -147,6 +150,9 @@ public class VideoCompositionFramesExtractorSync {
   private void resolveIfReady() {
     Map<String, VideoFrame> videoFrames = decoder.updateVideosFrames();
     for (VideoComposition.Item item : composition.getItems()) {
+      if (!item.isVideo()) {
+        continue;
+      }
       VideoFrame videoFrame = videoFrames.getOrDefault(item.getId(), null);
       if (videoFrame == null) {
         return;

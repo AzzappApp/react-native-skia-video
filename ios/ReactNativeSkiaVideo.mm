@@ -133,10 +133,10 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
                          std::move(createVideoCompositionFramesExtractorSync));
 
   auto createVideoEncoder = jsi::Function::createFromHostFunction(
-      runtime, jsi::PropNameID::forAscii(runtime, "createVideoEncoder"), 1,
+      runtime, jsi::PropNameID::forAscii(runtime, "createVideoEncoder"), 2,
       [](jsi::Runtime& runtime, const jsi::Value& thisValue,
          const jsi::Value* arguments, size_t count) -> jsi::Value {
-        if (count != 1 || !arguments[0].isObject()) {
+        if (count < 1 || !arguments[0].isObject()) {
           throw jsi::JSError(runtime, "ReactNativeSkiaVideo.createVideoEncoder("
                                       "..) expects one arguments (object)!");
         }
@@ -149,9 +149,37 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
         int height = options.getProperty(runtime, "height").asNumber();
         int frameRate = options.getProperty(runtime, "frameRate").asNumber();
         int bitRate = options.getProperty(runtime, "bitRate").asNumber();
+        int audioBitRate = 128000;
+        int audioSampleRate = 44100;
+        int audioChannelCount = 2;
+        if (options.hasProperty(runtime, "audioBitRate")) {
+          auto value = options.getProperty(runtime, "audioBitRate");
+          if (value.isNumber()) {
+            audioBitRate = value.asNumber();
+          }
+        }
+        if (options.hasProperty(runtime, "audioSampleRate")) {
+          auto value = options.getProperty(runtime, "audioSampleRate");
+          if (value.isNumber()) {
+            audioSampleRate = value.asNumber();
+          }
+        }
+        if (options.hasProperty(runtime, "audioChannelCount")) {
+          auto value = options.getProperty(runtime, "audioChannelCount");
+          if (value.isNumber()) {
+            audioChannelCount = value.asNumber();
+          }
+        }
+
+        std::shared_ptr<VideoComposition> composition = nullptr;
+        if (count >= 2 && arguments[1].isObject()) {
+          auto jsComposition = arguments[1].asObject(runtime);
+          composition = VideoComposition::fromJS(runtime, jsComposition);
+        }
 
         auto instance = std::make_shared<VideoEncoderHostObject>(
-            outPath, width, height, frameRate, bitRate);
+            outPath, width, height, frameRate, bitRate, audioBitRate,
+            audioSampleRate, audioChannelCount, composition);
         return jsi::Object::createFromHostObject(runtime, instance);
       });
   RNSVModule.setProperty(runtime, "createVideoEncoder",

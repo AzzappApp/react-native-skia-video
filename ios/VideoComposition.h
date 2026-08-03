@@ -13,12 +13,24 @@ public:
   double startTime;
   double duration;
   CGSize resolution;
+  bool isVideo = true;
+  bool audioEnabled = false;
+  double audioVolume = 1.0;
 };
 
 class VideoComposition {
 public:
   double duration;
   std::vector<std::shared_ptr<VideoCompositionItem>> items;
+
+  bool hasAudio() const {
+    for (const auto& item : items) {
+      if (item->audioEnabled) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   static std::shared_ptr<VideoComposition> fromJS(jsi::Runtime& runtime,
                                                   jsi::Object& jsComposition) {
@@ -48,6 +60,36 @@ public:
           item->resolution.width = res.getProperty(runtime, "width").asNumber();
           item->resolution.height =
               res.getProperty(runtime, "height").asNumber();
+        }
+      }
+
+      if (jsItem.hasProperty(runtime, "kind")) {
+        auto kindProp = jsItem.getProperty(runtime, "kind");
+        if (kindProp.isString()) {
+          item->isVideo = kindProp.asString(runtime).utf8(runtime) != "audio";
+        }
+      }
+      if (!item->isVideo) {
+        item->audioEnabled = true;
+        if (jsItem.hasProperty(runtime, "volume")) {
+          auto volumeProp = jsItem.getProperty(runtime, "volume");
+          if (volumeProp.isNumber()) {
+            item->audioVolume = volumeProp.asNumber();
+          }
+        }
+      } else if (jsItem.hasProperty(runtime, "audio")) {
+        auto audioProp = jsItem.getProperty(runtime, "audio");
+        if (audioProp.isBool()) {
+          item->audioEnabled = audioProp.getBool();
+        } else if (audioProp.isObject()) {
+          item->audioEnabled = true;
+          auto audio = audioProp.asObject(runtime);
+          if (audio.hasProperty(runtime, "volume")) {
+            auto volumeProp = audio.getProperty(runtime, "volume");
+            if (volumeProp.isNumber()) {
+              item->audioVolume = volumeProp.asNumber();
+            }
+          }
         }
       }
 

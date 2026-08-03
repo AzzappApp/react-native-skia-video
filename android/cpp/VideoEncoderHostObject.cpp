@@ -10,9 +10,14 @@ using namespace facebook::jni;
 
 local_ref<VideoEncoder>
 VideoEncoder::create(std::string& outPath, int width, int height, int frameRate,
-                     int bitRate, std::optional<std::string> encoderName) {
+                     int bitRate, std::optional<std::string> encoderName,
+                     alias_ref<VideoComposition> composition,
+                     int audioSampleRate, int audioChannelCount,
+                     int audioBitRate) {
   return newInstance(outPath, width, height, frameRate, bitRate,
-                     encoderName.has_value() ? encoderName.value() : nullptr);
+                     encoderName.has_value() ? encoderName.value() : nullptr,
+                     composition, audioSampleRate, audioChannelCount,
+                     audioBitRate);
 }
 
 void VideoEncoder::prepare() const {
@@ -45,9 +50,12 @@ void VideoEncoder::finishWriting() const {
 
 VideoEncoderHostObject::VideoEncoderHostObject(
     std::string& outPath, int width, int height, int frameRate, int bitRate,
-    std::optional<std::string> encoderName) {
+    std::optional<std::string> encoderName,
+    alias_ref<VideoComposition> composition, int audioSampleRate,
+    int audioChannelCount, int audioBitRate) {
   framesExtractor = make_global(VideoEncoder::create(
-      outPath, width, height, frameRate, bitRate, encoderName));
+      outPath, width, height, frameRate, bitRate, encoderName, composition,
+      audioSampleRate, audioChannelCount, audioBitRate));
 }
 
 VideoEncoderHostObject::~VideoEncoderHostObject() {

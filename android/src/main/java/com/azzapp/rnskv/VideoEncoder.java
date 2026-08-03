@@ -11,13 +11,16 @@ import android.view.Surface;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 import javax.microedition.khronos.egl.EGL10;
 import javax.microedition.khronos.egl.EGLContext;
 
 
 /**
- * Helper class for encoding video.
+ * Helper class for encoding video (and the audio of the composition items,
+ * if any).
  */
 public class VideoEncoder {
 
@@ -39,6 +42,16 @@ public class VideoEncoder {
 
   private final String encoderName;
 
+  private final VideoComposition composition;
+
+  private final int audioSampleRate;
+
+  private final int audioChannelCount;
+
+  private final int audioBitRate;
+
+  private final boolean hasAudio;
+
   private MediaCodec encoder;
 
   private Surface inputSurface;
@@ -51,10 +64,21 @@ public class VideoEncoder {
 
   private int trackIndex;
 
+  private int audioTrackIndex;
+
   private boolean muxerStarted;
 
   private final MediaCodec.BufferInfo bufferInfo;
 
+  private Thread audioThread;
+
+  private volatile boolean audioCanceled = false;
+
+  private volatile Exception audioException;
+
+  private final List<PendingSample> pendingVideoSamples = new ArrayList<>();
+
+  private final List<PendingSample> pendingAudioSamples = new ArrayList<>();
 
   /**
    * Creates a new VideoEncoder.
@@ -65,6 +89,11 @@ public class VideoEncoder {
    * @param frameRate  the frame rate of the video
    * @param bitRate    the bit rate of the video
    * @param encoderName the name of the encoder to use, or null to use the default encoder
+   * @param composition the composition being exported, used to encode the
+   *                    audio of its audio-enabled items; can be null
+   * @param audioSampleRate the sample rate of the exported audio track
+   * @param audioChannelCount the number of channels of the exported audio track
+   * @param audioBitRate the bit rate of the exported audio track
    */
   public VideoEncoder(
     String outputPath,
@@ -72,7 +101,11 @@ public class VideoEncoder {
     int height,
     int frameRate,
     int bitRate,
-    String encoderName
+    String encoderName,
+    VideoComposition composition,
+    int audioSampleRate,
+    int audioChannelCount,
+    int audioBitRate
   ) {
     this.outputPath = outputPath;
     this.width = width;
@@ -80,6 +113,11 @@ public class VideoEncoder {
     this.frameRate = frameRate;
     this.bitRate = bitRate;
     this.encoderName = encoderName;
+    this.composition = composition;
+    this.audioSampleRate = audioSampleRate;
+    this.audioChannelCount = audioChannelCount;
+    this.audioBitRate = audioBitRate;
+    this.hasAudio = composition != null && composition.hasAudio();
     bufferInfo = new MediaCodec.BufferInfo();
   }
 
@@ -114,7 +152,40 @@ public class VideoEncoder {
     }
 
     trackIndex = -1;
+    audioTrackIndex = -1;
     muxerStarted = false;
+
+    if (hasAudio) {
+      AudioCompositionExporter audioExporter = new AudioCompositionExporter(
+        composition,
+        audioSampleRate,
+        audioChannelCount,
+        audioBitRate,
+        new AudioCompositionExporter.Sink() {
+          @Override
+          public void onAudioFormat(MediaFormat format) {
+            synchronized (VideoEncoder.this) {
+              audioTrackIndex = muxer.addTrack(format);
+              maybeStartMuxer();
+            }
+          }
+
+          @Override
+          public void onAudioSample(ByteBuffer buffer, MediaCodec.BufferInfo info) {
+            writeOrQueueSample(false, buffer, info);
+          }
+        },
+        () -> audioCanceled
+      );
+      audioThread = new Thread(() -> {
+        try {
+          audioExporter.run();
+        } catch (Exception e) {
+          audioException = e;
+        }
+      }, "ReactNativeSkiaVideo-AudioExportThread");
+      audioThread.start();
+    }
   }
 
   public void makeGLContextCurrent() {
@@ -136,6 +207,71 @@ public class VideoEncoder {
 
   public void finishWriting() {
     drainEncoder(true);
+    if (audioThread != null) {
+      try {
+        audioThread.join();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException("Interrupted while writing audio", e);
+      }
+      audioThread = null;
+      if (audioException != null) {
+        throw new RuntimeException("Could not encode composition audio", audioException);
+      }
+    }
+  }
+
+  /**
+   * Starts the muxer once every track has been registered and flushes the
+   * queued samples. Must be called with the monitor held.
+   */
+  private void maybeStartMuxer() {
+    if (muxerStarted
+      || trackIndex < 0
+      || (hasAudio && audioTrackIndex < 0)) {
+      return;
+    }
+    muxer.start();
+    muxerStarted = true;
+    for (PendingSample sample : pendingVideoSamples) {
+      muxer.writeSampleData(trackIndex, sample.buffer, sample.bufferInfo);
+    }
+    pendingVideoSamples.clear();
+    for (PendingSample sample : pendingAudioSamples) {
+      muxer.writeSampleData(audioTrackIndex, sample.buffer, sample.bufferInfo);
+    }
+    pendingAudioSamples.clear();
+  }
+
+  /**
+   * Writes a sample to the muxer, or queues it until the muxer has started.
+   */
+  private synchronized void writeOrQueueSample(
+    boolean isVideo,
+    ByteBuffer buffer,
+    MediaCodec.BufferInfo info
+  ) {
+    if (muxerStarted) {
+      muxer.writeSampleData(isVideo ? trackIndex : audioTrackIndex, buffer, info);
+      return;
+    }
+    ByteBuffer copy = ByteBuffer.allocateDirect(info.size);
+    copy.put(buffer);
+    copy.flip();
+    MediaCodec.BufferInfo infoCopy = new MediaCodec.BufferInfo();
+    infoCopy.set(0, info.size, info.presentationTimeUs, info.flags);
+    (isVideo ? pendingVideoSamples : pendingAudioSamples)
+      .add(new PendingSample(copy, infoCopy));
+  }
+
+  private static class PendingSample {
+    final ByteBuffer buffer;
+    final MediaCodec.BufferInfo bufferInfo;
+
+    PendingSample(ByteBuffer buffer, MediaCodec.BufferInfo bufferInfo) {
+      this.buffer = buffer;
+      this.bufferInfo = bufferInfo;
+    }
   }
 
   /**
@@ -160,15 +296,13 @@ public class VideoEncoder {
       }
       if (encoderStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
         // should happen before receiving buffers, and should only happen once
-        if (muxerStarted) {
+        if (trackIndex >= 0) {
           throw new RuntimeException("format changed twice");
         }
-        MediaFormat newFormat = encoder.getOutputFormat();
-
-        // now that we have the Magic Goodies, start the muxer
-        trackIndex = muxer.addTrack(newFormat);
-        muxer.start();
-        muxerStarted = true;
+        synchronized (this) {
+          trackIndex = muxer.addTrack(encoder.getOutputFormat());
+          maybeStartMuxer();
+        }
       } else if (encoderStatus < 0) {
         Log.w(TAG, "unexpected result from encoder.dequeueOutputBuffer: " + encoderStatus);
         // let's ignore it
@@ -185,15 +319,11 @@ public class VideoEncoder {
         }
 
         if (bufferInfo.size != 0) {
-          if (!muxerStarted) {
-            throw new RuntimeException("muxer hasn't started");
-          }
-
           // adjust the ByteBuffer values to match BufferInfo (not needed?)
           encodedData.position(bufferInfo.offset);
           encodedData.limit(bufferInfo.offset + bufferInfo.size);
 
-          muxer.writeSampleData(trackIndex, encodedData, bufferInfo);
+          writeOrQueueSample(true, encodedData, bufferInfo);
         }
 
         encoder.releaseOutputBuffer(encoderStatus, false);
@@ -212,6 +342,16 @@ public class VideoEncoder {
    * Releases encoder resources.  May be called after partial / failed initialization.
    */
   public void release() {
+    if (audioThread != null) {
+      // Stop the audio pipeline before tearing down the muxer.
+      audioCanceled = true;
+      try {
+        audioThread.join(5000);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+      audioThread = null;
+    }
     if (eglResourcesHolder != null) {
       eglResourcesHolder.release();
     }
@@ -225,7 +365,12 @@ public class VideoEncoder {
       inputSurface = null;
     }
     if (muxer != null) {
-      muxer.stop();
+      try {
+        muxer.stop();
+      } catch (IllegalStateException e) {
+        // the muxer never started or has no sample (failed exports).
+        Log.w(TAG, "Could not stop the muxer", e);
+      }
       muxer.release();
       muxer = null;
     }

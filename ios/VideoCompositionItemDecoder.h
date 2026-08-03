@@ -12,7 +12,7 @@ namespace RNSkiaVideo {
 class VideoCompositionItemDecoder {
 public:
   VideoCompositionItemDecoder(std::shared_ptr<VideoCompositionItem> item,
-                              bool realTime);
+                              bool realTime, AVURLAsset* sharedAsset = nil);
   ~VideoCompositionItemDecoder();
   void advanceDecoder(CMTime currentTime);
   void seekTo(CMTime currentTime);
