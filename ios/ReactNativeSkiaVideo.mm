@@ -137,8 +137,10 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
       [](jsi::Runtime& runtime, const jsi::Value& thisValue,
          const jsi::Value* arguments, size_t count) -> jsi::Value {
         if (count < 1 || !arguments[0].isObject()) {
-          throw jsi::JSError(runtime, "ReactNativeSkiaVideo.createVideoEncoder("
-                                      "..) expects one arguments (object)!");
+          throw jsi::JSError(
+              runtime,
+              "ReactNativeSkiaVideo.createVideoEncoder(..) expects an options "
+              "object and an optional composition object!");
         }
 
         auto options = arguments[0].asObject(runtime);

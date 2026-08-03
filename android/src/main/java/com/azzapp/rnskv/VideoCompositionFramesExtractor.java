@@ -52,6 +52,7 @@ public class VideoCompositionFramesExtractor {
   private long startTime = 0;
   private long pausePosition = 0;
   private boolean isEOS = false;
+  private boolean completeDispatched = false;
 
   /**
    * Create a new VideoCompositionFramesExtractor.
@@ -152,6 +153,8 @@ public class VideoCompositionFramesExtractor {
     decoder.start();
     if (composition.hasAudio()) {
       audioPlayer = new AudioCompositionPlayer(composition);
+      audioPlayer.setOnErrorListener(
+        message -> eventDispatcher.dispatchEvent("error", message));
       audioPlayer.prepare();
     }
     prepared = true;
@@ -199,10 +202,15 @@ public class VideoCompositionFramesExtractor {
 
     isEOS = currentPosition >= TimeHelpers.secToUs(composition.getDuration());
     if (isEOS) {
-      eventDispatcher.dispatchEvent("complete", null);
+      if (!completeDispatched) {
+        completeDispatched = true;
+        eventDispatcher.dispatchEvent("complete", null);
+      }
       isPlaying = false;
       pausePosition = TimeHelpers.secToUs(composition.getDuration());
       currentPosition = pausePosition;
+    } else {
+      completeDispatched = false;
     }
     decoder.render(currentPosition);
     if (isEOS && looping) {

@@ -193,6 +193,12 @@ public class VideoEncoder {
   }
 
   public void encodeFrame(int texture, double time) {
+    // Fail fast if the audio pipeline died: the muxer cannot start without
+    // the audio track and every video sample would pile up in
+    // pendingVideoSamples until the end of the export.
+    if (audioException != null) {
+      throw new RuntimeException("Could not encode composition audio", audioException);
+    }
     long timeUS = TimeHelpers.secToUs(time);
     GLES20.glClearColor(0, 0, 0, 0);
     GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);

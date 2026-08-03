@@ -48,8 +48,9 @@ buildAudioComposition(const std::shared_ptr<VideoComposition>& composition,
       continue;
     }
 
+    CMTime startTime = CMTimeMakeWithSeconds(item->startTime, NSEC_PER_SEC);
     auto sourceRange = CMTimeRangeGetIntersection(
-        CMTimeRangeMake(CMTimeMakeWithSeconds(item->startTime, NSEC_PER_SEC),
+        CMTimeRangeMake(startTime,
                         CMTimeMakeWithSeconds(item->duration, NSEC_PER_SEC)),
         audioTrack.timeRange);
     if (CMTimeCompare(sourceRange.duration, kCMTimeZero) <= 0) {
@@ -59,13 +60,16 @@ buildAudioComposition(const std::shared_ptr<VideoComposition>& composition,
     AVMutableCompositionTrack* compositionTrack = [audioComposition
         addMutableTrackWithMediaType:AVMediaTypeAudio
                     preferredTrackID:kCMPersistentTrackID_Invalid];
+    // If the audio track starts after the requested start time, keep the
+    // offset so the audio stays aligned on the composition timeline.
+    CMTime insertTime = CMTimeAdd(
+        CMTimeMakeWithSeconds(item->compositionStartTime, NSEC_PER_SEC),
+        CMTimeSubtract(sourceRange.start, startTime));
     NSError* insertError = nil;
-    if (![compositionTrack
-            insertTimeRange:sourceRange
-                    ofTrack:audioTrack
-                     atTime:CMTimeMakeWithSeconds(item->compositionStartTime,
-                                                  NSEC_PER_SEC)
-                      error:&insertError]) {
+    if (![compositionTrack insertTimeRange:sourceRange
+                                   ofTrack:audioTrack
+                                    atTime:insertTime
+                                     error:&insertError]) {
       throw insertError
           ?: audioErrorWithMessage([NSString
                  stringWithFormat:@"Could not insert audio track for item: %s",

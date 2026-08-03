@@ -6,7 +6,10 @@ import android.os.SystemClock;
 
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackException;
 import androidx.media3.common.PlaybackParameters;
+import androidx.media3.common.Player;
+import androidx.media3.common.Tracks;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 
@@ -22,6 +25,10 @@ import java.util.List;
  */
 @UnstableApi
 public class AudioCompositionPlayer {
+
+  public interface OnErrorListener {
+    void onError(String message);
+  }
 
   // Drift above which a player is hard-seeked (audible); smaller drifts are
   // caught up by adjusting the playback speed (pitch preserving, inaudible).
@@ -48,10 +55,16 @@ public class AudioCompositionPlayer {
 
   private final List<ItemPlayer> itemPlayers = new ArrayList<>();
 
+  private OnErrorListener onErrorListener;
+
   private boolean released = false;
 
   public AudioCompositionPlayer(VideoComposition composition) {
     this.composition = composition;
+  }
+
+  public void setOnErrorListener(OnErrorListener onErrorListener) {
+    this.onErrorListener = onErrorListener;
   }
 
   public void prepare() {
@@ -59,7 +72,13 @@ public class AudioCompositionPlayer {
       if (!item.isAudioEnabled()) {
         continue;
       }
-      itemPlayers.add(new ItemPlayer(item));
+      itemPlayers.add(new ItemPlayer(item, this::dispatchError));
+    }
+  }
+
+  private void dispatchError(String message) {
+    if (!released && onErrorListener != null) {
+      onErrorListener.onError(message);
     }
   }
 
@@ -120,13 +139,36 @@ public class AudioCompositionPlayer {
 
     private float currentSpeed = 1f;
 
-    ItemPlayer(VideoComposition.Item item) {
+    ItemPlayer(VideoComposition.Item item, OnErrorListener onErrorListener) {
       compositionStartTimeUs = TimeHelpers.secToUs(item.getCompositionStartTime());
       durationUs = TimeHelpers.secToUs(item.getDuration());
 
       player = new ExoPlayer.Builder(
         ReactNativeSkiaVideoModule.currentReactApplicationContext()
       ).setLooper(Looper.myLooper()).build();
+
+      player.addListener(new Player.Listener() {
+        private boolean audioTrackChecked = false;
+
+        @Override
+        public void onPlayerError(PlaybackException error) {
+          onErrorListener.onError(error.getMessage());
+        }
+
+        @Override
+        public void onTracksChanged(Tracks tracks) {
+          if (item.isVideo() || audioTrackChecked || tracks.getGroups().isEmpty()) {
+            return;
+          }
+          audioTrackChecked = true;
+          for (Tracks.Group group : tracks.getGroups()) {
+            if (group.getType() == C.TRACK_TYPE_AUDIO) {
+              return;
+            }
+          }
+          onErrorListener.onError("No audio track for path: " + item.getPath());
+        }
+      });
 
       String path = item.getPath();
       Uri uri = path.startsWith("/") ? Uri.fromFile(new File(path)) : Uri.parse(path);

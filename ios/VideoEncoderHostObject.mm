@@ -120,7 +120,7 @@ void VideoEncoderHostObject::prepare() {
     [assetWriter addInput:assetWriterInput];
   } else {
     throw assetWriter.error
-        ?: createErrorWithMessage(@"could not add output to asset writter");
+        ?: createErrorWithMessage(@"could not add output to asset writer");
     return;
   }
 
@@ -317,7 +317,7 @@ void VideoEncoderHostObject::setupAudio() {
     audioWriterInput = nil;
     throw assetWriter.error
         ?: createErrorWithMessage(
-               @"could not add audio output to asset writter");
+               @"could not add audio output to asset writer");
   }
 }
 

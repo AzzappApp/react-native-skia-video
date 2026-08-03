@@ -7,6 +7,7 @@ import android.media.MediaFormat;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.ShortBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -75,13 +76,13 @@ public class AudioCompositionExporter {
    * of the composition has been encoded and handed to the sink.
    */
   public void run() throws Exception {
-    List<ItemDecoder> itemDecoders = new ArrayList<>();
+    List<ItemSlot> slots = new ArrayList<>();
     try {
       for (VideoComposition.Item item : composition.getItems()) {
         if (!item.isAudioEnabled()) {
           continue;
         }
-        itemDecoders.add(new ItemDecoder(item));
+        slots.add(new ItemSlot(item));
       }
 
       encoder = MediaCodec.createEncoderByType(AUDIO_MIME_TYPE);
@@ -96,24 +97,41 @@ public class AudioCompositionExporter {
       encoder.start();
 
       long totalFrames = Math.round(composition.getDuration() * sampleRate);
-      short[] mixBuffer = new short[CHUNK_FRAMES * channelCount];
+      int[] mixBuffer = new int[CHUNK_FRAMES * channelCount];
       long framePosition = 0;
       while (framePosition < totalFrames) {
         if (isCanceled.getAsBoolean()) {
           return;
         }
         int chunkFrames = (int) Math.min(CHUNK_FRAMES, totalFrames - framePosition);
-        Arrays.fill(mixBuffer, (short) 0);
-        for (ItemDecoder itemDecoder : itemDecoders) {
-          itemDecoder.mixInto(mixBuffer, framePosition, chunkFrames);
+        long chunkEndFrame = framePosition + chunkFrames;
+        Arrays.fill(mixBuffer, 0);
+        for (ItemSlot slot : slots) {
+          if (slot.done || chunkEndFrame <= slot.startFrame) {
+            continue;
+          }
+          // Decoders are created when the timeline enters the item and
+          // released when it leaves it, so the number of simultaneous
+          // codec instances stays bounded by the overlapping items.
+          if (slot.decoder == null) {
+            slot.decoder = new ItemDecoder(slot.item);
+          }
+          slot.decoder.mixInto(mixBuffer, framePosition, chunkFrames);
+          if (chunkEndFrame >= slot.endFrame) {
+            slot.decoder.release();
+            slot.decoder = null;
+            slot.done = true;
+          }
         }
         queuePcm(mixBuffer, chunkFrames, framePosition);
         framePosition += chunkFrames;
       }
       queueEndOfStream();
     } finally {
-      for (ItemDecoder itemDecoder : itemDecoders) {
-        itemDecoder.release();
+      for (ItemSlot slot : slots) {
+        if (slot.decoder != null) {
+          slot.decoder.release();
+        }
       }
       if (encoder != null) {
         try {
@@ -126,7 +144,7 @@ public class AudioCompositionExporter {
     }
   }
 
-  private void queuePcm(short[] samples, int frames, long framePosition) {
+  private void queuePcm(int[] samples, int frames, long framePosition) {
     int bytesPerFrame = channelCount * 2;
     int totalBytes = frames * bytesPerFrame;
     int offsetBytes = 0;
@@ -149,7 +167,14 @@ public class AudioCompositionExporter {
       input.order(ByteOrder.LITTLE_ENDIAN);
       int bytes = Math.min(input.remaining(), totalBytes - offsetBytes);
       bytes -= bytes % bytesPerFrame;
-      input.asShortBuffer().put(samples, offsetBytes / 2, bytes / 2);
+      ShortBuffer shortBuffer = input.asShortBuffer();
+      int sampleOffset = offsetBytes / 2;
+      int sampleCount = bytes / 2;
+      for (int i = 0; i < sampleCount; i++) {
+        int sample = samples[sampleOffset + i];
+        shortBuffer.put(
+          (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, sample)));
+      }
       long ptsUs =
         (framePosition + offsetBytes / bytesPerFrame) * 1000000L / sampleRate;
       encoder.queueInputBuffer(inputIndex, 0, bytes, ptsUs, 0);
@@ -208,6 +233,24 @@ public class AudioCompositionExporter {
           break;
         }
       }
+    }
+  }
+
+  /**
+   * An audio-enabled item of the composition and its decoder; the decoder
+   * only exists while the export timeline overlaps the item.
+   */
+  private class ItemSlot {
+    final VideoComposition.Item item;
+    final long startFrame;
+    final long endFrame;
+    ItemDecoder decoder;
+    boolean done = false;
+
+    ItemSlot(VideoComposition.Item item) {
+      this.item = item;
+      startFrame = Math.round(item.getCompositionStartTime() * sampleRate);
+      endFrame = startFrame + Math.round(item.getDuration() * sampleRate);
     }
   }
 
@@ -298,7 +341,7 @@ public class AudioCompositionExporter {
       }
     }
 
-    void mixInto(short[] mix, long chunkStartFrame, int frames) {
+    void mixInto(int[] mix, long chunkStartFrame, int frames) {
       if (!hasAudioTrack) {
         return;
       }
@@ -319,9 +362,10 @@ public class AudioCompositionExporter {
         for (int channel = 0; channel < channelCount; channel++) {
           double sample = readSample(srcFrameIndex, channel) * (1 - fraction)
             + readSample(srcFrameIndex + 1, channel) * fraction;
-          int mixed = mix[mixIndex + channel] + (int) Math.round(sample * volume);
-          mix[mixIndex + channel] =
-            (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, mixed));
+          // Clipping only happens once every track has been accumulated
+          // (in queuePcm), otherwise the result would depend on the order
+          // of the items.
+          mix[mixIndex + channel] += (int) Math.round(sample * volume);
         }
       }
       // Drop the consumed samples to keep memory bounded.
@@ -408,17 +452,20 @@ public class AudioCompositionExporter {
         int frames = sampleCount / srcChannelCount;
         int skipFrames = 0;
         if (firstBuffer) {
-          // Drop the samples decoded before the item start time (the
-          // extractor sought to a preceding sync point).
           firstBuffer = false;
-          skipFrames = (int) Math.max(
-            0,
-            Math.round(
-              (startTimeUs - decoderBufferInfo.presentationTimeUs)
-                * srcSampleRate / 1000000.0
-            )
-          );
-          skipFrames = Math.min(skipFrames, frames);
+          long offsetUs = decoderBufferInfo.presentationTimeUs - startTimeUs;
+          if (offsetUs < 0) {
+            // Drop the samples decoded before the item start time (the
+            // extractor sought to a preceding sync point).
+            skipFrames = (int) Math.min(
+              Math.round(-offsetUs * srcSampleRate / 1000000.0),
+              frames
+            );
+          } else if (offsetUs > 0) {
+            // The audio starts after the requested start time: keep the
+            // offset so the audio stays aligned on the composition timeline.
+            bufferStartFrame = Math.round(offsetUs * srcSampleRate / 1000000.0);
+          }
         }
         int keptFrames = frames - skipFrames;
         if (keptFrames > 0) {
