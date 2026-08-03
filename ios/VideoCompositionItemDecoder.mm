@@ -260,7 +260,6 @@ void VideoCompositionItemDecoder::release() {
 }
 
 VideoCompositionItemDecoder::~VideoCompositionItemDecoder() {
-  NSLog(@"VideoCompositionItemDecoder::~VideoCompositionItemDecoder");
   @synchronized(lock) {
     [mtlTexture setPurgeableState:MTLPurgeableStateEmpty];
     mtlTexture = nil;
