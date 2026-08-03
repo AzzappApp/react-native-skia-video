@@ -1,4 +1,8 @@
-import { scheduleOnRN } from 'react-native-worklets';
+import {
+  createWorkletRuntime,
+  runOnRuntime,
+  scheduleOnRN,
+} from 'react-native-worklets';
 import { Skia, BlendMode } from '@shopify/react-native-skia';
 import type { SkSurface } from '@shopify/react-native-skia';
 import type {
@@ -9,7 +13,7 @@ import type {
   VideoCompositionFramesExtractorSync,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
-import { runOnNewThread } from './utils/thread';
+import { createSynchronizable } from 'react-native-worklets';
 
 const Promise = global.Promise;
 
@@ -51,6 +55,10 @@ export const exportVideoComposition = async <T = undefined>({
    */
   afterDrawFrame?: (context: T) => void;
   /**
+   * A signal used to cancel the export operation. If the signal is aborted, the promise will be rejected with an AbortError.
+   */
+  abortSignal?: AbortSignal;
+  /**
    * A callback that is called when a frame is drawn.
    * @returns
    */
@@ -60,79 +68,95 @@ export const exportVideoComposition = async <T = undefined>({
   }) => void;
 } & ExportOptions): Promise<void> =>
   new Promise<void>((resolve, reject) => {
-    runOnNewThread(() => {
+    if (options.abortSignal?.aborted) {
+      reject(new Error('AbortError'));
+      return;
+    }
+    const exportRuntime = createWorkletRuntime({
+      name: 'RNSkiaVideoExportRuntime-' + performance.now(),
+    });
+
+    const cancelledShareable = createSynchronizable(false);
+    const abortListener = () => {
+      cancelledShareable.setBlocking(true);
+      reject(new Error('AbortError'));
+    };
+    if (options.abortSignal) {
+      options.abortSignal.addEventListener('abort', abortListener);
+    }
+
+    runOnRuntime(exportRuntime, () => {
       'worklet';
 
       let surface: SkSurface | null = null;
       let frameExtractor: VideoCompositionFramesExtractorSync | null = null;
-      // eslint-disable-next-line no-useless-assignment -- TS needs the initializer for definite assignment
       let encoder: VideoEncoder | null = null;
       const { width, height } = options;
       try {
-        surface = Skia.Surface.MakeOffscreen(width, height);
-        if (!surface) {
-          throw new Error('Failed to create Skia surface');
-        }
+        try {
+          surface = Skia.Surface.MakeOffscreen(width, height);
+          if (!surface) {
+            throw new Error('Failed to create Skia surface');
+          }
 
-        encoder = RNSkiaVideoModule.createVideoEncoder(
-          {
-            ...options,
-            audioBitRate: options.audioBitRate ?? DEFAULT_AUDIO_BIT_RATE,
-            audioSampleRate:
-              options.audioSampleRate ?? DEFAULT_AUDIO_SAMPLE_RATE,
-            audioChannelCount:
-              options.audioChannelCount ?? DEFAULT_AUDIO_CHANNEL_COUNT,
-          },
-          videoComposition
-        );
-        encoder.prepare();
-
-        frameExtractor =
-          RNSkiaVideoModule.createVideoCompositionFramesExtractorSync(
+          encoder = RNSkiaVideoModule.createVideoEncoder(
+            {
+              ...options,
+              audioBitRate: options.audioBitRate ?? DEFAULT_AUDIO_BIT_RATE,
+              audioSampleRate:
+                options.audioSampleRate ?? DEFAULT_AUDIO_SAMPLE_RATE,
+              audioChannelCount:
+                options.audioChannelCount ?? DEFAULT_AUDIO_CHANNEL_COUNT,
+            },
             videoComposition
           );
-        frameExtractor.start();
+          encoder.prepare();
 
-        const nbFrames = videoComposition.duration * options.frameRate;
-        const canvas = surface.getCanvas();
-        const clearColor = Skia.Color('#00000000');
-        for (let i = 0; i < nbFrames; i++) {
-          const currentTime = i / options.frameRate;
-          const frames = frameExtractor.decodeCompositionFrames(currentTime);
-          canvas.drawColor(clearColor, BlendMode.Clear);
-          const context = beforeDrawFrame?.() as any;
-          drawFrame({
-            context,
-            canvas,
-            videoComposition,
-            currentTime,
-            frames,
-            width: options.width,
-            height: options.height,
-          });
-          // Synchronous flush: block until the GPU is done rendering the
-          // frame, since the encoder reads the surface's texture from its
-          // own command queue / GL context.
-          surface.flush(true);
-          const texture = surface.getNativeTextureUnstable();
-          encoder.encodeFrame(texture, currentTime);
-          afterDrawFrame?.(context);
-          if (onProgress) {
-            scheduleOnRN(onProgress, {
-              framesCompleted: i + 1,
-              nbFrames,
+          frameExtractor =
+            RNSkiaVideoModule.createVideoCompositionFramesExtractorSync(
+              videoComposition
+            );
+          frameExtractor.start();
+
+          const nbFrames = videoComposition.duration * options.frameRate;
+          const canvas = surface.getCanvas();
+          const clearColor = Skia.Color('#00000000');
+          for (let i = 0; i < nbFrames; i++) {
+            if (cancelledShareable.getDirty()) {
+              return;
+            }
+            const currentTime = i / options.frameRate;
+            const frames = frameExtractor.decodeCompositionFrames(currentTime);
+            canvas.drawColor(clearColor, BlendMode.Clear);
+            const context = beforeDrawFrame?.() as any;
+            drawFrame({
+              context,
+              canvas,
+              videoComposition,
+              currentTime,
+              frames,
+              width: options.width,
+              height: options.height,
             });
+            // Synchronous flush: block until the GPU is done rendering the
+            // frame, since the encoder reads the surface's texture from its
+            // own command queue / GL context.
+            surface.flush(true);
+            const texture = surface.getNativeTextureUnstable();
+            encoder.encodeFrame(texture, currentTime);
+            afterDrawFrame?.(context);
+            if (onProgress) {
+              scheduleOnRN(onProgress, {
+                framesCompleted: i + 1,
+                nbFrames,
+              });
+            }
           }
+        } finally {
+          frameExtractor?.dispose();
+          surface?.dispose();
         }
-      } catch (e) {
-        scheduleOnRN(reject, e);
-        return;
-      } finally {
-        frameExtractor?.dispose();
-        surface?.dispose();
-      }
 
-      try {
         encoder!.finishWriting();
       } catch (e) {
         scheduleOnRN(reject, e);
@@ -141,5 +165,5 @@ export const exportVideoComposition = async <T = undefined>({
         encoder?.dispose();
       }
       scheduleOnRN(resolve, undefined);
-    });
+    })();
   });

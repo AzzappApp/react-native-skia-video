@@ -391,11 +391,16 @@ const VideoCompositionPreview = ({
   const [exportedPath, setExportedPath] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState(0);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const exportCurrentComposition = useCallback(() => {
     if (!videoComposition) {
       return;
     }
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
     setExporting(true);
+    setExportProgress(0);
 
     // We need to wait a bit to let the UI unmount the player
     // before starting the export, especially on Android where
@@ -430,17 +435,22 @@ const VideoCompositionPreview = ({
       exportVideoComposition({
         videoComposition,
         drawFrame,
+        abortSignal: abortController.signal,
         onProgress: (progress) =>
           setExportProgress(progress.framesCompleted / progress.nbFrames),
         outPath,
         ...encoderConfigs,
       }).then(
         () => {
+          abortControllerRef.current = null;
           setExportedPath(outPath);
         },
         (error) => {
-          Alert.alert('Error exporting video', error.message);
+          abortControllerRef.current = null;
           setExporting(false);
+          if (!abortController.signal.aborted) {
+            Alert.alert('Error exporting video', error.message);
+          }
         }
       );
     }, 100);
@@ -613,6 +623,10 @@ const VideoCompositionPreview = ({
               <Text style={{ color: 'black' }}>
                 Exporting video {Math.round(exportProgress * 100)}%...
               </Text>
+              <Button
+                title="Cancel"
+                onPress={() => abortControllerRef.current?.abort()}
+              />
             </>
           )}
         </View>
