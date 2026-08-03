@@ -38,6 +38,14 @@ import {
   type SkImage,
 } from '@shopify/react-native-skia';
 import { createId } from '@paralleldrive/cuid2';
+import Slider from '@react-native-community/slider';
+import Animated, {
+  useAnimatedProps,
+  useFrameCallback,
+  useSharedValue,
+} from 'react-native-reanimated';
+
+const AnimatedSlider = Animated.createAnimatedComponent(Slider);
 
 type StackParamList = {
   SelectVideos: undefined;
@@ -377,7 +385,7 @@ const VideoCompositionPreview = ({
 
   const { width: windowWidth } = useWindowDimensions();
 
-  const { currentFrame } = useVideoCompositionPlayer({
+  const { currentFrame, player } = useVideoCompositionPlayer({
     composition: exporting ? null : videoComposition,
     autoPlay: true,
     isLooping: true,
@@ -385,6 +393,28 @@ const VideoCompositionPreview = ({
     width: windowWidth,
     height: windowWidth,
   });
+
+  const [isPlaying, setIsPlaying] = useState(true);
+  const duration = videoComposition?.duration ?? 0;
+
+  // The composition extractor exposes `currentTime` as a native getter, so it
+  // has to be polled from the UI thread to drive the slider.
+  const currentTime = useSharedValue(0);
+  useFrameCallback(() => {
+    currentTime.value = player?.currentTime ?? 0;
+  }, true);
+
+  const sliderProps = useAnimatedProps(
+    () => ({ value: currentTime.value }),
+    [currentTime]
+  );
+
+  const seekTo = useCallback(
+    (time: number) => {
+      player?.seekTo(time);
+    },
+    [player]
+  );
 
   return (
     <View style={{ flex: 1 }}>
@@ -412,13 +442,55 @@ const VideoCompositionPreview = ({
                 height={windowWidth}
               />
             </Canvas>
-            <View style={{ opacity: videoComposition ? 1 : 0 }}>
-              <Button
-                title="Export"
-                onPress={() => {
-                  exportCurrentComposition();
+            <View
+              style={{
+                opacity: videoComposition ? 1 : 0,
+                alignSelf: 'stretch',
+                gap: 10,
+                alignItems: 'center',
+              }}
+            >
+              <AnimatedSlider
+                animatedProps={sliderProps}
+                minimumValue={0}
+                maximumValue={duration}
+                onValueChange={(value) => {
+                  // Fires continuously on Android, only seek on release there.
+                  if (Platform.OS !== 'android') {
+                    seekTo(value);
+                  }
                 }}
+                onSlidingComplete={(value) => {
+                  if (Platform.OS === 'android') {
+                    seekTo(value);
+                  }
+                }}
+                style={{ alignSelf: 'stretch' }}
+                disabled={!videoComposition}
+                maximumTrackTintColor={'#CCC'}
+                minimumTrackTintColor={'#F00'}
               />
+              <View
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
+              >
+                <Button
+                  title={isPlaying ? 'Pause' : 'Play'}
+                  onPress={() => {
+                    if (isPlaying) {
+                      player?.pause();
+                    } else {
+                      player?.play();
+                    }
+                    setIsPlaying(!isPlaying);
+                  }}
+                />
+                <Button
+                  title="Export"
+                  onPress={() => {
+                    exportCurrentComposition();
+                  }}
+                />
+              </View>
             </View>
           </View>
           {!videoComposition && (

@@ -13,6 +13,7 @@ class VideoCompositionItemDecoder {
 public:
   VideoCompositionItemDecoder(std::shared_ptr<VideoCompositionItem> item,
                               bool realTime);
+  ~VideoCompositionItemDecoder();
   void advanceDecoder(CMTime currentTime);
   void seekTo(CMTime currentTime);
   std::shared_ptr<VideoFrame> acquireFrameForTime(CMTime currentTime,

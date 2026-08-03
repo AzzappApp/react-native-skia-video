@@ -300,12 +300,14 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
   /**
    * Seek to a specific time in the video.
    *
-   * @param time the time in microseconds to seek to
+   * @param time the position in the composition timeline, in microseconds
    */
   synchronized public void seekTo(long time) {
+    freeFrames.addAll(pendingFrames);
     pendingFrames.clear();
     codec.flush();
-    long seekTime = time + TimeHelpers.secToUs(item.getStartTime());
+    long itemTime = time - TimeHelpers.secToUs(item.getCompositionStartTime());
+    long seekTime = TimeHelpers.secToUs(item.getStartTime()) + Math.max(itemTime, 0);
     extractor.seekTo(seekTime, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
     itemEndReached = false;
     hasRenderedFrame = false;
