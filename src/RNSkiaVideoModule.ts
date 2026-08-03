@@ -11,6 +11,11 @@ if (!NativeReactNativeSkiaVideo) {
   );
 }
 
-NativeReactNativeSkiaVideo.install();
+const installed = NativeReactNativeSkiaVideo.install();
+if (!installed || (global as any).RNSkiaVideo == null) {
+  throw new Error(
+    "The package '@azzapp/react-native-skia-video' failed to install its JSI bindings."
+  );
+}
 
 export default (global as any).RNSkiaVideo as RNSkiaVideoModule;

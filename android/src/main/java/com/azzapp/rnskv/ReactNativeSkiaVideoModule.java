@@ -33,8 +33,8 @@ public class ReactNativeSkiaVideoModule extends ReactNativeSkiaVideoSpec {
     reactApplicationContext = getReactApplicationContext();
     System.loadLibrary("react-native-skia-video");
     JavaScriptContextHolder jsContext = getReactApplicationContext().getJavaScriptContextHolder();
-    if (jsContext == null) {
-      Log.e(NAME, "Failed to install react-native-skia JSI Bindings!");
+    if (jsContext == null || jsContext.get() == 0) {
+      Log.e(NAME, "Failed to install react-native-skia-video JSI Bindings: no JavaScript runtime available!");
       return false;
     }
     nativeInstall(jsContext.get());

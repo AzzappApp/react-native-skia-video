@@ -2,6 +2,7 @@
 
 #import <React/RCTBridge+Private.h>
 #import <React/RCTBridge.h>
+#import <React/RCTCallInvoker.h>
 #import <React/RCTUtils.h>
 #import <ReactCommon/RCTTurboModule.h>
 #import <jsi/jsi.h>
@@ -13,20 +14,29 @@
 #import "VideoEncoderHostObject.h"
 #import "VideoPlayerHostObject.h"
 
+// In bridgeless mode `self.bridge` is an RCTBridgeProxy; its `runtime`
+// accessor is not declared in public headers.
+@interface RCTBridge (JSIRuntime)
+- (void*)runtime;
+@end
+
 @implementation ReactNativeSkiaVideo
+
+@synthesize bridge = _bridge;
+@synthesize callInvoker = _callInvoker;
+
 RCT_EXPORT_MODULE()
 RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
-  RCTBridge* bridge = [RCTBridge currentBridge];
-  RCTCxxBridge* cxxBridge = (RCTCxxBridge*)bridge;
-  if (cxxBridge == nil) {
-    return @false;
-  }
-
   using namespace facebook;
   using namespace RNSkiaVideo;
 
-  auto jsiRuntime = (jsi::Runtime*)cxxBridge.runtime;
-  if (jsiRuntime == nil) {
+  auto jsiRuntime = reinterpret_cast<jsi::Runtime*>(self.bridge.runtime);
+  if (jsiRuntime == nullptr) {
+    return @false;
+  }
+  std::shared_ptr<react::CallInvoker> jsCallInvoker =
+      self.callInvoker.callInvoker;
+  if (jsCallInvoker == nullptr) {
     return @false;
   }
   auto& runtime = *jsiRuntime;
@@ -34,8 +44,8 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
 
   auto createVideoPlayer = jsi::Function::createFromHostFunction(
       runtime, jsi::PropNameID::forAscii(runtime, "createVideoPlayer"), 2,
-      [bridge](jsi::Runtime& runtime, const jsi::Value& thisValue,
-               const jsi::Value* arguments, size_t count) -> jsi::Value {
+      [jsCallInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue,
+                      const jsi::Value* arguments, size_t count) -> jsi::Value {
         if (count < 1 || !arguments[0].isString()) {
           throw jsi::JSError(runtime,
                              "ReactNativeSkiaVideo.createVideoPlayer(."
@@ -62,7 +72,7 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
         NSURL* url = [NSURL URLWithString:urlStr];
 
         auto instance = std::make_shared<VideoPlayerHostObject>(
-            runtime, bridge.jsCallInvoker, url, resolution);
+            runtime, jsCallInvoker, url, resolution);
         return jsi::Object::createFromHostObject(runtime, instance);
       });
   RNSVModule.setProperty(runtime, "createVideoPlayer",
@@ -76,8 +86,9 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
           jsi::PropNameID::forAscii(runtime,
                                     "createVideoCompositionFramesExtractor"),
           1,
-          [bridge](jsi::Runtime& runtime, const jsi::Value& thisValue,
-                   const jsi::Value* arguments, size_t count) -> jsi::Value {
+          [jsCallInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue,
+                          const jsi::Value* arguments,
+                          size_t count) -> jsi::Value {
             if (count != 1 || !arguments[0].isObject()) {
               throw jsi::JSError(runtime,
                                  "ReactNativeSkiaVideo."
@@ -89,7 +100,7 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
             auto videoComposition = VideoComposition::fromJS(runtime, jsObject);
             auto instance =
                 std::make_shared<VideoCompositionFramesExtractorHostObject>(
-                    runtime, bridge.jsCallInvoker, videoComposition);
+                    runtime, jsCallInvoker, videoComposition);
             return jsi::Object::createFromHostObject(runtime, instance);
           });
   RNSVModule.setProperty(runtime, "createVideoCompositionFramesExtractor",
@@ -101,8 +112,8 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
           jsi::PropNameID::forAscii(
               runtime, "createVideoCompositionFramesExtractorSync"),
           1,
-          [bridge](jsi::Runtime& runtime, const jsi::Value& thisValue,
-                   const jsi::Value* arguments, size_t count) -> jsi::Value {
+          [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+             const jsi::Value* arguments, size_t count) -> jsi::Value {
             if (count != 1 || !arguments[0].isObject()) {
               throw jsi::JSError(runtime,
                                  "ReactNativeSkiaVideo."
@@ -123,8 +134,8 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
 
   auto createVideoEncoder = jsi::Function::createFromHostFunction(
       runtime, jsi::PropNameID::forAscii(runtime, "createVideoEncoder"), 1,
-      [bridge](jsi::Runtime& runtime, const jsi::Value& thisValue,
-               const jsi::Value* arguments, size_t count) -> jsi::Value {
+      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+         const jsi::Value* arguments, size_t count) -> jsi::Value {
         if (count != 1 || !arguments[0].isObject()) {
           throw jsi::JSError(runtime, "ReactNativeSkiaVideo.createVideoEncoder("
                                       "..) expects one arguments (object)!");

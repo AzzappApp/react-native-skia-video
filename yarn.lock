@@ -52,7 +52,7 @@ __metadata:
     pexels: "npm:^1.4.0"
     react: "npm:19.2.3"
     react-native: "npm:0.86.2"
-    react-native-blob-util: "npm:^0.24.10"
+    react-native-blob-util: "npm:0.24.9"
     react-native-monorepo-config: "npm:^0.4.0"
     react-native-reanimated: "npm:^4.5.3"
     react-native-safe-area-context: "npm:^5.8.0"
@@ -5318,10 +5318,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"base-64@npm:1.0.0":
-  version: 1.0.0
-  resolution: "base-64@npm:1.0.0"
-  checksum: 10/d10b64a1fc9b2c5a5f39f1ce1e6c9d1c5b249222bbfa3a0604c592d90623caf74419983feadd8a170f27dc0c3389704f72faafa3e645aeb56bfc030c93ff074a
+"base-64@npm:0.1.0":
+  version: 0.1.0
+  resolution: "base-64@npm:0.1.0"
+  checksum: 10/5a42938f82372ab5392cbacc85a5a78115cbbd9dbef9f7540fa47d78763a3a8bd7d598475f0d92341f66285afd377509851a9bb5c67bbecb89686e9255d5b3eb
   languageName: node
   linkType: hard
 
@@ -7988,14 +7988,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"glob@npm:13.0.6, glob@npm:^13.0.6":
-  version: 13.0.6
-  resolution: "glob@npm:13.0.6"
+"glob@npm:13.0.1":
+  version: 13.0.1
+  resolution: "glob@npm:13.0.1"
   dependencies:
-    minimatch: "npm:^10.2.2"
-    minipass: "npm:^7.1.3"
-    path-scurry: "npm:^2.0.2"
-  checksum: 10/201ad69e5f0aa74e1d8c00a481581f8b8c804b6a4fbfabeeb8541f5d756932800331daeba99b58fb9e4cd67e12ba5a7eba5b82fb476691588418060b84353214
+    minimatch: "npm:^10.1.2"
+    minipass: "npm:^7.1.2"
+    path-scurry: "npm:^2.0.0"
+  checksum: 10/465e8cc269ab88d7415a3906cdc0f4543a2ae54df99207204af5bc28a944396d8d893822f546a8056a78ec714e608ab4f3502532c4d6b9cc5e113adf0fe5109e
   languageName: node
   linkType: hard
 
@@ -8011,6 +8011,17 @@ __metadata:
   bin:
     glob: dist/esm/bin.mjs
   checksum: 10/9e8186abc22dc824b5dd86cefd8e6b5621a72d1be7f68bacc0fd681e8c162ec5546660a6ec0553d6a74757a585e655956c7f8f1a6d24570e8d865c307323d178
+  languageName: node
+  linkType: hard
+
+"glob@npm:^13.0.6":
+  version: 13.0.6
+  resolution: "glob@npm:13.0.6"
+  dependencies:
+    minimatch: "npm:^10.2.2"
+    minipass: "npm:^7.1.3"
+    path-scurry: "npm:^2.0.2"
+  checksum: 10/201ad69e5f0aa74e1d8c00a481581f8b8c804b6a4fbfabeeb8541f5d756932800331daeba99b58fb9e4cd67e12ba5a7eba5b82fb476691588418060b84353214
   languageName: node
   linkType: hard
 
@@ -10458,7 +10469,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"minimatch@npm:^10.2.2, minimatch@npm:^10.2.4, minimatch@npm:^10.2.5":
+"minimatch@npm:^10.1.2, minimatch@npm:^10.2.2, minimatch@npm:^10.2.4, minimatch@npm:^10.2.5":
   version: 10.2.6
   resolution: "minimatch@npm:10.2.6"
   dependencies:
@@ -11240,7 +11251,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"path-scurry@npm:^2.0.2":
+"path-scurry@npm:^2.0.0, path-scurry@npm:^2.0.2":
   version: 2.0.2
   resolution: "path-scurry@npm:2.0.2"
   dependencies:
@@ -11637,16 +11648,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-blob-util@npm:^0.24.10":
-  version: 0.24.10
-  resolution: "react-native-blob-util@npm:0.24.10"
+"react-native-blob-util@npm:0.24.9":
+  version: 0.24.9
+  resolution: "react-native-blob-util@npm:0.24.9"
   dependencies:
-    base-64: "npm:1.0.0"
-    glob: "npm:13.0.6"
+    base-64: "npm:0.1.0"
+    glob: "npm:13.0.1"
   peerDependencies:
     react: "*"
     react-native: "*"
-  checksum: 10/3999fbe4c856fd45f09248a80c324c5cd464d9774c705138e864e06d8dab826d2be1ccba25beea09ce1352b66922094eef35435612d5b5e9bde5443803f0269a
+  checksum: 10/2cef7e0ef7738d3f5f752c6d7df19e3ef547e43d140a82a1007b7c3efd3c0daa3c49beba985b821569c48ea7be2ee462096ca6707b806981dcd98fea35ca5a6d
   languageName: node
   linkType: hard
 
