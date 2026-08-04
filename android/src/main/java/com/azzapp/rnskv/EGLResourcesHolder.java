@@ -180,6 +180,12 @@ public class EGLResourcesHolder {
    * release the holed opengl resources
    */
   public void release() {
+    // EGL only destroys a context/surface lazily while it is still current
+    // on some thread; unbind first so the destruction is effective now.
+    if (egl.eglGetCurrentContext() == eglContext) {
+      egl.eglMakeCurrent(eglDisplay, EGL10.EGL_NO_SURFACE,
+        EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT);
+    }
     if (eglSurface != EGL10.EGL_NO_SURFACE) {
       egl.eglDestroySurface(eglDisplay, eglSurface);
     }

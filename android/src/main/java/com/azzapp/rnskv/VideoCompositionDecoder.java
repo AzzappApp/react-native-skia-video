@@ -202,6 +202,11 @@ public class VideoCompositionDecoder {
     decoders.values().forEach(VideoCompositionItemDecoder::release);
     decoders.clear();
     videoFrames.clear();
+    // The GL deletes below require this context to be current on the
+    // calling thread.
+    if (eglResourcesHolder != null) {
+      eglResourcesHolder.makeCurrent();
+    }
     glFrameExtractors.values().forEach(GLFrameExtractor::release);
     glFrameExtractors.clear();
     if (eglResourcesHolder != null) {

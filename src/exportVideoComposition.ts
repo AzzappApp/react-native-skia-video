@@ -95,15 +95,37 @@ export const exportVideoComposition = async <T = undefined>({
     runOnRuntime(getExportRuntime(), () => {
       'worklet';
 
-      let surface: SkSurface | null = null;
       let frameExtractor: VideoCompositionFramesExtractorSync | null = null;
       let encoder: VideoEncoder | null = null;
       const { width, height } = options;
       try {
         try {
-          surface = Skia.Surface.MakeOffscreen(width, height);
-          if (!surface) {
-            throw new Error('Failed to create Skia surface');
+          // Reuse a single offscreen surface across exports (per
+          // dimensions). Disposing the surface is not enough to free its
+          // GPU texture: the canvas wrapper returned by getCanvas() keeps
+          // the surface alive until the runtime GC collects it, so creating
+          // a fresh surface per export leaks its backing texture
+          // (width × height × 4 bytes) on every run.
+          const cache = globalThis as unknown as {
+            __rnskvExportSurface?: SkSurface | null;
+            __rnskvExportSurfaceWidth?: number;
+            __rnskvExportSurfaceHeight?: number;
+          };
+          let surface = cache.__rnskvExportSurface ?? null;
+          if (
+            surface == null ||
+            cache.__rnskvExportSurfaceWidth !== width ||
+            cache.__rnskvExportSurfaceHeight !== height
+          ) {
+            surface?.dispose();
+            cache.__rnskvExportSurface = null;
+            surface = Skia.Surface.MakeOffscreen(width, height);
+            if (!surface) {
+              throw new Error('Failed to create Skia surface');
+            }
+            cache.__rnskvExportSurface = surface;
+            cache.__rnskvExportSurfaceWidth = width;
+            cache.__rnskvExportSurfaceHeight = height;
           }
 
           encoder = RNSkiaVideoModule.createVideoEncoder(
@@ -173,8 +195,9 @@ export const exportVideoComposition = async <T = undefined>({
             });
           }
         } finally {
+          // Note: the surface is deliberately not disposed — it is the
+          // cached shared surface reused by the next export.
           frameExtractor?.dispose();
-          surface?.dispose();
         }
 
         encoder!.finishWriting();

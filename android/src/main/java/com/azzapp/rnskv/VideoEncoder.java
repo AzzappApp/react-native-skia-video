@@ -362,7 +362,13 @@ public class VideoEncoder {
       eglResourcesHolder.release();
     }
     if (encoder != null) {
-      encoder.stop();
+      try {
+        encoder.stop();
+      } catch (IllegalStateException e) {
+        // the encoder never started or is in an error state (failed or
+        // canceled exports); release() below reclaims it anyway.
+        Log.w(TAG, "Could not stop the encoder", e);
+      }
       encoder.release();
       encoder = null;
     }
@@ -379,6 +385,12 @@ public class VideoEncoder {
       }
       muxer.release();
       muxer = null;
+    }
+    // Direct ByteBuffers only reclaim their native memory once the Java
+    // object is collected; drop them eagerly.
+    synchronized (this) {
+      pendingVideoSamples.clear();
+      pendingAudioSamples.clear();
     }
   }
 
