@@ -22,6 +22,21 @@ const DEFAULT_AUDIO_BIT_RATE = 128000;
 const DEFAULT_AUDIO_SAMPLE_RATE = 44100;
 const DEFAULT_AUDIO_CHANNEL_COUNT = 2;
 
+// The standard abort behavior is to reject with `signal.reason`. React
+// Native's AbortController polyfill (`abort-controller`) predates `reason`,
+// and Hermes has no DOMException, so when no reason is available this falls
+// back to the exact same error shape RN's own fetch (whatwg-fetch) produces
+// on abort: an Error with name 'AbortError'.
+const createAbortError = (signal?: AbortSignal): unknown => {
+  const reason = (signal as { reason?: unknown } | undefined)?.reason;
+  if (reason !== undefined) {
+    return reason;
+  }
+  const error = new Error('Aborted');
+  error.name = 'AbortError';
+  return error;
+};
+
 let exportRuntime: WorkletRuntime | null = null;
 const getExportRuntime = () => {
   if (exportRuntime == null) {
@@ -43,6 +58,7 @@ export const exportVideoComposition = async <T = undefined>({
   beforeDrawFrame,
   afterDrawFrame,
   onProgress,
+  abortSignal,
   ...options
 }: {
   /**
@@ -79,18 +95,27 @@ export const exportVideoComposition = async <T = undefined>({
   }) => void;
 } & ExportOptions): Promise<void> =>
   new Promise<void>((resolve, reject) => {
-    if (options.abortSignal?.aborted) {
-      reject(new Error('AbortError'));
+    if (abortSignal?.aborted) {
+      reject(createAbortError(abortSignal));
       return;
     }
     const cancelledSynchronizable = createSynchronizable(false);
     const abortListener = () => {
+      abortSignal?.removeEventListener('abort', abortListener);
       cancelledSynchronizable.setBlocking(true);
-      reject(new Error('AbortError'));
+      reject(createAbortError(abortSignal));
     };
-    if (options.abortSignal) {
-      options.abortSignal.addEventListener('abort', abortListener);
-    }
+    abortSignal?.addEventListener('abort', abortListener);
+    // The listener must not outlive the export: it keeps the synchronizable
+    // and this promise's scope alive through the caller's AbortSignal.
+    const settleResolve = () => {
+      abortSignal?.removeEventListener('abort', abortListener);
+      resolve(undefined);
+    };
+    const settleReject = (error: unknown) => {
+      abortSignal?.removeEventListener('abort', abortListener);
+      reject(error);
+    };
 
     runOnRuntime(getExportRuntime(), () => {
       'worklet';
@@ -202,11 +227,11 @@ export const exportVideoComposition = async <T = undefined>({
 
         encoder!.finishWriting();
       } catch (e) {
-        scheduleOnRN(reject, e);
+        scheduleOnRN(settleReject, e);
         return;
       } finally {
         encoder?.dispose();
       }
-      scheduleOnRN(resolve, undefined);
+      scheduleOnRN(settleResolve);
     })();
   });
