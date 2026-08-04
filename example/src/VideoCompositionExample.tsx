@@ -167,8 +167,6 @@ const PexelsVideoPicker = ({
   );
 };
 
-// CC0 studio recording: Bach, Goldberg Variations "Aria" (BWV 988)
-// performed by Kimiko Ishizaka (Open Goldberg Variations).
 const MUSIC_URL =
   'https://archive.org/download/OpenGoldbergVariations/Kimiko%20Ishizaka%20-%20J.S.%20Bach-%20-Open-%20Goldberg%20Variations%2C%20BWV%20988%20%28Piano%29%20-%2001%20Aria.mp3';
 
@@ -433,6 +431,14 @@ const VideoCompositionPreview = ({
 
   const { width: windowWidth } = useWindowDimensions();
 
+  const onPlayerError = useCallback((error: any, retry: () => void) => {
+    console.error('Composition player error:', error);
+    Alert.alert('Composition player error', String(error?.message ?? error), [
+      { text: 'Retry', onPress: retry },
+      { text: 'Cancel' },
+    ]);
+  }, []);
+
   const { currentFrame, player } = useVideoCompositionPlayer({
     composition: exporting ? null : videoComposition,
     autoPlay: true,
@@ -440,6 +446,7 @@ const VideoCompositionPreview = ({
     drawFrame,
     width: windowWidth,
     height: windowWidth,
+    onError: onPlayerError,
   });
 
   const [isPlaying, setIsPlaying] = useState(true);
