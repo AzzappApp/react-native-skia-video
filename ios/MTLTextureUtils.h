@@ -13,6 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (nullable id<MTLTexture>)createMTLTextureForVideoOutput:(CGSize)size;
 + (void)updateTexture:(id<MTLTexture>)texture with:(CVPixelBufferRef)buffer;
++ (void)flushTextureCache;
 @end
 
 NS_ASSUME_NONNULL_END

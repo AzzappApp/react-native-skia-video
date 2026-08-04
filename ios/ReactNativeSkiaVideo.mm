@@ -187,6 +187,28 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
   RNSVModule.setProperty(runtime, "createVideoEncoder",
                          std::move(createVideoEncoder));
 
+  // Worklet runtime threads never drain their autorelease pool, so any
+  // per-frame ObjC garbage created by JS code running there (e.g. the Metal
+  // command buffers autoreleased by Skia's surface.flush) accumulates for the
+  // lifetime of the app. This lets JS run a block of work inside a pool.
+  auto runWithAutoreleasePool = jsi::Function::createFromHostFunction(
+      runtime, jsi::PropNameID::forAscii(runtime, "runWithAutoreleasePool"), 1,
+      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+         const jsi::Value* arguments, size_t count) -> jsi::Value {
+        if (count < 1 || !arguments[0].isObject() ||
+            !arguments[0].asObject(runtime).isFunction(runtime)) {
+          throw jsi::JSError(runtime,
+                             "ReactNativeSkiaVideo.runWithAutoreleasePool(..) "
+                             "expects a function!");
+        }
+        auto fn = arguments[0].asObject(runtime).asFunction(runtime);
+        @autoreleasepool {
+          return fn.call(runtime);
+        }
+      });
+  RNSVModule.setProperty(runtime, "runWithAutoreleasePool",
+                         std::move(runWithAutoreleasePool));
+
   runtime.global().setProperty(runtime, "RNSkiaVideo", RNSVModule);
   return @true;
 }

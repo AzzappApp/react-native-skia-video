@@ -1,6 +1,6 @@
 #import "VideoEncoderHostObject.h"
 #import "AudioCompositionUtils.h"
-#import "JsiUtils.h"
+#import "JSIUtils.h"
 #import <Metal/Metal.h>
 #import <future>
 
@@ -45,8 +45,7 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "prepare"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          prepare();
-          return jsi::Value::undefined();
+          return runPooled([&] { prepare(); });
         });
   }
   if (propName == "encodeFrame") {
@@ -62,8 +61,7 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
           auto time =
               CMTimeMakeWithSeconds(arguments[1].asNumber(), NSEC_PER_SEC);
 
-          encodeFrame(texture, time);
-          return jsi::Value::undefined();
+          return runPooled([&] { encodeFrame(texture, time); });
         });
   }
   if (propName == "finishWriting") {
@@ -71,16 +69,14 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "finishWriting"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          finish();
-          return jsi::Value::undefined();
+          return runPooled([&] { finish(); });
         });
   } else if (propName == "dispose") {
     return jsi::Function::createFromHostFunction(
         runtime, jsi::PropNameID::forAscii(runtime, "dispose"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          this->release();
-          return jsi::Value::undefined();
+          return runPooled([&] { this->release(); });
         });
   }
   return jsi::Value::undefined();
@@ -115,7 +111,7 @@ void VideoEncoderHostObject::prepare() {
       [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo
                                          outputSettings:videoSettings];
   assetWriterInput.expectsMediaDataInRealTime = NO;
-  assetWriterInput.performsMultiPassEncodingIfSupported = YES;
+  assetWriterInput.performsMultiPassEncodingIfSupported = NO;
   if ([assetWriter canAddInput:assetWriterInput]) {
     [assetWriter addInput:assetWriterInput];
   } else {
@@ -419,9 +415,15 @@ void VideoEncoderHostObject::release() {
     [audioReader cancelReading];
   }
   if (audioQueue) {
-    // Wait for any in-flight audio block before tearing down the writer.
+    AVAssetWriterInput* input = audioWriterInput;
+    BOOL shouldMarkFinished =
+        input && (assetWriter.status == AVAssetWriterStatusWriting ||
+                  assetWriter.status == AVAssetWriterStatusFailed);
     dispatch_sync(audioQueue, ^{
-                  });
+      if (shouldMarkFinished) {
+        [input markAsFinished];
+      }
+    });
     audioQueue = nil;
   }
   audioReader = nil;

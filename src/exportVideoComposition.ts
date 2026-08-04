@@ -2,6 +2,7 @@ import {
   createWorkletRuntime,
   runOnRuntime,
   scheduleOnRN,
+  type WorkletRuntime,
 } from 'react-native-worklets';
 import { Skia, BlendMode } from '@shopify/react-native-skia';
 import type { SkSurface } from '@shopify/react-native-skia';
@@ -20,6 +21,16 @@ const Promise = global.Promise;
 const DEFAULT_AUDIO_BIT_RATE = 128000;
 const DEFAULT_AUDIO_SAMPLE_RATE = 44100;
 const DEFAULT_AUDIO_CHANNEL_COUNT = 2;
+
+let exportRuntime: WorkletRuntime | null = null;
+const getExportRuntime = () => {
+  if (exportRuntime == null) {
+    exportRuntime = createWorkletRuntime({
+      name: 'RNSkiaVideoExportRuntime',
+    });
+  }
+  return exportRuntime;
+};
 
 /**
  * Exports a video composition to a video file.
@@ -72,20 +83,16 @@ export const exportVideoComposition = async <T = undefined>({
       reject(new Error('AbortError'));
       return;
     }
-    const exportRuntime = createWorkletRuntime({
-      name: 'RNSkiaVideoExportRuntime-' + performance.now(),
-    });
-
-    const cancelledShareable = createSynchronizable(false);
+    const cancelledSynchronizable = createSynchronizable(false);
     const abortListener = () => {
-      cancelledShareable.setBlocking(true);
+      cancelledSynchronizable.setBlocking(true);
       reject(new Error('AbortError'));
     };
     if (options.abortSignal) {
       options.abortSignal.addEventListener('abort', abortListener);
     }
 
-    runOnRuntime(exportRuntime, () => {
+    runOnRuntime(getExportRuntime(), () => {
       'worklet';
 
       let surface: SkSurface | null = null;
@@ -121,36 +128,49 @@ export const exportVideoComposition = async <T = undefined>({
           const nbFrames = videoComposition.duration * options.frameRate;
           const canvas = surface.getCanvas();
           const clearColor = Skia.Color('#00000000');
+          // Each frame runs inside a native autorelease pool: the worklet
+          // thread never drains its own, so the ObjC objects autoreleased
+          // per frame by Skia and AVFoundation would otherwise accumulate
+          // for the lifetime of the app. (No-op on Android.)
+          const runPooled =
+            RNSkiaVideoModule.runWithAutoreleasePool ??
+            ((fn: () => void) => fn());
+          const currentSurface = surface;
+          const currentExtractor = frameExtractor;
+          const currentEncoder = encoder;
           for (let i = 0; i < nbFrames; i++) {
-            if (cancelledShareable.getDirty()) {
+            if (cancelledSynchronizable.getDirty()) {
               return;
             }
             const currentTime = i / options.frameRate;
-            const frames = frameExtractor.decodeCompositionFrames(currentTime);
-            canvas.drawColor(clearColor, BlendMode.Clear);
-            const context = beforeDrawFrame?.() as any;
-            drawFrame({
-              context,
-              canvas,
-              videoComposition,
-              currentTime,
-              frames,
-              width: options.width,
-              height: options.height,
-            });
-            // Synchronous flush: block until the GPU is done rendering the
-            // frame, since the encoder reads the surface's texture from its
-            // own command queue / GL context.
-            surface.flush(true);
-            const texture = surface.getNativeTextureUnstable();
-            encoder.encodeFrame(texture, currentTime);
-            afterDrawFrame?.(context);
-            if (onProgress) {
-              scheduleOnRN(onProgress, {
-                framesCompleted: i + 1,
-                nbFrames,
+            runPooled(() => {
+              const frames =
+                currentExtractor.decodeCompositionFrames(currentTime);
+              canvas.drawColor(clearColor, BlendMode.Clear);
+              const context = beforeDrawFrame?.() as any;
+              drawFrame({
+                context,
+                canvas,
+                videoComposition,
+                currentTime,
+                frames,
+                width: options.width,
+                height: options.height,
               });
-            }
+              // Synchronous flush: block until the GPU is done rendering the
+              // frame, since the encoder reads the surface's texture from its
+              // own command queue / GL context.
+              currentSurface.flush(true);
+              const texture = currentSurface.getNativeTextureUnstable();
+              currentEncoder.encodeFrame(texture, currentTime);
+              afterDrawFrame?.(context);
+              if (onProgress) {
+                scheduleOnRN(onProgress, {
+                  framesCompleted: i + 1,
+                  nbFrames,
+                });
+              }
+            });
           }
         } finally {
           frameExtractor?.dispose();

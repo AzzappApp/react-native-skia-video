@@ -55,6 +55,13 @@ CVMetalTextureCacheRef getMetalTextureCache() {
 
 + (void)updateTexture:(id<MTLTexture>)mtlTexture
                  with:(CVPixelBufferRef)pixelBuffer {
+  @autoreleasepool {
+    [self updateTextureInPool:mtlTexture with:pixelBuffer];
+  }
+}
+
++ (void)updateTextureInPool:(id<MTLTexture>)mtlTexture
+                       with:(CVPixelBufferRef)pixelBuffer {
   CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
 
   size_t width = CVPixelBufferGetWidth(pixelBuffer);
@@ -104,6 +111,12 @@ CVMetalTextureCacheRef getMetalTextureCache() {
 
   CFRelease(cvMetalTexture);
   CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+}
+
++ (void)flushTextureCache {
+  if (metalTextureCache) {
+    CVMetalTextureCacheFlush(metalTextureCache, 0);
+  }
 }
 
 @end

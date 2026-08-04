@@ -260,6 +260,7 @@ void VideoCompositionItemDecoder::release() {
     lastRequestedTime = kCMTimeInvalid;
     currentFrame = nullptr;
   }
+  [MTLTextureUtils flushTextureCache];
 }
 
 VideoCompositionItemDecoder::~VideoCompositionItemDecoder() {

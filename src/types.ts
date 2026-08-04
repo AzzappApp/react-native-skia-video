@@ -465,6 +465,15 @@ export type RNSkiaVideoModule = {
     composition?: VideoComposition | null
   ) => VideoEncoder;
   /**
+   * Runs the given function inside an autorelease pool. Worklet runtime
+   * threads never drain their autorelease pool, so any per-frame native
+   * garbage created by code running there would otherwise accumulate for the
+   * lifetime of the app.
+   *
+   * @platform ios
+   */
+  runWithAutoreleasePool?: <T>(fn: () => T) => T;
+  /**
    * Returns the decoding capabilities of the current platform for the specified mimetype.
    *
    * @platform android
