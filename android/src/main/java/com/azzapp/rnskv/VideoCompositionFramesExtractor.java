@@ -250,8 +250,6 @@ public class VideoCompositionFramesExtractor {
       try {
         audioPlayer.release();
       } catch (Exception e) {
-        // the video decoders must be released no matter what, leaking them
-        // would prevent any further composition player from being created.
         Log.w(TAG, "Could not release the audio players", e);
       }
       audioPlayer = null;

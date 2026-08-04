@@ -132,13 +132,7 @@ export const useVideoCompositionPlayer = ({
 
   const errorHandler = useCallback(
     (error: any) => {
-      if (onError) {
-        onError(error, retry);
-      } else {
-        // Without handler the player would silently turn into a black
-        // screen, at least log the error.
-        console.error('useVideoCompositionPlayer error:', error);
-      }
+      onError?.(error, retry);
       setIsErrored(true);
     },
     [onError, retry]

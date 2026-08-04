@@ -262,8 +262,6 @@ const VideoCompositionPreview = ({
     const promises: StatefulPromise<any>[] = [];
 
     const fetchFiles = async () => {
-      // The music file is cached at a fixed path so it is only downloaded
-      // on the first visit.
       const musicFilePath = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/open-goldberg-aria.mp3`;
       let musicPromise: StatefulPromise<FetchBlobResponse> | null = null;
       if (!(await ReactNativeBlobUtil.fs.exists(musicFilePath))) {
@@ -321,8 +319,6 @@ const VideoCompositionPreview = ({
         }
         setMusicPath(musicFilePath);
       } catch (error) {
-        // Remove any partial/invalid file so the next visit retries the
-        // download instead of reusing it.
         await ReactNativeBlobUtil.fs.unlink(musicFilePath).catch(() => {});
         if (!(error instanceof ReactNativeBlobUtil.CanceledFetchError)) {
           console.error(error);
@@ -441,7 +437,6 @@ const VideoCompositionPreview = ({
       }).then(
         () => {
           setExportedPath(outPath);
-          console.log('Video exported to', outPath);
         },
         (error) => {
           Alert.alert('Error exporting video', error.message);
