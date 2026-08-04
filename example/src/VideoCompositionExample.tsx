@@ -262,11 +262,16 @@ const VideoCompositionPreview = ({
     const promises: StatefulPromise<any>[] = [];
 
     const fetchFiles = async () => {
-      const musicPromise = ReactNativeBlobUtil.config({
-        fileCache: true,
-        appendExt: 'mp3',
-      }).fetch('GET', MUSIC_URL);
-      promises.push(musicPromise);
+      // The music file is cached at a fixed path so it is only downloaded
+      // on the first visit.
+      const musicFilePath = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/open-goldberg-aria.mp3`;
+      let musicPromise: StatefulPromise<FetchBlobResponse> | null = null;
+      if (!(await ReactNativeBlobUtil.fs.exists(musicFilePath))) {
+        musicPromise = ReactNativeBlobUtil.config({
+          path: musicFilePath,
+        }).fetch('GET', MUSIC_URL);
+        promises.push(musicPromise);
+      }
 
       const videoUrls: Record<number, StatefulPromise<FetchBlobResponse>> = {};
       for (const video of videos) {
@@ -289,8 +294,13 @@ const VideoCompositionPreview = ({
         videoFiles = await Promise.all(
           Object.entries(videoUrls).map(async ([id, promise]) => {
             const response = await promise;
-            const path = response.path();
-            return { id: Number(id), path };
+            const status = response.info().status;
+            if (status !== 200) {
+              throw new Error(
+                `Could not download video ${id} (status ${status})`
+              );
+            }
+            return { id: Number(id), path: response.path() };
           })
         );
       } catch (error) {
@@ -300,8 +310,20 @@ const VideoCompositionPreview = ({
         return;
       }
       try {
-        setMusicPath((await musicPromise).path());
+        if (musicPromise != null) {
+          const musicResponse = await musicPromise;
+          const status = musicResponse.info().status;
+          if (status !== 200) {
+            throw new Error(
+              `Could not download the background music (status ${status})`
+            );
+          }
+        }
+        setMusicPath(musicFilePath);
       } catch (error) {
+        // Remove any partial/invalid file so the next visit retries the
+        // download instead of reusing it.
+        await ReactNativeBlobUtil.fs.unlink(musicFilePath).catch(() => {});
         if (!(error instanceof ReactNativeBlobUtil.CanceledFetchError)) {
           console.error(error);
         }
