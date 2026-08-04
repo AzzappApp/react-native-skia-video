@@ -167,10 +167,10 @@ const PexelsVideoPicker = ({
   );
 };
 
-// Public domain recording: "E lucevan le stelle" (Tosca, Puccini)
-// sung by Enrico Caruso, 1909.
+// CC0 studio recording: Bach, Goldberg Variations "Aria" (BWV 988)
+// performed by Kimiko Ishizaka (Open Goldberg Variations).
 const MUSIC_URL =
-  'https://archive.org/download/78_e-lucevan-le-stelle_enrico-caruso-puccini_gbia0011420a/E%20Lucevan%20Le%20Stelle%20-%20Enrico%20Caruso%20-%20Puccini.mp3';
+  'https://archive.org/download/OpenGoldbergVariations/Kimiko%20Ishizaka%20-%20J.S.%20Bach-%20-Open-%20Goldberg%20Variations%2C%20BWV%20988%20%28Piano%29%20-%2001%20Aria.mp3';
 
 const drawFrame: FrameDrawer = ({
   videoComposition,
@@ -421,6 +421,7 @@ const VideoCompositionPreview = ({
       }).then(
         () => {
           setExportedPath(outPath);
+          console.log('Video exported to', outPath);
         },
         (error) => {
           Alert.alert('Error exporting video', error.message);
