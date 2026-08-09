@@ -7,7 +7,7 @@ slug: /example
 
 # Examples
 
-Seven complete, tutorial-grade apps built on this library — each one a small,
+Eight complete, tutorial-grade apps built on this library — each one a small,
 documented codebase exercising a different part of the API. They share the
 same stack (Expo, NativeWind, React Native Skia) and the same core idea: one
 worklet renders both the live preview and the export.
@@ -223,7 +223,41 @@ What it demonstrates best:
   caption engine doesn't even know the video was cropped
   ([`drawFrame.ts`](https://github.com/mlecoq/react-native-reframe-studio/blob/main/src/editor/drawFrame.ts)).
 
-## Patterns shared by all seven
+## Retro Studio — VHS, Super 8, CRT and Game Boy filters
+
+<p align="center">
+  <img src="/react-native-skia-video/img/retro-studio.gif" width="240" alt="Retro Studio demo" style={{ borderRadius: 16 }} />
+</p>
+
+[**mlecoq/react-native-retro-studio**](https://github.com/mlecoq/react-native-retro-studio)
+— gives any video the look of another decade. Four eras, each implemented as
+**one SkSL shader** over the video frame, tuned live with two sliders and
+burned in at export. The purest shader tutorial of the series: no analysis
+pass, no models, no waiting — pick a video, tap an era, export.
+
+What it demonstrates best:
+
+- **The video frame as a child shader** — `drawFrame` cover-fits the frame
+  into a shader and hands it to the era's effect via
+  `makeShaderWithChildren`, so the filter samples the source per output
+  pixel: VHS displaces whole scanlines, CRT bends the entire picture,
+  Game Boy resamples it into fat pixels — no intermediate surface
+  ([`drawFrame.ts`](https://github.com/mlecoq/react-native-retro-studio/blob/main/src/editor/drawFrame.ts)).
+- **Filters as data** — an era is a string of SkSL plus a name and a knob
+  definition; all four share the same uniforms, so switching era compiles a
+  different string, cached per worklet runtime
+  ([`filters.ts`](https://github.com/mlecoq/react-native-retro-studio/blob/main/src/filters/filters.ts)).
+- **Time as a uniform** — the tracking band crawls, the film gate weaves,
+  the projector lamp flickers, grain and dust refresh, all from the one
+  `time` uniform the drawer already receives; randomness is a `hash()` in
+  the shader, and Super 8 quantizes time to 18fps first because that's how
+  the projector ran.
+- **A camcorder OSD with zero fonts** — "PLAY ▶" and the tape counter are
+  seven-segment characters built from plain `drawRect` calls, crisp at any
+  export size
+  ([`osd.ts`](https://github.com/mlecoq/react-native-retro-studio/blob/main/src/editor/osd.ts)).
+
+## Patterns shared by all eight
 
 - **One worklet for preview and export** — what you see is exactly what you
   save; there is no second rendering path to keep in sync.
