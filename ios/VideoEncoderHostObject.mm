@@ -1,5 +1,6 @@
 #import "VideoEncoderHostObject.h"
 #import "AudioCompositionUtils.h"
+#import "MTLTextureUtils.h"
 #import "RNSVJSIUtils.h"
 #import <Metal/Metal.h>
 #import <future>
@@ -139,6 +140,7 @@ void VideoEncoderHostObject::prepare() {
     (NSString*)kCVPixelBufferWidthKey : @(width),
     (NSString*)kCVPixelBufferHeightKey : @(height),
     (NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
+    (NSString*)kCVPixelBufferIOSurfacePropertiesKey : @{},
   };
   // Allocate a fresh buffer per frame from this pool instead of reusing a
   // single CVPixelBuffer. AVAssetWriter encodes appended buffers
@@ -158,39 +160,14 @@ void VideoEncoderHostObject::prepare() {
     throw createErrorWithMessage(@"Could not create pixel buffer pool");
     return;
   }
-
-  MTLTextureDescriptor* descriptor = [MTLTextureDescriptor
-      texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-                                   width:width
-                                  height:height
-                               mipmapped:NO];
-  descriptor.storageMode = MTLStorageModeShared;
-  descriptor.pixelFormat = MTLPixelFormatBGRA8Unorm;
-  cpuAccessibleTexture = [device newTextureWithDescriptor:descriptor];
 }
 
 void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
                                          CMTime time) {
-  id<MTLCommandBuffer> commandBuffer =
-      [commandQueue commandBufferWithUnretainedReferences];
-  id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
-  [blitEncoder copyFromTexture:mlTexture
-                   sourceSlice:0
-                   sourceLevel:0
-                  sourceOrigin:MTLOriginMake(0, 0, 0)
-                    sourceSize:MTLSizeMake(mlTexture.width, mlTexture.height, 1)
-                     toTexture:cpuAccessibleTexture
-              destinationSlice:0
-              destinationLevel:0
-             destinationOrigin:MTLOriginMake(0, 0, 0)];
-
-  [blitEncoder endEncoding];
-  [commandBuffer commit];
-  [commandBuffer waitUntilCompleted];
-
-  // Vend a fresh buffer from the pool for every frame so the bytes we write
+  // Vend a fresh buffer from the pool for every frame so the pixels written
   // below can never be overwritten while a previous frame is still being
-  // encoded.
+  // encoded. The pool only recycles a buffer once every reference to it
+  // (the encoder's included) is gone.
   CVPixelBufferRef pixelBuffer = NULL;
   CVReturn status = CVPixelBufferPoolCreatePixelBuffer(
       kCFAllocatorDefault, pixelBufferPool, &pixelBuffer);
@@ -198,22 +175,35 @@ void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
     throw createErrorWithMessage(@"Could not allocate pixel buffer from pool");
   }
 
-  CVPixelBufferLockBaseAddress(pixelBuffer, 0);
-  void* pixelBufferBytes = CVPixelBufferGetBaseAddress(pixelBuffer);
-  if (pixelBufferBytes == NULL) {
-    CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+  // Blit the rendered texture straight into the buffer's IOSurface through a
+  // zero-copy Metal view: the GPU writes the very memory the video encoder
+  // will read — no CPU-accessible staging texture, no getBytes round-trip.
+  CVMetalTextureRef cvMetalTexture =
+      [MTLTextureUtils createTextureViewForPixelBuffer:pixelBuffer];
+  if (!cvMetalTexture) {
     CVPixelBufferRelease(pixelBuffer);
-    throw createErrorWithMessage(@"Could not extract pixels from frame");
+    throw createErrorWithMessage(
+        @"Could not create Metal view over encoder pixel buffer");
   }
-  size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
 
-  MTLRegion region = MTLRegionMake2D(0, 0, width, height);
+  id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
+  id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
+  [blitEncoder copyFromTexture:mlTexture
+                   sourceSlice:0
+                   sourceLevel:0
+                  sourceOrigin:MTLOriginMake(0, 0, 0)
+                    sourceSize:MTLSizeMake(mlTexture.width, mlTexture.height, 1)
+                     toTexture:CVMetalTextureGetTexture(cvMetalTexture)
+              destinationSlice:0
+              destinationLevel:0
+             destinationOrigin:MTLOriginMake(0, 0, 0)];
 
-  [cpuAccessibleTexture getBytes:pixelBufferBytes
-                     bytesPerRow:bytesPerRow
-                      fromRegion:region
-                     mipmapLevel:0];
-  CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+  [blitEncoder endEncoding];
+  [commandBuffer commit];
+  // The buffer is handed to the encoder right below: the blit must be done
+  // before the encoder reads the surface.
+  [commandBuffer waitUntilCompleted];
+  CFRelease(cvMetalTexture);
 
   int attempt = 0;
   while (!assetWriterInput.isReadyForMoreMediaData) {
@@ -438,10 +428,6 @@ void VideoEncoderHostObject::release() {
     CVPixelBufferPoolRelease(pixelBufferPool);
     pixelBufferPool = NULL;
   }
-  if (cpuAccessibleTexture) {
-    [cpuAccessibleTexture setPurgeableState:MTLPurgeableStateEmpty];
-  }
-  cpuAccessibleTexture = nil;
   commandQueue = nil;
   device = nil;
 }

@@ -32,7 +32,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithURL:(NSURL*)url
                    delegate:(id<RNSVVideoPlayerDelegate>)delegate
                  resolution:(CGSize)resolution;
-- (nullable id<MTLTexture>)getNextTextureForTime:(CMTime)time;
+/**
+ * Returns the pixel buffer for the given item time, or NULL if none is
+ * available. Ownership is transferred to the caller (CVPixelBufferRelease).
+ */
+- (nullable CVPixelBufferRef)copyPixelBufferForTime:(CMTime)time;
 - (void)pause;
 - (void)play;
 - (void)seekTo:(CMTime)time completionHandler:(void (^)(BOOL))completionHandle;

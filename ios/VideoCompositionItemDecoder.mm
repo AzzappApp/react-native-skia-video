@@ -35,16 +35,6 @@ VideoCompositionItemDecoder::VideoCompositionItemDecoder(
   rotation = AVAssetTrackUtils::GetTrackRotationInDegree(videoTrack);
   currentFrame = nullptr;
   this->setupReader(kCMTimeZero);
-
-  CGSize resolution = item->resolution;
-  if (resolution.width <= 0 || resolution.height <= 0) {
-    resolution.width = width;
-    resolution.height = height;
-  }
-  mtlTexture = [MTLTextureUtils createMTLTextureForVideoOutput:resolution];
-  if (!mtlTexture) {
-    throw std::runtime_error("Failed to create persistent Metal texture!");
-  }
 }
 
 void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
@@ -227,10 +217,34 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
     }
   }
   if (nextFrame) {
+    // Zero-copy: the frame wraps the decoder's pixel buffer directly (and
+    // retains it); no intermediate texture, no blit, no CPU/GPU sync.
     CVPixelBufferRef buffer = CMSampleBufferGetImageBuffer(nextFrame);
-    [MTLTextureUtils updateTexture:mtlTexture with:buffer];
+    auto frame = std::make_shared<VideoFrame>(buffer, width, height, rotation);
     CFRelease(nextFrame);
-    return std::make_shared<VideoFrame>(mtlTexture, width, height, rotation);
+    // Deterministic lifetime (see VideoFrame.h): frames older than the ring
+    // lose their texture immediately, and their buffer returns to the pool
+    // only once the kernel reports their IOSurface idle — never under
+    // pending GPU sampling work. Stale JS wrappers see an undefined texture
+    // instead of pinning a decoder buffer until garbage collection.
+    issuedFrames.push_back(frame);
+    while (issuedFrames.size() > kIssuedFrameRingDepth) {
+      issuedFrames.front()->releaseTexture();
+      retiredFrames.push_back(issuedFrames.front());
+      issuedFrames.pop_front();
+    }
+    for (auto it = retiredFrames.begin(); it != retiredFrames.end();) {
+      if ((*it)->tryReleaseBuffer()) {
+        it = retiredFrames.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    while (retiredFrames.size() > kRetiredFramesHardCap) {
+      retiredFrames.front()->releaseBuffer();
+      retiredFrames.pop_front();
+    }
+    return frame;
   }
   return nullptr;
 }
@@ -256,18 +270,19 @@ void VideoCompositionItemDecoder::release() {
       CFRelease(frame.second);
     }
     nextLoopFrames.clear();
+    for (const auto& frame : issuedFrames) {
+      frame->releaseBuffer();
+    }
+    issuedFrames.clear();
+    for (const auto& frame : retiredFrames) {
+      frame->releaseBuffer();
+    }
+    retiredFrames.clear();
     hasLooped = false;
     lastRequestedTime = kCMTimeInvalid;
     currentFrame = nullptr;
   }
   [MTLTextureUtils flushTextureCache];
-}
-
-VideoCompositionItemDecoder::~VideoCompositionItemDecoder() {
-  @synchronized(lock) {
-    [mtlTexture setPurgeableState:MTLPurgeableStateEmpty];
-    mtlTexture = nil;
-  }
 }
 
 } // namespace RNSkiaVideo

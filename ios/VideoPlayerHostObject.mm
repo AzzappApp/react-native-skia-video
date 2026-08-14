@@ -58,13 +58,34 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
               CMTimeCompare(lastFrameDrawn, lastFrameAvailable) == 0) {
             return jsi::Value::null();
           }
-          auto texture = [player getNextTextureForTime:lastFrameAvailable];
-          if (texture == nil) {
+          auto buffer = [player copyPixelBufferForTime:lastFrameAvailable];
+          if (buffer == NULL) {
             return jsi::Value::null();
           }
           lastFrameDrawn = lastFrameAvailable;
           currentFrame =
-              std::make_shared<VideoFrame>(texture, width, height, rotation);
+              std::make_shared<VideoFrame>(buffer, width, height, rotation);
+          CVPixelBufferRelease(buffer);
+          // Deterministic lifetime (see VideoFrame.h): retire frames older
+          // than the ring, return their buffer to the pool only once the
+          // kernel reports their IOSurface idle.
+          issuedFrames.push_back(currentFrame);
+          while (issuedFrames.size() > kIssuedFrameRingDepth) {
+            issuedFrames.front()->releaseTexture();
+            retiredFrames.push_back(issuedFrames.front());
+            issuedFrames.pop_front();
+          }
+          for (auto it = retiredFrames.begin(); it != retiredFrames.end();) {
+            if ((*it)->tryReleaseBuffer()) {
+              it = retiredFrames.erase(it);
+            } else {
+              ++it;
+            }
+          }
+          while (retiredFrames.size() > kRetiredFramesHardCap) {
+            retiredFrames.front()->releaseBuffer();
+            retiredFrames.pop_front();
+          }
           return jsi::Object::createFromHostObject(runtime, currentFrame);
         });
   } else if (propName == "play") {
@@ -198,6 +219,14 @@ void VideoPlayerHostObject::readyToPlay(float width, float height,
 void VideoPlayerHostObject::release() {
   if (!released.test_and_set()) {
     removeAllListeners();
+    for (const auto& frame : issuedFrames) {
+      frame->releaseBuffer();
+    }
+    issuedFrames.clear();
+    for (const auto& frame : retiredFrames) {
+      frame->releaseBuffer();
+    }
+    retiredFrames.clear();
     if (currentFrame) {
       currentFrame = nullptr;
     }

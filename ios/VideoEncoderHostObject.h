@@ -29,7 +29,6 @@ private:
   std::shared_ptr<VideoComposition> composition;
   id<MTLDevice> device;
   id<MTLCommandQueue> commandQueue;
-  id<MTLTexture> cpuAccessibleTexture;
   AVAssetWriter* assetWriter;
   AVAssetWriterInput* assetWriterInput;
   CVPixelBufferPoolRef pixelBufferPool = NULL;
