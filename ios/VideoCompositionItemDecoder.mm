@@ -1,5 +1,4 @@
 #include "VideoCompositionItemDecoder.h"
-#include "MTLTextureUtils.h"
 
 #import "AVAssetTrackUtils.h"
 #import <AVFoundation/AVFoundation.h>
@@ -9,7 +8,12 @@ namespace RNSkiaVideo {
 
 VideoCompositionItemDecoder::VideoCompositionItemDecoder(
     std::shared_ptr<VideoCompositionItem> item, bool realTime,
-    AVURLAsset* sharedAsset) {
+    AVURLAsset* sharedAsset)
+    // The sync (export) consumer flushes the GPU before asking for the next
+    // frame, so retiring a frame the moment it is replaced is safe and keeps
+    // one decoded buffer alive per item instead of four — at 4K that is
+    // ~100MB less per item during an export.
+    : frameRing(realTime ? kPreviewFrameRingDepth : 1) {
   this->item = item;
   this->realTime = realTime;
   lock = [[NSObject alloc] init];
@@ -223,27 +227,10 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
     auto frame = std::make_shared<VideoFrame>(buffer, width, height, rotation);
     CFRelease(nextFrame);
     // Deterministic lifetime (see VideoFrame.h): frames older than the ring
-    // lose their texture immediately, and their buffer returns to the pool
-    // only once the kernel reports their IOSurface idle — never under
-    // pending GPU sampling work. Stale JS wrappers see an undefined texture
-    // instead of pinning a decoder buffer until garbage collection.
-    issuedFrames.push_back(frame);
-    while (issuedFrames.size() > kIssuedFrameRingDepth) {
-      issuedFrames.front()->releaseTexture();
-      retiredFrames.push_back(issuedFrames.front());
-      issuedFrames.pop_front();
-    }
-    for (auto it = retiredFrames.begin(); it != retiredFrames.end();) {
-      if ((*it)->tryReleaseBuffer()) {
-        it = retiredFrames.erase(it);
-      } else {
-        ++it;
-      }
-    }
-    while (retiredFrames.size() > kRetiredFramesHardCap) {
-      retiredFrames.front()->releaseBuffer();
-      retiredFrames.pop_front();
-    }
+    // lose their texture immediately, and their buffer returns to the pool as
+    // soon as nothing reads it anymore. Stale JS wrappers see an undefined
+    // texture instead of pinning a decoder buffer until garbage collection.
+    frameRing.push(frame);
     return frame;
   }
   return nullptr;
@@ -270,19 +257,11 @@ void VideoCompositionItemDecoder::release() {
       CFRelease(frame.second);
     }
     nextLoopFrames.clear();
-    for (const auto& frame : issuedFrames) {
-      frame->releaseBuffer();
-    }
-    issuedFrames.clear();
-    for (const auto& frame : retiredFrames) {
-      frame->releaseBuffer();
-    }
-    retiredFrames.clear();
+    frameRing.releaseAll();
     hasLooped = false;
     lastRequestedTime = kCMTimeInvalid;
     currentFrame = nullptr;
   }
-  [MTLTextureUtils flushTextureCache];
 }
 
 } // namespace RNSkiaVideo

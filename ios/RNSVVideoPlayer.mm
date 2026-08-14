@@ -34,8 +34,11 @@ static void* rateContext = &rateContext;
 
   AVAsset* asset = [AVAsset assetWithURL:url];
   self.resolution = resolution;
+  // IOSurface-backed: the frames are wrapped into Metal texture views without
+  // a copy, and their recycling is gated on the surface's use count.
   NSDictionary* pixBuffAttributes = @{
     (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
+    (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
     (id)kCVPixelBufferMetalCompatibilityKey : @YES
   };
   if (!CGSizeEqualToSize(CGSizeZero, resolution)) {

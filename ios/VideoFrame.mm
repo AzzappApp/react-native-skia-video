@@ -71,6 +71,50 @@ void VideoFrame::releaseBuffer() {
   releaseBufferLocked();
 }
 
+void VideoFrameRing::push(const std::shared_ptr<VideoFrame>& frame) {
+  std::lock_guard<std::mutex> guard(mutex);
+  issuedFrames.push_back(frame);
+  bool retired = false;
+  while (issuedFrames.size() > depth) {
+    issuedFrames.front()->releaseTexture();
+    retiredFrames.push_back(issuedFrames.front());
+    issuedFrames.pop_front();
+    retired = true;
+  }
+  if (!retired && retiredFrames.empty()) {
+    return;
+  }
+  // Let go of the cache's own references to the textures we just dropped:
+  // while it holds them the surfaces stay alive whatever we do here, so
+  // their pool could never recycle them. Textures of frames still in the
+  // ring are retained by those frames and survive the flush.
+  [MTLTextureUtils flushTextureCache];
+  for (auto it = retiredFrames.begin(); it != retiredFrames.end();) {
+    if ((*it)->tryReleaseBuffer()) {
+      it = retiredFrames.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  while (retiredFrames.size() > kRetiredFramesHardCap) {
+    retiredFrames.front()->releaseBuffer();
+    retiredFrames.pop_front();
+  }
+}
+
+void VideoFrameRing::releaseAll() {
+  std::lock_guard<std::mutex> guard(mutex);
+  for (const auto& frame : issuedFrames) {
+    frame->releaseBuffer();
+  }
+  issuedFrames.clear();
+  for (const auto& frame : retiredFrames) {
+    frame->releaseBuffer();
+  }
+  retiredFrames.clear();
+  [MTLTextureUtils flushTextureCache];
+}
+
 std::vector<jsi::PropNameID> VideoFrame::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> result;
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("width")));

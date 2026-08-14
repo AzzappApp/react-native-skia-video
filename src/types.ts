@@ -4,10 +4,20 @@ import type { SkCanvas, SkSurface, Skia } from '@shopify/react-native-skia';
 
 /**
  * Represents a video frame.
+ *
+ * Frames are transient: draw a frame in the tick it is handed to you. The
+ * native side owns the frame's pixels and reclaims them once the frame has
+ * been superseded by later decode calls, so a retained frame's `texture`
+ * eventually becomes undefined — retaining a frame never leaks memory, but
+ * it is not a way to keep its pixels either.
  */
 export type VideoFrame = {
   /**
    * The native texture of the frame.
+   *
+   * Only valid until further frames have been decoded by the producing
+   * player or extractor; undefined once the frame's pixels have been
+   * reclaimed.
    */
   texture: unknown;
   /**
@@ -329,6 +339,10 @@ export type VideoCompositionFramesExtractorSync = {
   /**
    * Decodes the frames until reaching the specified time.
    * This method will block the current thread until the frames are decoded.
+   *
+   * The returned frames are only valid until the next call: draw them and
+   * flush the GPU synchronously (`surface.flush(true)`) before decoding
+   * further frames.
    *
    * @returns The decoded video frames of the composition items.
    */

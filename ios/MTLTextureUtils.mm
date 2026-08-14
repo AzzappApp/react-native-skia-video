@@ -10,19 +10,26 @@
 
 @implementation MTLTextureUtils
 
-static id<MTLDevice> device;
-inline id<MTLDevice> getDevice() {
-  if (!device) {
++ (nullable id<MTLDevice>)device {
+  static id<MTLDevice> device = nil;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
     device = MTLCreateSystemDefaultDevice();
-  }
+  });
   return device;
 }
 
+// The cache is reached from the decoder queues, the render thread and the
+// export thread, sometimes concurrently, and CVMetalTextureCache makes no
+// thread-safety promise, so every access to it goes through this class and is
+// serialized on it.
 static CVMetalTextureCacheRef metalTextureCache = NULL;
-CVMetalTextureCacheRef getMetalTextureCache() {
+
+// Callers must hold the class lock.
++ (nullable CVMetalTextureCacheRef)cacheLocked {
   if (!metalTextureCache) {
     CVReturn status = CVMetalTextureCacheCreate(
-        kCFAllocatorDefault, NULL, getDevice(), NULL, &metalTextureCache);
+        kCFAllocatorDefault, NULL, [self device], NULL, &metalTextureCache);
     if (status != kCVReturnSuccess) {
       NSLog(@"Failed to create CVMetalTextureCache: %d", status);
       metalTextureCache = NULL;
@@ -33,26 +40,31 @@ CVMetalTextureCacheRef getMetalTextureCache() {
 
 + (nullable CVMetalTextureRef)createTextureViewForPixelBuffer:
     (CVPixelBufferRef)pixelBuffer {
-  CVMetalTextureCacheRef cache = getMetalTextureCache();
-  if (!cache) {
-    return NULL;
-  }
   size_t width = CVPixelBufferGetWidth(pixelBuffer);
   size_t height = CVPixelBufferGetHeight(pixelBuffer);
 
   CVMetalTextureRef cvMetalTexture = NULL;
-  CVReturn status = CVMetalTextureCacheCreateTextureFromImage(
-      kCFAllocatorDefault, cache, pixelBuffer, NULL, MTLPixelFormatBGRA8Unorm,
-      width, height, 0, &cvMetalTexture);
-  if (status != kCVReturnSuccess || !cvMetalTexture) {
-    return NULL;
+  @synchronized(self) {
+    CVMetalTextureCacheRef cache = [self cacheLocked];
+    if (!cache) {
+      return NULL;
+    }
+    CVReturn status = CVMetalTextureCacheCreateTextureFromImage(
+        kCFAllocatorDefault, cache, pixelBuffer, NULL, MTLPixelFormatBGRA8Unorm,
+        width, height, 0, &cvMetalTexture);
+    if (status != kCVReturnSuccess && cvMetalTexture) {
+      CFRelease(cvMetalTexture);
+      cvMetalTexture = NULL;
+    }
   }
   return cvMetalTexture;
 }
 
 + (void)flushTextureCache {
-  if (metalTextureCache) {
-    CVMetalTextureCacheFlush(metalTextureCache, 0);
+  @synchronized(self) {
+    if (metalTextureCache) {
+      CVMetalTextureCacheFlush(metalTextureCache, 0);
+    }
   }
 }
 

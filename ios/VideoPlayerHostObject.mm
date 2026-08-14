@@ -67,25 +67,9 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
               std::make_shared<VideoFrame>(buffer, width, height, rotation);
           CVPixelBufferRelease(buffer);
           // Deterministic lifetime (see VideoFrame.h): retire frames older
-          // than the ring, return their buffer to the pool only once the
-          // kernel reports their IOSurface idle.
-          issuedFrames.push_back(currentFrame);
-          while (issuedFrames.size() > kIssuedFrameRingDepth) {
-            issuedFrames.front()->releaseTexture();
-            retiredFrames.push_back(issuedFrames.front());
-            issuedFrames.pop_front();
-          }
-          for (auto it = retiredFrames.begin(); it != retiredFrames.end();) {
-            if ((*it)->tryReleaseBuffer()) {
-              it = retiredFrames.erase(it);
-            } else {
-              ++it;
-            }
-          }
-          while (retiredFrames.size() > kRetiredFramesHardCap) {
-            retiredFrames.front()->releaseBuffer();
-            retiredFrames.pop_front();
-          }
+          // than the ring and give their buffer back to the player's pool as
+          // soon as nothing reads it anymore.
+          frameRing.push(currentFrame);
           return jsi::Object::createFromHostObject(runtime, currentFrame);
         });
   } else if (propName == "play") {
@@ -219,14 +203,7 @@ void VideoPlayerHostObject::readyToPlay(float width, float height,
 void VideoPlayerHostObject::release() {
   if (!released.test_and_set()) {
     removeAllListeners();
-    for (const auto& frame : issuedFrames) {
-      frame->releaseBuffer();
-    }
-    issuedFrames.clear();
-    for (const auto& frame : retiredFrames) {
-      frame->releaseBuffer();
-    }
-    retiredFrames.clear();
+    frameRing.releaseAll();
     if (currentFrame) {
       currentFrame = nullptr;
     }

@@ -132,7 +132,9 @@ void VideoEncoderHostObject::prepare() {
     startWritingAudio();
   }
 
-  device = MTLCreateSystemDefaultDevice();
+  // Same device as the texture cache: the blit below writes into a texture
+  // that cache vends, and Metal cannot mix resources across devices.
+  device = [MTLTextureUtils device];
   commandQueue = [device newCommandQueue];
 
   NSDictionary* attributes = @{
@@ -186,14 +188,21 @@ void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
         @"Could not create Metal view over encoder pixel buffer");
   }
 
+  id<MTLTexture> destination = CVMetalTextureGetTexture(cvMetalTexture);
+  // A source larger than the output would read past the destination and fault
+  // the GPU, so crop instead — the caller renders at the export resolution,
+  // this only guards against a mismatched surface.
+  MTLSize copySize = MTLSizeMake(MIN(mlTexture.width, destination.width),
+                                 MIN(mlTexture.height, destination.height), 1);
+
   id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
   id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
   [blitEncoder copyFromTexture:mlTexture
                    sourceSlice:0
                    sourceLevel:0
                   sourceOrigin:MTLOriginMake(0, 0, 0)
-                    sourceSize:MTLSizeMake(mlTexture.width, mlTexture.height, 1)
-                     toTexture:CVMetalTextureGetTexture(cvMetalTexture)
+                    sourceSize:copySize
+                     toTexture:destination
               destinationSlice:0
               destinationLevel:0
              destinationOrigin:MTLOriginMake(0, 0, 0)];
@@ -204,6 +213,10 @@ void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
   // before the encoder reads the surface.
   [commandBuffer waitUntilCompleted];
   CFRelease(cvMetalTexture);
+  // Drop the cache's own reference to the surface too. Without this the cache
+  // pins every buffer it has vended a texture for, the pool can never recycle
+  // one, and a long export allocates a fresh full-resolution buffer per frame.
+  [MTLTextureUtils flushTextureCache];
 
   int attempt = 0;
   while (!assetWriterInput.isReadyForMoreMediaData) {
@@ -428,6 +441,8 @@ void VideoEncoderHostObject::release() {
     CVPixelBufferPoolRelease(pixelBufferPool);
     pixelBufferPool = NULL;
   }
+  // Release the last surfaces the cache still holds for this export.
+  [MTLTextureUtils flushTextureCache];
   commandQueue = nil;
   device = nil;
 }
