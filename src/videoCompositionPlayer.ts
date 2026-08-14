@@ -155,21 +155,56 @@ export const useVideoCompositionPlayer = ({
   }, [framesExtractor, autoPlay]);
 
   const surfaceSharedValue = useSharedValue<SkSurface | null>(null);
+  const surfaceWidth = useSharedValue(0);
+  const surfaceHeight = useSharedValue(0);
   const pixelRatio = PixelRatio.get();
+
+  // Release the offscreen surface with the hook that made it. Without this a
+  // caller that mounts and unmounts the player repeatedly — a player inside a
+  // modal, say — leaks a full size texture per cycle. runOnUI because this
+  // effect is declared before the frame callback below, and so its cleanup runs
+  // before the callback is unregistered.
+  useEffect(
+    () => () => {
+      runOnUI(() => {
+        surfaceSharedValue.value?.dispose();
+        surfaceSharedValue.value = null;
+        surfaceWidth.value = 0;
+        surfaceHeight.value = 0;
+      })();
+    },
+    [surfaceSharedValue, surfaceWidth, surfaceHeight]
+  );
+
   useFrameCallback(() => {
     'worklet';
     if (!framesExtractor) {
       return;
     }
 
+    const pixelWidth = width * pixelRatio;
+    const pixelHeight = height * pixelRatio;
+
     let surface: SkSurface | null = surfaceSharedValue.value;
 
-    if (!surface) {
-      surface = Skia.Surface.MakeOffscreen(
-        width * pixelRatio,
-        height * pixelRatio
-      );
+    if (
+      !surface ||
+      surfaceWidth.value !== pixelWidth ||
+      surfaceHeight.value !== pixelHeight
+    ) {
+      // width and height can change while the player stays mounted — laying the
+      // stage out for a different aspect ratio calls the hook with new
+      // dimensions and the same surface. Drawing the new size into the old
+      // texture and then declaring the result to be the new size stretches the
+      // picture by the ratio between them, so the surface is re-keyed on its
+      // dimensions the way exportVideoComposition already re-keys its own.
+      surface?.dispose();
+      surface = Skia.Surface.MakeOffscreen(pixelWidth, pixelHeight);
       surfaceSharedValue.value = surface;
+      surfaceWidth.value = pixelWidth;
+      surfaceHeight.value = pixelHeight;
+      // The recycled wrapper below is bound to the texture that just went away.
+      currentFrame.value = null;
     }
     if (!surface) {
       console.warn('Failed to create surface');
@@ -184,8 +219,8 @@ export const useVideoCompositionPlayer = ({
       videoComposition: composition!,
       currentTime: framesExtractor.currentTime,
       frames: framesExtractor.decodeCompositionFrames(),
-      width: width * pixelRatio,
-      height: height * pixelRatio,
+      width: pixelWidth,
+      height: pixelHeight,
     });
     surface.flush();
     const previousFrame = currentFrame.value;
@@ -194,8 +229,8 @@ export const useVideoCompositionPlayer = ({
       // JSI object on every frame.
       const nextFrame = Skia.Image.MakeImageFromNativeTextureUnstable(
         surface.getNativeTextureUnstable(),
-        width * pixelRatio,
-        height * pixelRatio,
+        pixelWidth,
+        pixelHeight,
         false,
         previousFrame ?? undefined
       );
