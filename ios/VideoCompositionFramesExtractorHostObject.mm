@@ -285,6 +285,12 @@ void VideoCompositionFramesExtractorHostObject::init() {
 }
 
 void VideoCompositionFramesExtractorHostObject::play() {
+  // Already playing: nothing to do (without an audio player, the clock would
+  // restart from a zero pausePosition — a seek followed by play would land
+  // at the beginning instead).
+  if (isPlaying) {
+    return;
+  }
   if (audioPlayer) {
     if (CMTimeGetSeconds(audioPlayer.currentTime) >= composition->duration) {
       [audioPlayer seekToTime:kCMTimeZero
