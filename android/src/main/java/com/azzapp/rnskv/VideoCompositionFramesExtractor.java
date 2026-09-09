@@ -173,6 +173,12 @@ public class VideoCompositionFramesExtractor {
       playWhenReady = true;
       return;
     }
+    // Already playing: nothing to do. Recomputing startTime from a zero
+    // pausePosition would restart the clock at 0 — a seek followed by play
+    // (the usual "play from here") landed at the beginning instead.
+    if (isPlaying) {
+      return;
+    }
     if (isEOS) {
       isEOS = false;
       pausePosition = 0;
