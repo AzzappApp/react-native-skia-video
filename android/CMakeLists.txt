@@ -20,6 +20,10 @@ add_library(${PACKAGE_NAME}
         SHARED
         ../cpp/RNSVEventEmitter.h
         ../cpp/RNSVEventEmitter.cpp
+        ../cpp/RNSVHostObject.h
+        ../cpp/RNSVHostObject.cpp
+        ../cpp/RNSVRuntimeLifecycleMonitor.h
+        ../cpp/RNSVRuntimeLifecycleMonitor.cpp
         cpp/JNIHelpers.h
         cpp/JNIHelpers.cpp
         cpp/cpp-adapter.cpp

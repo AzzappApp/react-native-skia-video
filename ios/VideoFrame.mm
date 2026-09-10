@@ -17,6 +17,12 @@ VideoFrame::VideoFrame(id<MTLTexture> mtlTexture, double width, double height,
   this->rotation = rotation;
 }
 
+bool VideoFrame::matches(id<MTLTexture> texture, double width, double height,
+                         int rotation) const {
+  return mtlTexture == texture && this->width == width &&
+         this->height == height && this->rotation == rotation;
+}
+
 std::vector<jsi::PropNameID> VideoFrame::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> result;
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("width")));

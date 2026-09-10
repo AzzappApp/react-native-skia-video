@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NativeEventDispatcher.h"
+#include "RNSVHostObject.h"
 #include "SkiaContextHolder.h"
 #include "VideoCompositionFramesExtractor.h"
 #include <fbjni/fbjni.h>
@@ -12,7 +13,7 @@ using namespace facebook;
 namespace RNSkiaVideo {
 
 class JSI_EXPORT VideoCompositionFramesExtractorHostObject
-    : public jsi::HostObject,
+    : public RNSVHostObject,
       EventEmitter,
       JEventReceiver {
 public:

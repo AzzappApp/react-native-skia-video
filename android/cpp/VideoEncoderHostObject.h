@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RNSVHostObject.h"
 #include "SkiaContextHolder.h"
 #include "VideoComposition.h"
 #include <EGL/egl.h>
@@ -34,7 +35,7 @@ public:
   void release() const;
 };
 
-class JSI_EXPORT VideoEncoderHostObject : public jsi::HostObject {
+class JSI_EXPORT VideoEncoderHostObject : public RNSVHostObject {
 public:
   VideoEncoderHostObject(std::string& outPath, int width, int height,
                          int frameRate, int bitRate,

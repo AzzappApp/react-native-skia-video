@@ -5,6 +5,7 @@
 #include <map>
 
 #include "RNSVEventEmitter.h"
+#include "RNSVHostObject.h"
 #include "SkiaContextHolder.h"
 #include "VideoPlayer.h"
 
@@ -12,7 +13,7 @@ using namespace facebook;
 
 namespace RNSkiaVideo {
 
-class JSI_EXPORT VideoPlayerHostObject : public jsi::HostObject,
+class JSI_EXPORT VideoPlayerHostObject : public RNSVHostObject,
                                          JEventReceiver,
                                          EventEmitter {
 public:

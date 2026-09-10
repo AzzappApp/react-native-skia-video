@@ -54,6 +54,15 @@ type UseVideoCompositionPlayerOptions<T = undefined> = {
    */
   isLooping?: boolean;
   /**
+   * Whether to keep calling `drawFrame` at every vsync while playback is
+   * paused. By default a paused player only redraws when the composition time
+   * or the decoded frames change (a seek, the frame that follows it), which
+   * saves GPU time and battery. Enable it if `drawFrame` depends on values
+   * that change while paused, an overlay being dragged for instance.
+   * @default false
+   */
+  drawWhenPaused?: boolean;
+  /**
    * Callback that is called when the composition is ready to play.
    */
   onReadyToPlay?: () => void;
@@ -97,6 +106,7 @@ export const useVideoCompositionPlayer = ({
   height,
   autoPlay = false,
   isLooping = false,
+  drawWhenPaused = false,
   onReadyToPlay,
   onComplete,
   onError,
@@ -155,10 +165,32 @@ export const useVideoCompositionPlayer = ({
   }, [framesExtractor, autoPlay]);
 
   const surfaceSharedValue = useSharedValue<SkSurface | null>(null);
+  // Frames version and composition time of the last drawn image, to skip
+  // redrawing an unchanged picture while paused.
+  const lastDrawnFramesVersion = useSharedValue(-1);
+  const lastDrawnTime = useSharedValue(-1);
   const pixelRatio = PixelRatio.get();
   useFrameCallback(() => {
     'worklet';
     if (!framesExtractor) {
+      return;
+    }
+
+    // Pull the frames decoded since the last vsync first: it is cheap when
+    // nothing new arrived, and it is what lets a paused player pick up the
+    // frame of a seek.
+    const frames = framesExtractor.decodeCompositionFrames();
+    const currentTime = framesExtractor.currentTime;
+    const framesVersion = framesExtractor.framesVersion;
+    if (
+      !drawWhenPaused &&
+      !framesExtractor.isPlaying &&
+      currentFrame.value !== null &&
+      framesVersion === lastDrawnFramesVersion.value &&
+      currentTime === lastDrawnTime.value
+    ) {
+      // Paused with nothing new: the image on screen is still exact, and
+      // redrawing it at every vsync would only burn GPU time and battery.
       return;
     }
 
@@ -182,8 +214,8 @@ export const useVideoCompositionPlayer = ({
       canvas,
       context,
       videoComposition: composition!,
-      currentTime: framesExtractor.currentTime,
-      frames: framesExtractor.decodeCompositionFrames(),
+      currentTime,
+      frames,
       width: width * pixelRatio,
       height: height * pixelRatio,
     });
@@ -210,6 +242,8 @@ export const useVideoCompositionPlayer = ({
       console.warn('Failed to create image from texture', error);
       return;
     }
+    lastDrawnFramesVersion.value = framesVersion;
+    lastDrawnTime.value = currentTime;
     afterDrawFrame?.(context);
   }, true);
 

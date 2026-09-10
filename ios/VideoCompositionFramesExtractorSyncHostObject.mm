@@ -29,12 +29,14 @@ VideoCompositionFramesExtractorSyncHostObject::getPropertyNames(
   return result;
 }
 
+// The methods are created once per runtime (see RNSVHostObject):
+// `decodeCompositionFrames` is read for every exported frame.
 jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
     jsi::Runtime& runtime, const jsi::PropNameID& propNameId) {
   auto propName = propNameId.utf8(runtime);
   if (propName == "start") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "start"), 1,
+    return getFunction(
+        runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           return runPooled([&] {
@@ -53,9 +55,8 @@ jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
           });
         });
   } else if (propName == "decodeCompositionFrames") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "decodeCompositionFrames"),
-        1,
+    return getFunction(
+        runtime, propName, 1,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           auto currentTime =
@@ -86,8 +87,8 @@ jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
           return frames;
         });
   } else if (propName == "dispose") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "dispose"), 0,
+    return getFunction(
+        runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           return runPooled([&] { this->release(); });

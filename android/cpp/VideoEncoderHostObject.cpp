@@ -72,12 +72,14 @@ VideoEncoderHostObject::getPropertyNames(jsi::Runtime& rt) {
   return result;
 }
 
+// The methods are created once per runtime (see RNSVHostObject):
+// `encodeFrame` is read for every exported frame.
 jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
                                        const jsi::PropNameID& propNameId) {
   auto propName = propNameId.utf8(runtime);
   if (propName == "encodeFrame") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "encodeFrame"), 2,
+    return getFunction(
+        runtime, propName, 2,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           framesExtractor->makeGLContextCurrent();
@@ -91,8 +93,8 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
           return jsi::Value::undefined();
         });
   } else if (propName == "prepare") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "prepare"), 0,
+    return getFunction(
+        runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (!released.test()) {
@@ -103,8 +105,8 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
           return jsi::Value::undefined();
         });
   } else if (propName == "finishWriting") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "finishWriting"), 0,
+    return getFunction(
+        runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (!released.test()) {
@@ -114,8 +116,8 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
         });
   }
   if (propName == "dispose") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "dispose"), 0,
+    return getFunction(
+        runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           this->release();

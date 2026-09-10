@@ -20,6 +20,8 @@ public class VideoCompositionDecoder {
 
   private final HashMap<String, VideoFrame> videoFrames = new HashMap<>();
 
+  private long framesVersion = 0;
+
   private OnItemImageAvailableListener onItemImageAvailableListener;
 
   private OnFrameAvailableListener onFrameAvailableListener;
@@ -182,8 +184,18 @@ public class VideoCompositionDecoder {
       );
       String id = item.getId();
       videoFrames.put(id, nextFrame);
+      framesVersion++;
     }
     return videoFrames;
+  }
+
+  /**
+   * @return a counter incremented every time {@link #updateVideosFrames}
+   * produced a new frame for an item. Comparing two values tells an unchanged
+   * frame set from a fresh one without inspecting the frames.
+   */
+  public long getFramesVersion() {
+    return framesVersion;
   }
 
   /**

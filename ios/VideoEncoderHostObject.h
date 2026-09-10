@@ -1,5 +1,6 @@
 #pragma once
 
+#import "RNSVHostObject.h"
 #import "VideoComposition.h"
 #import <AVFoundation/AVFoundation.h>
 #import <jsi/jsi.h>
@@ -8,7 +9,7 @@
 namespace RNSkiaVideo {
 using namespace facebook;
 
-class JSI_EXPORT VideoEncoderHostObject : public jsi::HostObject {
+class JSI_EXPORT VideoEncoderHostObject : public RNSVHostObject {
 public:
   VideoEncoderHostObject(std::string outPath, int width, int height,
                          int frameRate, int bitRate, int audioBitRate,

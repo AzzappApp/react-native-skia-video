@@ -297,6 +297,12 @@ export type VideoCompositionFramesExtractor = {
    */
   readonly currentTime: number;
   /**
+   * A counter incremented every time `decodeCompositionFrames` returned a new
+   * frame for at least one item. Two equal values mean the frames did not
+   * change in between.
+   */
+  readonly framesVersion: number;
+  /**
    * Whether the video composition frames extractor is currently playing.
    */
   readonly isPlaying: boolean;

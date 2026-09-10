@@ -1,6 +1,7 @@
 #pragma once
 
 #import "RNSVEventEmitter.h"
+#import "RNSVHostObject.h"
 #import "VideoComposition.h"
 #import "VideoCompositionItemDecoder.h"
 #import "VideoFrame.h"
@@ -24,7 +25,7 @@ namespace RNSkiaVideo {
 using namespace facebook;
 
 class JSI_EXPORT VideoCompositionFramesExtractorHostObject
-    : public jsi::HostObject,
+    : public RNSVHostObject,
       EventEmitter {
 public:
   VideoCompositionFramesExtractorHostObject(
@@ -42,6 +43,10 @@ private:
   std::map<std::string, std::shared_ptr<VideoCompositionItemDecoder>>
       itemDecoders;
   std::map<std::string, std::shared_ptr<VideoFrame>> currentFrames;
+  // Incremented every time decodeCompositionFrames acquires a new frame for
+  // at least one item. Exposed to JS as `framesVersion`, so the player can
+  // tell an unchanged frame set from a fresh one and skip redrawing it.
+  uint64_t framesVersion = 0;
   dispatch_queue_t decoderQueue;
   RNSVDisplayLinkWrapper* displayLink;
   NSDate* startDate;

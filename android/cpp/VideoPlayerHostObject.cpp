@@ -34,12 +34,16 @@ VideoPlayerHostObject::getPropertyNames(jsi::Runtime& rt) {
   return result;
 }
 
+// The methods are created once per runtime (see RNSVHostObject):
+// `decodeNextFrame` is read by useVideoPlayer at every vsync of the UI
+// runtime, and a fresh host function on each read is two garbage collected
+// allocations per frame for nothing.
 jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
                                       const jsi::PropNameID& propNameId) {
   auto propName = propNameId.utf8(runtime);
   if (propName == "decodeNextFrame") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "decodeNextFrame"), 0,
+    return getFunction(
+        runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (released.test()) {
@@ -59,8 +63,8 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
           return frame->toJS(runtime);
         });
   } else if (propName == "play") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "play"), 0,
+    return getFunction(
+        runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (!released.test()) {
@@ -69,8 +73,8 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
           return jsi::Value::undefined();
         });
   } else if (propName == "pause") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "pause"), 0,
+    return getFunction(
+        runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (!released.test()) {
@@ -79,8 +83,8 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
           return jsi::Value::undefined();
         });
   } else if (propName == "seekTo") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "seekTo"), 1,
+    return getFunction(
+        runtime, propName, 1,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (released.test()) {
@@ -105,16 +109,16 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
   } else if (propName == "isPlaying") {
     return jsi::Value(!(released.test()) && player->getIsPlaying());
   } else if (propName == "on") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
+    return getFunction(
+        runtime, propName, 2,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (released.test()) {
+            // Nothing to listen to anymore: hand out a no-op unsubscribe.
             return jsi::Function::createFromHostFunction(
-                runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
-                [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
-                       const jsi::Value* arguments,
-                       size_t count) -> jsi::Value {
+                runtime, jsi::PropNameID::forAscii(runtime, "dispose"), 0,
+                [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+                   const jsi::Value* arguments, size_t count) -> jsi::Value {
                   return jsi::Value::undefined();
                 });
           }
@@ -123,8 +127,8 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
           return this->on(name, std::move(handler));
         });
   } else if (propName == "dispose") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "dispose"), 0,
+    return getFunction(
+        runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           this->release();

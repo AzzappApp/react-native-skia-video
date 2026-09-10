@@ -54,6 +54,12 @@ jlong VideoCompositionFramesExtractor::getCurrentPosition() const {
   return getCurrentPositionMethod(self());
 }
 
+jlong VideoCompositionFramesExtractor::getFramesVersion() const {
+  static const auto getFramesVersionMethod =
+      getClass()->getMethod<jlong()>("getFramesVersion");
+  return getFramesVersionMethod(self());
+}
+
 local_ref<JMap<JString, VideoFrame>>
 VideoCompositionFramesExtractor::decodeCompositionFrames() {
   static const auto decodeCompositionFramesMethod =

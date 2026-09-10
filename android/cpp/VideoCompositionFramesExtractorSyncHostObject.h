@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RNSVHostObject.h"
 #include "VideoComposition.h"
 #include "VideoFrame.h"
 #include <fbjni/fbjni.h>
@@ -27,7 +28,7 @@ public:
 };
 
 class JSI_EXPORT VideoCompositionFramesExtractorSyncHostObject
-    : public jsi::HostObject {
+    : public RNSVHostObject {
 public:
   VideoCompositionFramesExtractorSyncHostObject(jsi::Runtime& runtime,
                                                 jsi::Object composition);

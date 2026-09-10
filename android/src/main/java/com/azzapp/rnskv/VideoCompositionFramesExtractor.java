@@ -116,6 +116,14 @@ public class VideoCompositionFramesExtractor {
   }
 
   /**
+   * @return the version of the frames returned by {@link #decodeCompositionFrames},
+   * see {@link VideoCompositionDecoder#getFramesVersion()}
+   */
+  public long getFramesVersion() {
+    return decoder.getFramesVersion();
+  }
+
+  /**
    * @return whether the player is looping
    */
   public boolean getIsLooping() {

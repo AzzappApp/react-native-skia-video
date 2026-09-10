@@ -412,25 +412,32 @@ public class AudioCompositionExporter {
 
     private boolean pumpDecoder() {
       boolean progressed = false;
-      if (!inputDone) {
+      // Feed every input buffer the decoder offers before waiting on its
+      // output: a decoder needs several packets before it produces anything,
+      // and each output wait below can last CODEC_TIMEOUT_US.
+      while (!inputDone) {
         int inputIndex = decoder.dequeueInputBuffer(0);
-        if (inputIndex >= 0) {
-          ByteBuffer input = decoder.getInputBuffer(inputIndex);
-          int size = input != null ? extractor.readSampleData(input, 0) : -1;
-          long sampleTimeUs = extractor.getSampleTime();
-          if (size < 0 || sampleTimeUs >= endTimeUs) {
-            decoder.queueInputBuffer(
-              inputIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-            inputDone = true;
-          } else {
-            decoder.queueInputBuffer(inputIndex, 0, size, sampleTimeUs, 0);
-            extractor.advance();
-          }
-          progressed = true;
+        if (inputIndex < 0) {
+          break;
         }
+        ByteBuffer input = decoder.getInputBuffer(inputIndex);
+        int size = input != null ? extractor.readSampleData(input, 0) : -1;
+        long sampleTimeUs = extractor.getSampleTime();
+        if (size < 0 || sampleTimeUs >= endTimeUs) {
+          decoder.queueInputBuffer(
+            inputIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+          inputDone = true;
+        } else {
+          decoder.queueInputBuffer(inputIndex, 0, size, sampleTimeUs, 0);
+          extractor.advance();
+        }
+        progressed = true;
       }
 
-      int outputIndex = decoder.dequeueOutputBuffer(decoderBufferInfo, CODEC_TIMEOUT_US);
+      // Only wait for output when no input could be fed: otherwise the decoder
+      // has work queued and the caller loops back here right away.
+      int outputIndex = decoder.dequeueOutputBuffer(
+        decoderBufferInfo, progressed ? 0 : CODEC_TIMEOUT_US);
       if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
         MediaFormat outputFormat = decoder.getOutputFormat();
         srcSampleRate = outputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);

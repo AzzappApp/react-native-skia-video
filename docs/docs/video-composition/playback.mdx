@@ -45,6 +45,7 @@ const CompositionPlayer = ({ composition, width, height }) => {
 | `width` / `height` | `number` | Output size in density-independent points (the backing surface is scaled by the device pixel ratio). |
 | `autoPlay` | `boolean` | Start as soon as the composition is ready. |
 | `isLooping` | `boolean` | Loop when the end is reached. |
+| `drawWhenPaused` | `boolean` | Keep calling `drawFrame` every vsync while paused. Off by default: a paused player only redraws when its time or its frames change (a seek), which saves GPU time and battery. Turn it on if `drawFrame` reads values that change while paused, such as an overlay being dragged. |
 | `beforeDrawFrame` / `afterDrawFrame` | `() => T` / `(context: T) => void` | Run around every frame; the returned context is passed to `drawFrame`. Handy for allocating/releasing per-frame resources. |
 | `onReadyToPlay` | `() => void` | The composition is prepared. |
 | `onComplete` | `() => void` | Playback reached the end. |

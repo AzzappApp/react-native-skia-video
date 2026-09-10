@@ -34,6 +34,8 @@ public:
 
   jlong getCurrentPosition() const;
 
+  jlong getFramesVersion() const;
+
   jboolean getIsLooping() const;
 
   void setIsLooping(jboolean isLooping) const;

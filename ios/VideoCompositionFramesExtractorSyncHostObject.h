@@ -1,5 +1,6 @@
 #pragma once
 
+#import "RNSVHostObject.h"
 #import "VideoComposition.h"
 #import "VideoCompositionItemDecoder.h"
 #import "VideoFrame.h"
@@ -11,7 +12,7 @@ namespace RNSkiaVideo {
 using namespace facebook;
 
 class JSI_EXPORT VideoCompositionFramesExtractorSyncHostObject
-    : public jsi::HostObject {
+    : public RNSVHostObject {
 public:
   VideoCompositionFramesExtractorSyncHostObject(
       std::shared_ptr<VideoComposition> composition);

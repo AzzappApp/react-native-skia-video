@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RNSVEventEmitter.h"
+#include "RNSVHostObject.h"
 #include "RNSVVideoPlayer.h"
 #include "VideoFrame.h"
 
@@ -16,7 +17,7 @@ using namespace facebook;
 
 namespace RNSkiaVideo {
 
-class JSI_EXPORT VideoPlayerHostObject : public jsi::HostObject, EventEmitter {
+class JSI_EXPORT VideoPlayerHostObject : public RNSVHostObject, EventEmitter {
 public:
   VideoPlayerHostObject(jsi::Runtime& runtime,
                         std::shared_ptr<react::CallInvoker> callInvoker,
