@@ -184,9 +184,12 @@ export const useVideoPlayer = ({
   }, [player, autoPlay]);
 
   useFrameCallback(() => {
-    if (!player || (!player.isPlaying && currentFrame.value)) {
+    if (!player) {
       return;
     }
+    // Polled while paused too: decodeNextFrame returns null at almost no cost
+    // when nothing new was decoded, and the frame produced by a seek performed
+    // while paused only shows up if it gets picked up here.
     const nextFrame = player.decodeNextFrame();
     if (nextFrame) {
       currentFrame.value = nextFrame;

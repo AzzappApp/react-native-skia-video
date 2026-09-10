@@ -287,7 +287,12 @@ public class VideoPlayer {
     if (Looper.myLooper() != Looper.getMainLooper()) {
       throw new RuntimeException("decodeNextFrame should be called on UI Thread");
     }
-    if (eglResourcesHolder == null && glFrameExtractor != null) {
+    if (eglResourcesHolder == null || glFrameExtractor == null) {
+      return null;
+    }
+    if (!glFrameExtractor.hasPendingFrame()) {
+      // Polled at every vsync, including while paused: skip the EGL context
+      // switch, the expensive part of this method, when nothing is new.
       return null;
     }
     eglResourcesHolder.makeCurrent();
@@ -311,19 +316,31 @@ public class VideoPlayer {
    */
   public void release() {
     released = true;
-    if (glFrameExtractor != null) {
-      glFrameExtractor.release();
-      glFrameExtractor = null;
-    }
-    if (eglResourcesHolder != null) {
-      eglResourcesHolder.release();
-      glFrameExtractor = null;
-    }
+    // The GL objects were created (setupGL) and are used (decodeNextFrame) on
+    // the main thread, with the extractor's EGL context current. dispose()
+    // reaches here from the JS thread, where no context is bound: GL deletes
+    // issued there are silently ignored and the textures, shared with the
+    // Skia context, leak. Tear everything down on the main thread instead,
+    // with the right context current, once the player stopped rendering into
+    // the surface.
     mainHandler.post(() -> {
       if (player != null) {
         player.stop();
         player.release();
         player = null;
+      }
+      if (glFrameExtractor != null) {
+        GLFrameExtractor extractor = glFrameExtractor;
+        glFrameExtractor = null;
+        if (eglResourcesHolder != null) {
+          eglResourcesHolder.runWithContextCurrent(extractor::release);
+        } else {
+          extractor.release();
+        }
+      }
+      if (eglResourcesHolder != null) {
+        eglResourcesHolder.release();
+        eglResourcesHolder = null;
       }
     });
   }

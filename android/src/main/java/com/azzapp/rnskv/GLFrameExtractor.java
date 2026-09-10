@@ -70,6 +70,15 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
   }
 
   /**
+   * @return whether a frame rendered by the producer is waiting to be decoded.
+   * Thread-safe and cheap, it lets callers skip the EGL context switch of
+   * {@link #decodeNextFrame} when there is nothing new.
+   */
+  public boolean hasPendingFrame() {
+    return frameAvailable.get();
+  }
+
+  /**
    * Decode the next frame and render it to the output texture.
    * @param width the width of the frame
    * @param height the height of the frame
@@ -145,6 +154,11 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
     return latestTimeStampNs;
   }
 
+  /**
+   * Release the surface and the GL objects. The EGL context they were created
+   * with must be current on the calling thread: without it the GL deletes are
+   * silently ignored and the textures live on in the share group.
+   */
   public void release() {
     if (surfaceTexture != null) {
       surfaceTexture.release();
@@ -158,6 +172,7 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
     if (inputTexId != -1) {
       GLES20.glDeleteTextures(2, new int[]{inputTexId, outputTexId}, 0);
     }
+    textureRenderer.release();
   }
 
   /**

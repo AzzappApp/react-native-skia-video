@@ -151,6 +151,32 @@ public class EGLResourcesHolder {
   }
 
   /**
+   * Runs the action with this holder's context current on the calling thread,
+   * then binds again whatever was current before it (or unbinds if nothing
+   * was). GL object deletes silently do nothing without a current context, so
+   * releasing GL resources from a thread where another context (Skia's) is
+   * bound goes through here.
+   */
+  public void runWithContextCurrent(Runnable action) {
+    android.opengl.EGLDisplay previousDisplay = EGL14.eglGetCurrentDisplay();
+    android.opengl.EGLContext previousContext = EGL14.eglGetCurrentContext();
+    android.opengl.EGLSurface previousDraw = EGL14.eglGetCurrentSurface(EGL14.EGL_DRAW);
+    android.opengl.EGLSurface previousRead = EGL14.eglGetCurrentSurface(EGL14.EGL_READ);
+    boolean hadContext = !EGL14.EGL_NO_CONTEXT.equals(previousContext);
+    makeCurrent();
+    try {
+      action.run();
+    } finally {
+      if (hadContext) {
+        EGL14.eglMakeCurrent(previousDisplay, previousDraw, previousRead, previousContext);
+      } else {
+        egl.eglMakeCurrent(eglDisplay, EGL10.EGL_NO_SURFACE,
+          EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT);
+      }
+    }
+  }
+
+  /**
    * swap the buffer of the surface (use only with windowed surface)
    *
    * @return true if the operation was successful
