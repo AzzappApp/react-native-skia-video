@@ -194,36 +194,43 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
 std::shared_ptr<VideoFrame>
 VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
                                                  bool force) {
-  if (hasLooped && CMTIME_IS_VALID(lastRequestedTime) &&
-      CMTimeCompare(currentTime, lastRequestedTime) < 0) {
-    hasLooped = false;
-    for (const auto& frame : decodedFrames) {
-      CFRelease(frame.second);
-    }
-    decodedFrames = nextLoopFrames;
-    nextLoopFrames.clear();
-  }
-  lastRequestedTime = currentTime;
-
-  CMTime position = CMTimeAdd(
-      CMTimeMakeWithSeconds(item->startTime, NSEC_PER_SEC),
-      CMTimeMakeWithSeconds(
-          MAX((CMTimeGetSeconds(currentTime) - item->compositionStartTime), 0),
-          NSEC_PER_SEC));
-
   CMSampleBufferRef nextFrame = nil;
-  auto it = decodedFrames.begin();
-  while (it != decodedFrames.end()) {
-    auto timestamp = CMTimeMakeWithSeconds(it->first, NSEC_PER_SEC);
-    if (CMTimeCompare(timestamp, position) <= 0 ||
-        (force && nextFrame == nullptr)) {
-      if (nextFrame != nullptr) {
-        CFRelease(nextFrame);
+  // advanceDecoder appends to the frame lists from a decoding thread while
+  // this runs on the UI thread: every access to the lists goes through the
+  // decoder lock. The texture upload below happens outside of it so the
+  // decoding thread is not held back by the GPU.
+  @synchronized(lock) {
+    if (hasLooped && CMTIME_IS_VALID(lastRequestedTime) &&
+        CMTimeCompare(currentTime, lastRequestedTime) < 0) {
+      hasLooped = false;
+      for (const auto& frame : decodedFrames) {
+        CFRelease(frame.second);
       }
-      nextFrame = it->second;
-      it = decodedFrames.erase(it);
-    } else {
-      break;
+      decodedFrames = nextLoopFrames;
+      nextLoopFrames.clear();
+    }
+    lastRequestedTime = currentTime;
+
+    CMTime position = CMTimeAdd(
+        CMTimeMakeWithSeconds(item->startTime, NSEC_PER_SEC),
+        CMTimeMakeWithSeconds(
+            MAX((CMTimeGetSeconds(currentTime) - item->compositionStartTime),
+                0),
+            NSEC_PER_SEC));
+
+    auto it = decodedFrames.begin();
+    while (it != decodedFrames.end()) {
+      auto timestamp = CMTimeMakeWithSeconds(it->first, NSEC_PER_SEC);
+      if (CMTimeCompare(timestamp, position) <= 0 ||
+          (force && nextFrame == nullptr)) {
+        if (nextFrame != nullptr) {
+          CFRelease(nextFrame);
+        }
+        nextFrame = it->second;
+        it = decodedFrames.erase(it);
+      } else {
+        break;
+      }
     }
   }
   if (nextFrame) {
