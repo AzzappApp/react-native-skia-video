@@ -97,7 +97,7 @@ type UseVideoCompositionPlayerReturnType = {
 /**
  * A hook that creates a video composition player.
  */
-export const useVideoCompositionPlayer = ({
+export const useVideoCompositionPlayer = <T = undefined>({
   composition,
   drawFrame,
   beforeDrawFrame,
@@ -110,7 +110,7 @@ export const useVideoCompositionPlayer = ({
   onReadyToPlay,
   onComplete,
   onError,
-}: UseVideoCompositionPlayerOptions): UseVideoCompositionPlayerReturnType => {
+}: UseVideoCompositionPlayerOptions<T>): UseVideoCompositionPlayerReturnType => {
   const [isErrored, setIsErrored] = useState(false);
   const framesExtractor = useMemo(() => {
     if (composition && !isErrored) {
@@ -209,7 +209,7 @@ export const useVideoCompositionPlayer = ({
     }
 
     const canvas = surface.getCanvas();
-    const context = beforeDrawFrame?.();
+    const context = beforeDrawFrame?.() as T;
     drawFrame({
       canvas,
       context,
