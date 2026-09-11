@@ -1,4 +1,5 @@
 #include "VideoPlayerHostObject.h"
+#include "EGLFence.h"
 #include "JNIHelpers.h"
 
 namespace RNSkiaVideo {
@@ -56,10 +57,15 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
           }
 
           auto frame = player->decodeNextFrame();
-          skiaContextHolder->makeCurrent();
           if (!frame) {
+            skiaContextHolder->makeCurrent();
             return jsi::Value::null();
           }
+          // The frame was just rendered into its texture from the extractor's
+          // context: make Skia's commands wait for that rendering on the GPU.
+          auto fence = EGLFence::insert();
+          skiaContextHolder->makeCurrent();
+          fence.waitInCurrentContext();
           return frame->toJS(runtime);
         });
   } else if (propName == "play") {

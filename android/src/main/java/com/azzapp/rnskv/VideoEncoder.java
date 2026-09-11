@@ -209,15 +209,11 @@ public class VideoEncoder {
       throw new RuntimeException("eglSwapBuffer failed");
     }
     // The quad above samples the Skia surface texture from this context, and
-    // the caller draws the next frame into that very texture from Skia's
+    // the export loop draws the next frame into that very texture from Skia's
     // context as soon as this method returns. GPU ordering across contexts is
-    // not guaranteed (Mali runs contexts concurrently), so wait for the
-    // sampling draw to complete before handing the texture back. This only
-    // covers the quad, about a millisecond; the encoder itself keeps running
-    // asynchronously. Until drainEncoder stopped waiting for output, its
-    // timeout used to provide this margin by accident. A fence waited from
-    // Skia's context would avoid the CPU stall altogether.
-    GLES20.glFinish();
+    // not guaranteed (Mali runs contexts concurrently): the native caller
+    // inserts an EGL fence right after this method and makes Skia's context
+    // wait for it on the GPU (see android/cpp/EGLFence.cpp).
     drainEncoder(false);
   }
 

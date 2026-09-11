@@ -1,5 +1,6 @@
 package com.azzapp.rnskv;
 
+import android.opengl.GLES20;
 import android.os.Handler;
 import android.os.HandlerThread;
 
@@ -161,7 +162,16 @@ public class VideoCompositionFramesExtractorSync {
   }
 
   private void resolveIfReady() {
+    long framesVersion = decoder.getFramesVersion();
     Map<String, VideoFrame> videoFrames = decoder.updateVideosFrames();
+    if (decoder.getFramesVersion() != framesVersion) {
+      // The frames were just rendered into their textures from this thread's
+      // context, and Skia samples them from the export worklet thread's
+      // context. GL only orders commands within a context, so wait for the
+      // rendering here: this is a background thread, and the only place where
+      // the decoder's context is current.
+      GLES20.glFinish();
+    }
     for (VideoComposition.Item item : composition.getItems()) {
       if (!item.isVideo()) {
         continue;

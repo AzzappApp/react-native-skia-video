@@ -1,4 +1,5 @@
 #include "VideoEncoderHostObject.h"
+#include "EGLFence.h"
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES/gl.h>
@@ -89,7 +90,12 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
                            .asNumber();
 
           framesExtractor->encodeFrame((int)texId, arguments[1].asNumber());
+          // The encoder's quad sampled the Skia texture from its context and
+          // the export loop draws the next frame into that texture right
+          // after this returns: make Skia's commands wait for the read.
+          auto fence = EGLFence::insert();
           skiaContextHolder->makeCurrent();
+          fence.waitInCurrentContext();
           return jsi::Value::undefined();
         });
   } else if (propName == "prepare") {

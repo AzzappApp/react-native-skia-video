@@ -1,4 +1,5 @@
 #include "VideoCompositionFramesExtractorHostObject.h"
+#include "EGLFence.h"
 #include "JNIHelpers.h"
 
 namespace RNSkiaVideo {
@@ -60,14 +61,25 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
           if (released.test() || !prepared.test()) {
             return jsi::Object(runtime);
           }
+          auto versionBefore = player->getFramesVersion();
           auto frames = player->decodeCompositionFrames();
-          skiaContextHolder->makeCurrent();
+          auto version = player->getFramesVersion();
+          if (version != versionBefore) {
+            // New frames were just rendered into their textures from the
+            // decoder's context: make Skia's commands wait for them on the
+            // GPU.
+            auto fence = EGLFence::insert();
+            skiaContextHolder->makeCurrent();
+            fence.waitInCurrentContext();
+          } else {
+            skiaContextHolder->makeCurrent();
+          }
           // The frames object is only rebuilt when the decoder produced a
           // new frame. On a 120 Hz display most calls see the same frames as
           // the previous one, and rewrapping them would be several JNI calls
           // and JS allocations per item per vsync.
           return getVersionedObject(
-              runtime, "frames", (double)player->getFramesVersion(),
+              runtime, "frames", (double)version,
               [&](jsi::Object& result) {
                 for (auto& entry : *frames) {
                   auto id = entry.first->toStdString();

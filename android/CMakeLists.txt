@@ -31,6 +31,8 @@ add_library(${PACKAGE_NAME}
         cpp/NativeEventDispatcher.cpp
         cpp/SkiaContextHolder.h
         cpp/SkiaContextHolder.cpp
+        cpp/EGLFence.h
+        cpp/EGLFence.cpp
         cpp/VideoCapabilities.h
         cpp/VideoCapabilities.cpp
         cpp/VideoComposition.h
