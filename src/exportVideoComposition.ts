@@ -125,30 +125,39 @@ export const exportVideoComposition = async <T = undefined>({
       const { width, height } = options;
       try {
         try {
-          // Reuse a single offscreen surface across exports (per
-          // dimensions). Disposing the surface is not enough to free its
-          // GPU texture: the canvas wrapper returned by getCanvas() keeps
-          // the surface alive until the runtime GC collects it, so creating
-          // a fresh surface per export leaks its backing texture
+          // Reuse the offscreen surfaces across exports (per dimensions and
+          // count). Disposing a surface is not enough to free its GPU
+          // texture: the canvas wrapper returned by getCanvas() keeps the
+          // surface alive until the runtime GC collects it, so creating
+          // fresh surfaces per export leaks their backing texture
           // (width × height × 4 bytes) on every run.
+          //
+          // The direct encoder mode reads a frame's texture on the GPU while
+          // the next frame is drawn, so it alternates between two surfaces;
+          // the copy mode keeps its single one.
+          const surfaceCount = options.encoderMode === 'direct' ? 2 : 1;
           const cache = globalThis as unknown as {
-            __rnskvExportSurface?: SkSurface | null;
+            __rnskvExportSurfaces?: SkSurface[] | null;
             __rnskvExportSurfaceWidth?: number;
             __rnskvExportSurfaceHeight?: number;
           };
-          let surface = cache.__rnskvExportSurface ?? null;
+          let surfaces = cache.__rnskvExportSurfaces ?? [];
           if (
-            surface == null ||
+            surfaces.length !== surfaceCount ||
             cache.__rnskvExportSurfaceWidth !== width ||
             cache.__rnskvExportSurfaceHeight !== height
           ) {
-            surface?.dispose();
-            cache.__rnskvExportSurface = null;
-            surface = Skia.Surface.MakeOffscreen(width, height);
-            if (!surface) {
-              throw new Error('Failed to create Skia surface');
+            surfaces.forEach((surface) => surface.dispose());
+            cache.__rnskvExportSurfaces = null;
+            surfaces = [];
+            for (let s = 0; s < surfaceCount; s++) {
+              const surface = Skia.Surface.MakeOffscreen(width, height);
+              if (!surface) {
+                throw new Error('Failed to create Skia surface');
+              }
+              surfaces.push(surface);
             }
-            cache.__rnskvExportSurface = surface;
+            cache.__rnskvExportSurfaces = surfaces;
             cache.__rnskvExportSurfaceWidth = width;
             cache.__rnskvExportSurfaceHeight = height;
           }
@@ -173,7 +182,7 @@ export const exportVideoComposition = async <T = undefined>({
           frameExtractor.start();
 
           const nbFrames = videoComposition.duration * options.frameRate;
-          const canvas = surface.getCanvas();
+          const canvases = surfaces.map((surface) => surface.getCanvas());
           const clearColor = Skia.Color('#00000000');
           // Each frame runs inside a native autorelease pool: the worklet
           // thread never drains its own, so the ObjC objects autoreleased
@@ -182,7 +191,7 @@ export const exportVideoComposition = async <T = undefined>({
           const runPooled =
             RNSkiaVideoModule.runWithAutoreleasePool ??
             ((fn: () => void) => fn());
-          const currentSurface = surface;
+          const currentSurfaces = surfaces;
           const currentExtractor = frameExtractor;
           const currentEncoder = encoder;
           for (let i = 0; i < nbFrames; i++) {
@@ -190,6 +199,8 @@ export const exportVideoComposition = async <T = undefined>({
               return;
             }
             const currentTime = i / options.frameRate;
+            const currentSurface = currentSurfaces[i % currentSurfaces.length]!;
+            const canvas = canvases[i % canvases.length]!;
             runPooled(() => {
               const frames =
                 currentExtractor.decodeCompositionFrames(currentTime);

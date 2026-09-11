@@ -185,6 +185,15 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
           }
         }
 
+        // encoderMode: 'copy' (default) | 'direct'.
+        bool directEncoder = false;
+        if (options.hasProperty(runtime, "encoderMode")) {
+          auto value = options.getProperty(runtime, "encoderMode");
+          if (value.isString()) {
+            directEncoder = value.asString(runtime).utf8(runtime) == "direct";
+          }
+        }
+
         std::shared_ptr<VideoComposition> composition = nullptr;
         if (count >= 2 && arguments[1].isObject()) {
           auto jsComposition = arguments[1].asObject(runtime);
@@ -193,7 +202,7 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
 
         auto instance = std::make_shared<VideoEncoderHostObject>(
             outPath, width, height, frameRate, bitRate, audioBitRate,
-            audioSampleRate, audioChannelCount, composition);
+            audioSampleRate, audioChannelCount, composition, directEncoder);
         return jsi::Object::createFromHostObject(runtime, instance);
       });
   RNSVModule.setProperty(runtime, "createVideoEncoder",

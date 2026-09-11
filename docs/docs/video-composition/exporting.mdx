@@ -40,6 +40,7 @@ await exportVideoComposition({
 | `frameRate` | `number` | Frames per second. |
 | `bitRate` | `number` | Video bit rate in bits per second. |
 | `encoderName` | `string` | Android only: a specific encoder from [`getValidEncoderConfigurations`](/docs/android-capabilities). |
+| `encoderMode` | `'copy' \| 'direct'` | iOS only, experimental. `direct` copies each rendered frame once, on the GPU, straight into the encoder's pixel buffer and hands it over asynchronously while the next frame is drawn, instead of the synchronous GPU copy plus CPU read back of the default `copy` mode. Falls back to `copy` if a buffer cannot be wrapped. |
 | `audioBitRate` / `audioSampleRate` / `audioChannelCount` | `number` | AAC settings when the composition [has audio](/docs/video-composition/audio). |
 | `onProgress` | `({ framesCompleted, nbFrames }) => void` | Called after each encoded frame. |
 | `abortSignal` | `AbortSignal` | Cancels the export; the promise rejects with an `AbortError`. |

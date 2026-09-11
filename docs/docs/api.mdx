@@ -109,6 +109,7 @@ playback subset).
 | `frameRate` | `number` | — | Frames per second. |
 | `bitRate` | `number` | — | Video bit rate, bits per second. |
 | `encoderName` | `string?` | auto | Android: encoder to use (see `getValidEncoderConfigurations`). |
+| `encoderMode` | `'copy' \| 'direct'?` | `copy` | iOS, experimental: `direct` hands rendered frames to the encoder through one GPU copy, asynchronously (see [exporting](/docs/video-composition/exporting)). |
 | `audioBitRate` | `number?` | `128000` | AAC bit rate (compositions with audio). |
 | `audioSampleRate` | `number?` | `44100` | AAC sample rate. |
 | `audioChannelCount` | `number?` | `2` | 1 = mono, 2 = stereo. |

@@ -63,6 +63,22 @@ export type BufferingRange = { start: number; duration: number };
 export type VideoTextureMode = 'copy' | 'direct';
 
 /**
+ * How the rendered frames reach the video encoder during an export on iOS.
+ *
+ * - `copy` (default): each frame is copied on the GPU into a CPU readable
+ *   texture, read back into a pixel buffer, then handed to the encoder, all
+ *   synchronously on the export thread.
+ * - `direct`: each frame is copied once, on the GPU, straight into a pixel
+ *   buffer of the encoder's pool and handed to the encoder as soon as that
+ *   copy completes, while the next frame is already being drawn. No CPU copy,
+ *   no wait for the GPU. Experimental. Falls back to `copy` if a pixel buffer
+ *   cannot be wrapped in a texture.
+ *
+ * Ignored on Android.
+ */
+export type VideoEncoderMode = 'copy' | 'direct';
+
+/**
  * The video player interface.
  */
 export type VideoPlayer = {
@@ -416,6 +432,12 @@ export type ExportOptions = {
    * @platform android
    */
   encoderName?: string | null;
+  /**
+   * How the rendered frames reach the encoder, see `VideoEncoderMode`.
+   * Defaults to `copy`.
+   * @platform ios
+   */
+  encoderMode?: VideoEncoderMode;
   /**
    * The bit rate of the exported audio track in bits per second.
    * Only used if the composition contains audio.

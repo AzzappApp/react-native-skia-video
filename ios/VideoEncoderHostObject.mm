@@ -1,5 +1,6 @@
 #import "VideoEncoderHostObject.h"
 #import "AudioCompositionUtils.h"
+#import "MTLTextureUtils.h"
 #import "RNSVJSIUtils.h"
 #import <Metal/Metal.h>
 #import <future>
@@ -15,7 +16,7 @@ namespace RNSkiaVideo {
 VideoEncoderHostObject::VideoEncoderHostObject(
     std::string outPath, int width, int height, int frameRate, int bitRate,
     int audioBitRate, int audioSampleRate, int audioChannelCount,
-    std::shared_ptr<VideoComposition> composition) {
+    std::shared_ptr<VideoComposition> composition, bool directEncoder) {
   this->outPath = outPath;
   this->width = width;
   this->height = height;
@@ -25,6 +26,7 @@ VideoEncoderHostObject::VideoEncoderHostObject(
   this->audioSampleRate = audioSampleRate;
   this->audioChannelCount = audioChannelCount;
   this->composition = composition;
+  this->directEncoder = directEncoder;
 }
 
 std::vector<jsi::PropNameID>
@@ -121,6 +123,13 @@ void VideoEncoderHostObject::prepare() {
         ?: createErrorWithMessage(@"could not add output to asset writer");
     return;
   }
+  if (directEncoder) {
+    // Must be created before the writer starts. The buffers come from our
+    // own pool, so no source attributes.
+    pixelBufferAdaptor = [AVAssetWriterInputPixelBufferAdaptor
+        assetWriterInputPixelBufferAdaptorWithAssetWriterInput:assetWriterInput
+                                   sourcePixelBufferAttributes:nil];
+  }
 
   if (composition && composition->hasAudio()) {
     setupAudio();
@@ -136,12 +145,17 @@ void VideoEncoderHostObject::prepare() {
   device = MTLCreateSystemDefaultDevice();
   commandQueue = [device newCommandQueue];
 
-  NSDictionary* attributes = @{
+  NSMutableDictionary* attributes = [@{
     (NSString*)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
     (NSString*)kCVPixelBufferWidthKey : @(width),
     (NSString*)kCVPixelBufferHeightKey : @(height),
     (NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
-  };
+  } mutableCopy];
+  if (directEncoder) {
+    // Direct mode blits into the buffer on the GPU: it has to be IOSurface
+    // backed for the texture cache to wrap it.
+    attributes[(NSString*)kCVPixelBufferIOSurfacePropertiesKey] = @{};
+  }
   // Allocate a fresh buffer per frame from this pool instead of reusing a
   // single CVPixelBuffer. AVAssetWriter encodes appended buffers
   // asynchronously, so a reused buffer could be overwritten by the next frame
@@ -161,6 +175,15 @@ void VideoEncoderHostObject::prepare() {
     return;
   }
 
+  if (directEncoder) {
+    dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(
+        DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, 0);
+    appendQueue = dispatch_queue_create("RNSkiaVideoEncoderAppend", attr);
+    inflightBlits = dispatch_semaphore_create(1);
+    appendErrorHolder = [NSMutableArray array];
+    return;
+  }
+
   MTLTextureDescriptor* descriptor = [MTLTextureDescriptor
       texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
                                    width:width
@@ -173,6 +196,203 @@ void VideoEncoderHostObject::prepare() {
 
 void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
                                          CMTime time) {
+  if (pixelBufferAdaptor) {
+    // Direct mode was requested (it may have fallen back to copying pixels,
+    // the writer side stays the adaptor either way).
+    NSError* pendingError = appendErrorHolder.firstObject;
+    if (pendingError) {
+      throw pendingError;
+    }
+    if (directEncoder) {
+      encodeFrameDirect(mlTexture, time);
+      return;
+    }
+    // Fallback: copy the pixels on the CPU into a pool buffer, keep the
+    // append order by draining the blits still in flight first.
+    drainDirectAppends();
+    CVPixelBufferRef pixelBuffer = NULL;
+    CVReturn status = CVPixelBufferPoolCreatePixelBuffer(
+        kCFAllocatorDefault, pixelBufferPool, &pixelBuffer);
+    if (status != kCVReturnSuccess || pixelBuffer == NULL) {
+      throw createErrorWithMessage(
+          @"Could not allocate pixel buffer from pool");
+    }
+    try {
+      copyTextureIntoPixelBuffer(mlTexture, pixelBuffer);
+      appendPixelBufferNow(pixelBuffer, time);
+    } catch (...) {
+      CVPixelBufferRelease(pixelBuffer);
+      throw;
+    }
+    CVPixelBufferRelease(pixelBuffer);
+    return;
+  }
+  encodeFrameCopy(mlTexture, time);
+}
+
+// Direct mode: one GPU blit from the Skia texture into an IOSurface backed
+// pool buffer, appended from the blit's completion handler. No CPU copy, no
+// wait for the GPU on the export thread.
+void VideoEncoderHostObject::encodeFrameDirect(id<MTLTexture> mlTexture,
+                                               CMTime time) {
+  CVPixelBufferRef pixelBuffer = NULL;
+  CVReturn status = CVPixelBufferPoolCreatePixelBuffer(
+      kCFAllocatorDefault, pixelBufferPool, &pixelBuffer);
+  if (status != kCVReturnSuccess || pixelBuffer == NULL) {
+    throw createErrorWithMessage(@"Could not allocate pixel buffer from pool");
+  }
+  CVMetalTextureRef cvTexture =
+      [MTLTextureUtils createMetalTextureFromPixelBuffer:pixelBuffer];
+  if (!cvTexture) {
+    // Stay on the CPU copy for the rest of the export rather than failing it.
+    NSLog(@"[RNSkiaVideo] direct encoder mode unavailable, falling back to "
+          @"copying frames");
+    directEncoder = false;
+    drainDirectAppends();
+    try {
+      copyTextureIntoPixelBuffer(mlTexture, pixelBuffer);
+      appendPixelBufferNow(pixelBuffer, time);
+    } catch (...) {
+      CVPixelBufferRelease(pixelBuffer);
+      throw;
+    }
+    CVPixelBufferRelease(pixelBuffer);
+    return;
+  }
+
+  // The caller alternates between two surfaces and draws into the one this
+  // frame's predecessor came from as soon as this returns: wait for that
+  // previous blit before issuing this one, so at most one is in flight.
+  dispatch_semaphore_wait(inflightBlits, DISPATCH_TIME_FOREVER);
+
+  id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
+  id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
+  [blitEncoder copyFromTexture:mlTexture
+                   sourceSlice:0
+                   sourceLevel:0
+                  sourceOrigin:MTLOriginMake(0, 0, 0)
+                    sourceSize:MTLSizeMake(mlTexture.width, mlTexture.height, 1)
+                     toTexture:CVMetalTextureGetTexture(cvTexture)
+              destinationSlice:0
+              destinationLevel:0
+             destinationOrigin:MTLOriginMake(0, 0, 0)];
+  [blitEncoder endEncoding];
+
+  // The handler only captures ObjC objects and the +1 references it releases,
+  // never `this`, so it can safely outlive this host object.
+  AVAssetWriterInputPixelBufferAdaptor* adaptor = pixelBufferAdaptor;
+  AVAssetWriterInput* input = assetWriterInput;
+  AVAssetWriter* writer = assetWriter;
+  NSMutableArray<NSError*>* errors = appendErrorHolder;
+  dispatch_semaphore_t inflight = inflightBlits;
+  dispatch_queue_t queue = appendQueue;
+  [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> completed) {
+    // The source surface can be drawn into again.
+    dispatch_semaphore_signal(inflight);
+    NSError* blitError = completed.error;
+    dispatch_async(queue, ^{
+      if (errors.count == 0) {
+        if (blitError) {
+          [errors addObject:blitError];
+        } else {
+          int attempt = 0;
+          while (!input.isReadyForMoreMediaData && attempt < 1000) {
+            attempt++;
+            usleep(1000);
+          }
+          if (![adaptor appendPixelBuffer:pixelBuffer
+                     withPresentationTime:time]) {
+            [errors addObject:writer.error
+                                  ?: createErrorWithMessage(
+                                         @"Could not append frame data to "
+                                         @"AVAssetWriter")];
+          }
+        }
+      }
+      CFRelease(cvTexture);
+      CVPixelBufferRelease(pixelBuffer);
+    });
+  }];
+  [commandBuffer commit];
+}
+
+// Copies the texture through a CPU accessible texture into the pixel buffer,
+// the way the copy mode does.
+void VideoEncoderHostObject::copyTextureIntoPixelBuffer(
+    id<MTLTexture> mlTexture, CVPixelBufferRef pixelBuffer) {
+  if (!cpuAccessibleTexture) {
+    MTLTextureDescriptor* descriptor = [MTLTextureDescriptor
+        texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                     width:width
+                                    height:height
+                                 mipmapped:NO];
+    descriptor.storageMode = MTLStorageModeShared;
+    descriptor.pixelFormat = MTLPixelFormatBGRA8Unorm;
+    cpuAccessibleTexture = [device newTextureWithDescriptor:descriptor];
+  }
+  id<MTLCommandBuffer> commandBuffer =
+      [commandQueue commandBufferWithUnretainedReferences];
+  id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
+  [blitEncoder copyFromTexture:mlTexture
+                   sourceSlice:0
+                   sourceLevel:0
+                  sourceOrigin:MTLOriginMake(0, 0, 0)
+                    sourceSize:MTLSizeMake(mlTexture.width, mlTexture.height, 1)
+                     toTexture:cpuAccessibleTexture
+              destinationSlice:0
+              destinationLevel:0
+             destinationOrigin:MTLOriginMake(0, 0, 0)];
+  [blitEncoder endEncoding];
+  [commandBuffer commit];
+  [commandBuffer waitUntilCompleted];
+
+  CVPixelBufferLockBaseAddress(pixelBuffer, 0);
+  void* pixelBufferBytes = CVPixelBufferGetBaseAddress(pixelBuffer);
+  if (pixelBufferBytes == NULL) {
+    CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+    throw createErrorWithMessage(@"Could not extract pixels from frame");
+  }
+  size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
+  MTLRegion region = MTLRegionMake2D(0, 0, width, height);
+  [cpuAccessibleTexture getBytes:pixelBufferBytes
+                     bytesPerRow:bytesPerRow
+                      fromRegion:region
+                     mipmapLevel:0];
+  CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+}
+
+void VideoEncoderHostObject::appendPixelBufferNow(CVPixelBufferRef pixelBuffer,
+                                                  CMTime time) {
+  int attempt = 0;
+  while (!assetWriterInput.isReadyForMoreMediaData) {
+    if (attempt > 100) {
+      throw createErrorWithMessage(@"AVAssetWriter unavailable");
+    }
+    attempt++;
+    usleep(5000);
+  }
+  if (![pixelBufferAdaptor appendPixelBuffer:pixelBuffer
+                        withPresentationTime:time]) {
+    throw assetWriter.error
+        ?: createErrorWithMessage(
+               @"Could not append frame data to AVAssetWriter");
+  }
+}
+
+// Waits for the blit still in flight and for the appends queued behind it.
+void VideoEncoderHostObject::drainDirectAppends() {
+  if (inflightBlits) {
+    dispatch_semaphore_wait(inflightBlits, DISPATCH_TIME_FOREVER);
+    dispatch_semaphore_signal(inflightBlits);
+  }
+  if (appendQueue) {
+    dispatch_sync(appendQueue, ^{
+                  });
+  }
+}
+
+void VideoEncoderHostObject::encodeFrameCopy(id<MTLTexture> mlTexture,
+                                             CMTime time) {
   id<MTLCommandBuffer> commandBuffer =
       [commandQueue commandBufferWithUnretainedReferences];
   id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
@@ -384,6 +604,14 @@ void VideoEncoderHostObject::startWritingAudio() {
 }
 
 void VideoEncoderHostObject::finish() {
+  if (pixelBufferAdaptor) {
+    // Every frame has to be appended before the input is marked finished.
+    drainDirectAppends();
+    NSError* appendError = appendErrorHolder.firstObject;
+    if (appendError) {
+      throw appendError;
+    }
+  }
   // The video input must be marked as finished BEFORE waiting for the
   // audio: AVAssetWriter interleaves the two tracks and would keep the
   // audio input not-ready while waiting for more video data (deadlock).
@@ -413,6 +641,13 @@ void VideoEncoderHostObject::finish() {
 }
 
 void VideoEncoderHostObject::release() {
+  if (pixelBufferAdaptor) {
+    // Let the blits and appends in flight finish before the writer goes away.
+    drainDirectAppends();
+    pixelBufferAdaptor = nil;
+    appendQueue = nil;
+    inflightBlits = nil;
+  }
   if (audioReader && audioReader.status == AVAssetReaderStatusReading) {
     [audioReader cancelReading];
   }
