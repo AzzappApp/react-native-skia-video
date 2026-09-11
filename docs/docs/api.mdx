@@ -52,6 +52,7 @@ type VideoCompositionItem = VideoCompositionVideoItem | VideoCompositionAudioIte
 | --- | --- | --- |
 | `kind` | `'video'` (default) | Produces frames for `drawFrame`. |
 | `resolution` | `{ width, height }?` | Decode at this resolution (downscaling improves performance). |
+| `textureMode` | `'copy' \| 'direct'?` | iOS only, experimental: `direct` hands the decoder's pixel buffers to Skia without a per-frame copy (see the [video player options](/docs/video-player#options)). Default `copy`. |
 | `audio` | `boolean \| { volume?: number }` | Also play/mix the file's audio track. Defaults to `false`. |
 
 ### VideoCompositionAudioItem

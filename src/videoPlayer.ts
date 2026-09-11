@@ -10,6 +10,7 @@ import type {
   VideoDimensions,
   VideoFrame,
   VideoPlayer,
+  VideoTextureMode,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
 
@@ -26,6 +27,11 @@ type UseVideoPlayerOptions = {
    * Changing the resolution after the video player will lead to re-creating the video player.
    */
   resolution?: { width: number; height: number } | null;
+  /**
+   * How frames are handed to Skia on iOS, see `VideoTextureMode`. Defaults to
+   * `copy`. Changing it re-creates the video player. Ignored on Android.
+   */
+  textureMode?: VideoTextureMode;
   /**
    * Whether the video should start playing automatically.
    */
@@ -107,6 +113,7 @@ type UseVideoPlayerReturnType = {
 export const useVideoPlayer = ({
   uri,
   resolution,
+  textureMode,
   autoPlay = false,
   isLooping = false,
   volume = 1,
@@ -123,11 +130,15 @@ export const useVideoPlayer = ({
   const [isErrored, setIsErrored] = useState(false);
   const player = useMemo(() => {
     if (uri && !isErrored) {
-      return RNSkiaVideoModule.createVideoPlayer(uri, resolution);
+      return RNSkiaVideoModule.createVideoPlayer(
+        uri,
+        resolution,
+        textureMode ? { textureMode } : undefined
+      );
     }
     return null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isErrored, resolution?.width, resolution?.height, uri]);
+  }, [isErrored, resolution?.width, resolution?.height, uri, textureMode]);
 
   const currentFrame = useSharedValue<null | VideoFrame>(null);
   useEffect(

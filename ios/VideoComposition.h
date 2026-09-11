@@ -16,6 +16,9 @@ public:
   bool isVideo = true;
   bool audioEnabled = false;
   double audioVolume = 1.0;
+  // `textureMode: 'direct'`: hand Skia the decoder's pixel buffers without
+  // copying them into a persistent texture. Default: copy.
+  bool directTexture = false;
 };
 
 class VideoComposition {
@@ -90,6 +93,14 @@ public:
               item->audioVolume = volumeProp.asNumber();
             }
           }
+        }
+      }
+
+      if (jsItem.hasProperty(runtime, "textureMode")) {
+        auto modeProp = jsItem.getProperty(runtime, "textureMode");
+        if (modeProp.isString()) {
+          item->directTexture =
+              modeProp.asString(runtime).utf8(runtime) == "direct";
         }
       }
 

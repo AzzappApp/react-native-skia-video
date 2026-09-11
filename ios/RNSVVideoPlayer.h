@@ -32,7 +32,15 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithURL:(NSURL*)url
                    delegate:(id<RNSVVideoPlayerDelegate>)delegate
                  resolution:(CGSize)resolution;
+/// Copies the frame to show at `time` into the player's persistent texture
+/// and returns that texture, or nil when no new frame is available.
 - (nullable id<MTLTexture>)getNextTextureForTime:(CMTime)time;
+/// The pixel buffer of the frame to show at `time` (+1 reference), or NULL when
+/// no new frame is available. Direct texture mode wraps it without copying.
+- (nullable CVPixelBufferRef)copyNextPixelBufferForTime:(CMTime)time
+    CF_RETURNS_RETAINED;
+/// Copies the pixel buffer into the player's persistent texture and returns it.
+- (nullable id<MTLTexture>)textureFromPixelBuffer:(CVPixelBufferRef)buffer;
 - (void)pause;
 - (void)play;
 - (void)seekTo:(CMTime)time completionHandler:(void (^)(BOOL))completionHandle;

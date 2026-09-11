@@ -113,6 +113,23 @@ CVMetalTextureCacheRef getMetalTextureCache() {
   CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
 }
 
++ (nullable CVMetalTextureRef)createMetalTextureFromPixelBuffer:
+    (CVPixelBufferRef)pixelBuffer {
+  CVMetalTextureCacheRef cache = getMetalTextureCache();
+  if (!cache) {
+    return NULL;
+  }
+  CVMetalTextureRef texture = NULL;
+  CVReturn status = CVMetalTextureCacheCreateTextureFromImage(
+      kCFAllocatorDefault, cache, pixelBuffer, NULL, MTLPixelFormatBGRA8Unorm,
+      CVPixelBufferGetWidth(pixelBuffer), CVPixelBufferGetHeight(pixelBuffer),
+      0, &texture);
+  if (status != kCVReturnSuccess) {
+    return NULL;
+  }
+  return texture;
+}
+
 + (void)flushTextureCache {
   if (metalTextureCache) {
     CVMetalTextureCacheFlush(metalTextureCache, 0);

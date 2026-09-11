@@ -17,6 +17,28 @@ VideoFrame::VideoFrame(id<MTLTexture> mtlTexture, double width, double height,
   this->rotation = rotation;
 }
 
+VideoFrame::~VideoFrame() {
+  releaseBacking();
+}
+
+void VideoFrame::adoptBacking(CVPixelBufferRef buffer,
+                              CVMetalTextureRef texture) {
+  releaseBacking();
+  pixelBuffer = buffer;
+  metalTexture = texture;
+}
+
+void VideoFrame::releaseBacking() {
+  if (metalTexture) {
+    CFRelease(metalTexture);
+    metalTexture = NULL;
+  }
+  if (pixelBuffer) {
+    CVPixelBufferRelease(pixelBuffer);
+    pixelBuffer = NULL;
+  }
+}
+
 bool VideoFrame::matches(id<MTLTexture> texture, double width, double height,
                          int rotation) const {
   return mtlTexture == texture && this->width == width &&

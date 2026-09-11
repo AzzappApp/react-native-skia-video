@@ -43,7 +43,7 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
   auto RNSVModule = jsi::Object(runtime);
 
   auto createVideoPlayer = jsi::Function::createFromHostFunction(
-      runtime, jsi::PropNameID::forAscii(runtime, "createVideoPlayer"), 2,
+      runtime, jsi::PropNameID::forAscii(runtime, "createVideoPlayer"), 3,
       [jsCallInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue,
                       const jsi::Value* arguments, size_t count) -> jsi::Value {
         if (count < 1 || !arguments[0].isString()) {
@@ -69,10 +69,22 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
           resolution.height = res.getProperty(runtime, "height").asNumber();
         }
 
+        // Options: { textureMode?: 'copy' | 'direct' }. Copy is the default.
+        bool directTexture = false;
+        if (count >= 3 && arguments[2].isObject()) {
+          auto options = arguments[2].asObject(runtime);
+          if (options.hasProperty(runtime, "textureMode")) {
+            auto mode = options.getProperty(runtime, "textureMode");
+            if (mode.isString()) {
+              directTexture = mode.asString(runtime).utf8(runtime) == "direct";
+            }
+          }
+        }
+
         NSURL* url = [NSURL URLWithString:urlStr];
 
         auto instance = std::make_shared<VideoPlayerHostObject>(
-            runtime, jsCallInvoker, url, resolution);
+            runtime, jsCallInvoker, url, resolution, directTexture);
         return jsi::Object::createFromHostObject(runtime, instance);
       });
   RNSVModule.setProperty(runtime, "createVideoPlayer",

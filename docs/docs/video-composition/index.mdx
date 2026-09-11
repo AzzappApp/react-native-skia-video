@@ -48,7 +48,9 @@ There are two kinds of items:
 
 - **Video items** (`kind: 'video'`, the default) produce frames for
   `drawFrame`. They are silent unless you set their [`audio`](/docs/video-composition/audio)
-  option. An optional `resolution` downscales decoding for performance.
+  option. An optional `resolution` downscales decoding for performance, and on
+  iOS an experimental `textureMode: 'direct'` hands the decoded frames to Skia
+  without the per-frame GPU copy (see the [API reference](/docs/api)).
 - **Audio items** (`kind: 'audio'`) never produce frames; their audio track
   plays during preview and is mixed into the export. See
   [Audio](/docs/video-composition/audio).

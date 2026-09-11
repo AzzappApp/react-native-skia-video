@@ -48,6 +48,21 @@ export type VideoDimensions = {
 export type BufferingRange = { start: number; duration: number };
 
 /**
+ * How decoded frames are handed to Skia on iOS.
+ *
+ * - `copy` (default): every frame is copied on the GPU into a texture owned by
+ *   the player, which stays valid as long as the player lives.
+ * - `direct`: the decoder's own pixel buffer is wrapped in a Metal texture,
+ *   without any copy nor GPU wait. Cheaper, but a frame is only guaranteed to
+ *   stay valid until two newer frames have been decoded: draw it right away
+ *   and do not keep it around. Experimental. Falls back to `copy` when a
+ *   buffer cannot be wrapped.
+ *
+ * Ignored on Android.
+ */
+export type VideoTextureMode = 'copy' | 'direct';
+
+/**
  * The video player interface.
  */
 export type VideoPlayer = {
@@ -197,6 +212,11 @@ export type VideoCompositionVideoItem = VideoCompositionItemBase & {
    * Downscaling the video can improve performance.
    */
   resolution?: { width: number; height: number };
+  /**
+   * How the frames of this item are handed to Skia on iOS, see
+   * `VideoTextureMode`. Defaults to `copy`.
+   */
+  textureMode?: VideoTextureMode;
   /**
    * If set, the audio track of the video file will be played (during
    * playback) and mixed into the exported video (during export), following
@@ -424,11 +444,14 @@ export type RNSkiaVideoModule = {
    * @param resolution If provided, the resolution to scale the video to.
    * If not provided, the original resolution of the video will be used.
    * Downscaling the video can improve performance.
+   * @param options `textureMode` selects how frames are handed to Skia on
+   * iOS, see `VideoTextureMode`.
    * @returns The video player.
    */
   createVideoPlayer: (
     uri: string,
-    resolution?: { width: number; height: number } | null
+    resolution?: { width: number; height: number } | null,
+    options?: { textureMode?: VideoTextureMode } | null
   ) => VideoPlayer;
   /**
    * Creates a video composition frames extractor for the specified video composition.

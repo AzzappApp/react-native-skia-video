@@ -54,6 +54,7 @@ const MyVideoPlayer = ({ uri, width, height }) => {
 | `isLooping` | `boolean` | Restart from the beginning when playback completes. |
 | `volume` | `number` | Volume of the video's audio track (0–1). |
 | `playbackSpeed` | `number` | 1 is normal speed, 2 double, 0.5 half. |
+| `textureMode` | `'copy' \| 'direct'` | iOS only, experimental. `direct` hands the decoder's pixel buffers to Skia without the per-frame GPU copy and wait of the default `copy` mode. A `direct` frame is only guaranteed valid until two newer frames were decoded, so draw it right away. Falls back to `copy` when a buffer cannot be wrapped. |
 
 ## Callbacks
 

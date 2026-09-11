@@ -115,24 +115,32 @@ static void* rateContext = &rateContext;
   }
 }
 
-- (nullable id<MTLTexture>)getNextTextureForTime:(CMTime)time {
-  id<MTLTexture> texture = NULL;
-  if ([_videoOutput hasNewPixelBufferForItemTime:time]) {
-    auto buffer = [_videoOutput copyPixelBufferForItemTime:time
-                                        itemTimeForDisplay:nil];
-    if (buffer) {
-      size_t width = CVPixelBufferGetWidth(buffer);
-      size_t height = CVPixelBufferGetHeight(buffer);
-      if (!_mtlTexture || width != _mtlTexture.width ||
-          height != _mtlTexture.height) {
-        _mtlTexture = [MTLTextureUtils
-            createMTLTextureForVideoOutput:CGSizeMake(width, height)];
-      }
-      [MTLTextureUtils updateTexture:_mtlTexture with:buffer];
-      CVPixelBufferRelease(buffer);
-      texture = _mtlTexture;
-    }
+- (nullable CVPixelBufferRef)copyNextPixelBufferForTime:(CMTime)time {
+  if (![_videoOutput hasNewPixelBufferForItemTime:time]) {
+    return NULL;
   }
+  return [_videoOutput copyPixelBufferForItemTime:time itemTimeForDisplay:nil];
+}
+
+- (nullable id<MTLTexture>)textureFromPixelBuffer:(CVPixelBufferRef)buffer {
+  size_t width = CVPixelBufferGetWidth(buffer);
+  size_t height = CVPixelBufferGetHeight(buffer);
+  if (!_mtlTexture || width != _mtlTexture.width ||
+      height != _mtlTexture.height) {
+    _mtlTexture = [MTLTextureUtils
+        createMTLTextureForVideoOutput:CGSizeMake(width, height)];
+  }
+  [MTLTextureUtils updateTexture:_mtlTexture with:buffer];
+  return _mtlTexture;
+}
+
+- (nullable id<MTLTexture>)getNextTextureForTime:(CMTime)time {
+  CVPixelBufferRef buffer = [self copyNextPixelBufferForTime:time];
+  if (!buffer) {
+    return NULL;
+  }
+  id<MTLTexture> texture = [self textureFromPixelBuffer:buffer];
+  CVPixelBufferRelease(buffer);
   return texture;
 }
 

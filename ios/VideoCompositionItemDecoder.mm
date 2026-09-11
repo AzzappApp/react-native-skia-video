@@ -36,6 +36,16 @@ VideoCompositionItemDecoder::VideoCompositionItemDecoder(
   currentFrame = nullptr;
   this->setupReader(kCMTimeZero);
 
+  directTexture = item->directTexture;
+  if (!directTexture) {
+    ensurePersistentTexture();
+  }
+}
+
+void VideoCompositionItemDecoder::ensurePersistentTexture() {
+  if (mtlTexture) {
+    return;
+  }
   CGSize resolution = item->resolution;
   if (resolution.width <= 0 || resolution.height <= 0) {
     resolution.width = width;
@@ -45,6 +55,47 @@ VideoCompositionItemDecoder::VideoCompositionItemDecoder(
   if (!mtlTexture) {
     throw std::runtime_error("Failed to create persistent Metal texture!");
   }
+}
+
+// Number of direct mode frames kept alive per item once handed out. The
+// render thread may still be drawing the previous image when the next frames
+// are decoded, and the pixel buffer pool must not recycle them meanwhile.
+#define DIRECT_FRAMES_RING 3
+
+std::shared_ptr<VideoFrame>
+VideoCompositionItemDecoder::makeFrame(CVPixelBufferRef buffer) {
+  if (directTexture) {
+    // Direct mode: Skia samples the decoder's own IOSurface through a Metal
+    // texture, no copy and no GPU wait. The frame owns the pixel buffer and
+    // the texture; the ring keeps the last few frames alive.
+    CVMetalTextureRef metalTexture =
+        [MTLTextureUtils createMetalTextureFromPixelBuffer:buffer];
+    if (metalTexture) {
+      auto frame = std::make_shared<VideoFrame>(
+          CVMetalTextureGetTexture(metalTexture),
+          (double)CVPixelBufferGetWidth(buffer),
+          (double)CVPixelBufferGetHeight(buffer), rotation);
+      CVPixelBufferRetain(buffer);
+      frame->adoptBacking(buffer, metalTexture);
+      @synchronized(lock) {
+        directFrames.push_back(frame);
+        while (directFrames.size() > DIRECT_FRAMES_RING) {
+          directFrames.front()->releaseBacking();
+          directFrames.pop_front();
+        }
+      }
+      return frame;
+    }
+    // This buffer cannot be wrapped: stay on the copy path from now on rather
+    // than failing the playback.
+    NSLog(@"[RNSkiaVideo] direct texture mode unavailable for item %s, "
+          @"falling back to copy",
+          item->id.c_str());
+    directTexture = false;
+  }
+  ensurePersistentTexture();
+  [MTLTextureUtils updateTexture:mtlTexture with:buffer];
+  return std::make_shared<VideoFrame>(mtlTexture, width, height, rotation);
 }
 
 void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
@@ -235,9 +286,9 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
   }
   if (nextFrame) {
     CVPixelBufferRef buffer = CMSampleBufferGetImageBuffer(nextFrame);
-    [MTLTextureUtils updateTexture:mtlTexture with:buffer];
+    auto frame = makeFrame(buffer);
     CFRelease(nextFrame);
-    return std::make_shared<VideoFrame>(mtlTexture, width, height, rotation);
+    return frame;
   }
   return nullptr;
 }
@@ -263,6 +314,10 @@ void VideoCompositionItemDecoder::release() {
       CFRelease(frame.second);
     }
     nextLoopFrames.clear();
+    for (const auto& frame : directFrames) {
+      frame->releaseBacking();
+    }
+    directFrames.clear();
     hasLooped = false;
     lastRequestedTime = kCMTimeInvalid;
     currentFrame = nullptr;

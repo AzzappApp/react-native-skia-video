@@ -3,6 +3,7 @@
 #import "VideoComposition.h"
 #import "VideoFrame.h"
 #import <AVFoundation/AVFoundation.h>
+#import <deque>
 #import <list>
 
 using namespace facebook;
@@ -32,7 +33,12 @@ private:
   AVAssetTrack* videoTrack;
   NSArray<AVAssetTrackSegment*>* segments;
   AVAssetReader* assetReader;
+  // Copy mode: the persistent texture every frame is copied into.
   id<MTLTexture> mtlTexture;
+  // Direct mode: frames wrap the decoder's pixel buffers; the last few stay
+  // alive here so an image still being drawn survives the next decodes.
+  bool directTexture = false;
+  std::deque<std::shared_ptr<VideoFrame>> directFrames;
   std::list<std::pair<double, CMSampleBufferRef>> decodedFrames;
   std::list<std::pair<double, CMSampleBufferRef>> nextLoopFrames;
   CMTime lastRequestedTime = kCMTimeInvalid;
@@ -40,6 +46,8 @@ private:
 
   void setupReader(CMTime initialTime);
   double mapSourceTimeToTarget(CMTime sourceTime);
+  void ensurePersistentTexture();
+  std::shared_ptr<VideoFrame> makeFrame(CVPixelBufferRef buffer);
 };
 
 } // namespace RNSkiaVideo

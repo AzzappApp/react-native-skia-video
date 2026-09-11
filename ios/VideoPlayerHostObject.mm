@@ -6,15 +6,21 @@
 //
 
 #import "VideoPlayerHostObject.h"
+#import "MTLTextureUtils.h"
 #import "RNSVJSIUtils.h"
 
 namespace RNSkiaVideo {
 using namespace facebook;
 
+// Number of direct mode frames kept alive once handed out: the render thread
+// may still be drawing the previous image when the next frames arrive, and the
+// pixel buffer pool must not recycle them meanwhile.
+#define DIRECT_FRAMES_RING 3
+
 VideoPlayerHostObject::VideoPlayerHostObject(
     jsi::Runtime& runtime, std::shared_ptr<react::CallInvoker> callInvoker,
-    NSURL* url, CGSize resolution)
-    : EventEmitter(runtime, callInvoker) {
+    NSURL* url, CGSize resolution, bool directTexture)
+    : EventEmitter(runtime, callInvoker), directTexture(directTexture) {
   playerDelegate =
       [[RNSVSkiaVideoPlayerDelegateImpl alloc] initWithHost:this
                                                     runtime:&runtime];
@@ -61,6 +67,16 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
           if (released.test() || !CMTIME_IS_VALID(lastFrameAvailable) ||
               CMTimeCompare(lastFrameDrawn, lastFrameAvailable) == 0) {
             return jsi::Value::null();
+          }
+          if (directTexture) {
+            CVPixelBufferRef buffer =
+                [player copyNextPixelBufferForTime:lastFrameAvailable];
+            if (buffer == NULL) {
+              return jsi::Value::null();
+            }
+            lastFrameDrawn = lastFrameAvailable;
+            return jsi::Object::createFromHostObject(runtime,
+                                                     makeDirectFrame(buffer));
           }
           auto texture = [player getNextTextureForTime:lastFrameAvailable];
           if (texture == nil) {
@@ -204,12 +220,45 @@ void VideoPlayerHostObject::readyToPlay(float width, float height,
   this->rotation = rotation;
 }
 
+// Direct texture mode: wraps the pixel buffer (+1, adopted by the frame) in a
+// Metal texture without copying. Falls back to the copy path for good when a
+// buffer cannot be wrapped, so playback never fails on it.
+std::shared_ptr<VideoFrame>
+VideoPlayerHostObject::makeDirectFrame(CVPixelBufferRef buffer) {
+  CVMetalTextureRef metalTexture =
+      [MTLTextureUtils createMetalTextureFromPixelBuffer:buffer];
+  if (metalTexture) {
+    auto frame = std::make_shared<VideoFrame>(
+        CVMetalTextureGetTexture(metalTexture),
+        (double)CVPixelBufferGetWidth(buffer),
+        (double)CVPixelBufferGetHeight(buffer), rotation);
+    frame->adoptBacking(buffer, metalTexture);
+    directFrames.push_back(frame);
+    while (directFrames.size() > DIRECT_FRAMES_RING) {
+      directFrames.front()->releaseBacking();
+      directFrames.pop_front();
+    }
+    return frame;
+  }
+  NSLog(@"[RNSkiaVideo] direct texture mode unavailable for this player, "
+        @"falling back to copy");
+  directTexture = false;
+  auto texture = [player textureFromPixelBuffer:buffer];
+  CVPixelBufferRelease(buffer);
+  currentFrame = std::make_shared<VideoFrame>(texture, width, height, rotation);
+  return currentFrame;
+}
+
 void VideoPlayerHostObject::release() {
   if (!released.test_and_set()) {
     removeAllListeners();
     if (currentFrame) {
       currentFrame = nullptr;
     }
+    for (const auto& frame : directFrames) {
+      frame->releaseBacking();
+    }
+    directFrames.clear();
     if (playerDelegate) {
       [playerDelegate dispose];
       playerDelegate = nullptr;
