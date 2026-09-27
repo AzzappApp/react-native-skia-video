@@ -384,7 +384,17 @@ export default function StressTest({ autorun }: { autorun?: boolean }) {
           available.add(file);
         }
       }
-      const built = buildScenarios(available);
+      let built = buildScenarios(available);
+      // A run of some scenarios only: STRESS_DIR/only holds a regular
+      // expression of their names.
+      if (available.has('only')) {
+        const only = new RegExp(
+          (
+            await ReactNativeBlobUtil.fs.readFile(`${STRESS_DIR}/only`, 'utf8')
+          ).trim()
+        );
+        built = built.filter((scenario) => only.test(scenario.name));
+      }
       setScenarios(built);
       setStatus(
         built.length
@@ -743,6 +753,9 @@ export default function StressTest({ autorun }: { autorun?: boolean }) {
             await sleep(400);
             playerRef.current?.seekTo(composition.duration * 0.7);
             await sleep(300);
+            // Unmounted, so that the next cycle mounts a new player.
+            setCurrent(null);
+            await sleep(100);
             cycles++;
           }
           setCurrent(null);
