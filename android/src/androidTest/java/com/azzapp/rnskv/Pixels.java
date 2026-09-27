@@ -66,6 +66,42 @@ final class Pixels {
     }
   }
 
+  /**
+   * The red of an external texture (a decoder's buffer) at normalized
+   * coordinates, v = 0 being the buffer's first row, as Skia samples it.
+   */
+  static int externalAt(int texture, float u, float v) {
+    int[] target = new int[1];
+    GLES20.glGenTextures(1, target, 0);
+    int[] fbo = new int[1];
+    GLES20.glGenFramebuffers(1, fbo, 0);
+    TextureRenderer renderer = new TextureRenderer(true);
+    try {
+      GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, target[0]);
+      GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, 8, 8, 0,
+        GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null);
+      GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0]);
+      GLES20.glFramebufferTexture2D(
+        GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, target[0], 0);
+      GLES20.glViewport(0, 0, 8, 8);
+      // Every fragment samples (u, v).
+      float[] matrix = new float[16];
+      matrix[10] = 1;
+      matrix[12] = u;
+      matrix[13] = v;
+      matrix[15] = 1;
+      renderer.draw(texture, matrix);
+      ByteBuffer pixel = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder());
+      GLES20.glReadPixels(4, 4, 1, 1, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixel);
+      return pixel.get(0) & 0xff;
+    } finally {
+      renderer.release();
+      GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+      GLES20.glDeleteFramebuffers(1, fbo, 0);
+      GLES20.glDeleteTextures(1, target, 0);
+    }
+  }
+
   /** The frame shows, in its pixels, the frame its timestamp names. */
   static void assertShowsItsFrame(String label, VideoFrame frame, int fps) {
     assertNotNull(label + ": no frame", frame);
