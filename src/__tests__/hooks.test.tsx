@@ -46,8 +46,10 @@ jest.mock('react-native-reanimated', () => {
   };
 });
 
+const mockCanvas = { kind: 'canvas', drawColor: jest.fn() };
+
 const mockSurface = {
-  getCanvas: jest.fn(() => ({ kind: 'canvas' })),
+  getCanvas: jest.fn(() => mockCanvas),
   flush: jest.fn(),
   getNativeTextureUnstable: jest.fn(() => ({ kind: 'texture' })),
   dispose: jest.fn(),
@@ -58,7 +60,9 @@ const mockSurface = {
 const mockWarmUpSurface = { dispose: jest.fn() };
 
 jest.mock('@shopify/react-native-skia', () => ({
+  BlendMode: { Clear: 0 },
   Skia: {
+    Color: jest.fn(() => 'transparent'),
     Surface: {
       MakeOffscreen: jest.fn((width: number, height: number) =>
         width === 1 && height === 1 ? mockWarmUpSurface : mockSurface
@@ -383,6 +387,20 @@ describe('useVideoCompositionPlayer', () => {
     tick();
     expect(surfaceCalls()).toHaveLength(1);
     expect(drawFrame).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the canvas before each draw, as the export does', () => {
+    const { extractor, drawFrame } = setup();
+    extractor.isPlaying = true;
+    drawFrame.mockImplementation(() => {
+      expect(mockCanvas.drawColor).toHaveBeenCalledTimes(
+        drawFrame.mock.calls.length
+      );
+    });
+    tick();
+    tick();
+    expect(drawFrame).toHaveBeenCalledTimes(2);
+    expect(mockCanvas.drawColor).toHaveBeenLastCalledWith('transparent', 0);
   });
 
   it('hands the decoded frames and the time to drawFrame at the surface size', () => {

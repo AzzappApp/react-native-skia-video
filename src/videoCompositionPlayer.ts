@@ -1,5 +1,5 @@
 import type { SkImage, SkSurface } from '@shopify/react-native-skia';
-import { Skia } from '@shopify/react-native-skia';
+import { BlendMode, Skia } from '@shopify/react-native-skia';
 import {
   useSharedValue,
   useFrameCallback,
@@ -267,6 +267,9 @@ export const useVideoCompositionPlayer = <T = undefined>({
     }
 
     const canvas = surface.getCanvas();
+    // Cleared as the export clears it: a drawFrame that leaves part of the
+    // canvas alone showed the previous frames there, and not in the export.
+    canvas.drawColor(Skia.Color('#00000000'), BlendMode.Clear);
     const context = beforeDrawFrame?.() as T;
     drawFrame({
       canvas,
