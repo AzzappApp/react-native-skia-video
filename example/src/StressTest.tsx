@@ -57,7 +57,7 @@ const MEDIA: Media[] = [
   { file: 'hevc-4k30-audio.mp4', duration: 8 },
 ];
 
-type Step = 'play' | 'seek' | 'scrub' | 'loop' | 'export';
+type Step = 'play' | 'seek' | 'scrub' | 'loop' | 'export' | 'churn';
 
 type Scenario = {
   name: string;
@@ -109,6 +109,9 @@ const buildScenarios = (available: Set<string>): Scenario[] => {
   const media = MEDIA.filter((m) => has(m.file) && m.duration >= 2);
   const scenarios: Scenario[] = [];
   const all: Step[] = ['play', 'seek', 'scrub', 'loop', 'export'];
+  // Players mounted and unmounted while they draw: dispose on the JS thread
+  // during a draw on the UI thread.
+  const withChurn: Step[] = [...all, 'churn'];
 
   for (const lazy of [false, true]) {
     scenarios.push({
@@ -121,7 +124,7 @@ const buildScenarios = (available: Set<string>): Scenario[] => {
         })),
         { lazy, overlap: 0.5 }
       ),
-      steps: all,
+      steps: lazy ? withChurn : all,
       errorAllowed: !lazy,
     });
   }
@@ -135,7 +138,7 @@ const buildScenarios = (available: Set<string>): Scenario[] => {
     scenarios.push({
       name: '4k-x8-lazy',
       composition: sequence(clips, { lazy: true }),
-      steps: all,
+      steps: withChurn,
     });
     scenarios.push({
       name: '4k-x8-lazy-maxLongSide1280',
@@ -607,6 +610,33 @@ export default function StressTest({ autorun }: { autorun?: boolean }) {
             failOrInfo(
               step,
               `wrapped=${wrapped} drewFirstItems=${drew} ${events.current.errors.join('; ')}`
+            );
+          }
+        } else if (step === 'churn') {
+          for (let i = 0; i < 25; i++) {
+            setCurrent(null);
+            await sleep(20 + Math.random() * 100);
+            events.current.ready = false;
+            setCurrent(scenario);
+            if (!(await waitFor(() => events.current.ready, 10000))) {
+              break;
+            }
+            playerRef.current?.seekTo(Math.random() * composition.duration);
+            playerRef.current?.play();
+            await sleep(50 + Math.random() * 350);
+          }
+          const ok = events.current.errors.length === 0 && events.current.ready;
+          if (ok) {
+            report({
+              scenario: name,
+              step,
+              ok,
+              detail: `25 mount, play, unmount cycles in ${Date.now() - t0}ms`,
+            });
+          } else {
+            failOrInfo(
+              step,
+              `ready=${events.current.ready} ${events.current.errors.join('; ')}`
             );
           }
         } else if (step === 'export') {
