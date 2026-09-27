@@ -58,7 +58,19 @@ const MEDIA: Media[] = [
   { file: 'hevc-4k30-audio.mp4', duration: 8 },
 ];
 
-type Step = 'play' | 'seek' | 'scrub' | 'loop' | 'export' | 'churn' | 'hold';
+// Played for frame pacing, copy and direct.
+const PERF_MEDIA = ['h264-1080p30-audio.mp4', 'h264-4k30.mp4', 'hevc-4k30.mp4'];
+
+type Step =
+  | 'play'
+  | 'seek'
+  | 'scrub'
+  | 'loop'
+  | 'export'
+  | 'churn'
+  | 'hold'
+  | 'perf'
+  | 'leak';
 
 type Scenario = {
   name: string;
@@ -119,6 +131,9 @@ const buildScenarios = (available: Set<string>): Scenario[] => {
   // Players mounted and unmounted while they draw: dispose on the JS thread
   // during a draw on the UI thread.
   const withChurn: Step[] = [...all, 'churn'];
+  // Copy and direct compared: frame pacing, and memory over many cycles.
+  const measured: Step[] = [...withChurn, 'perf'];
+  const measuredLeak: Step[] = [...withChurn, 'perf', 'leak'];
 
   for (const lazy of [false, true]) {
     scenarios.push({
@@ -131,7 +146,7 @@ const buildScenarios = (available: Set<string>): Scenario[] => {
         })),
         { lazy, overlap: 0.5 }
       ),
-      steps: lazy ? withChurn : all,
+      steps: lazy ? measured : [...all, 'leak'],
       errorAllowed: !lazy,
     });
   }
@@ -145,7 +160,7 @@ const buildScenarios = (available: Set<string>): Scenario[] => {
       })),
       { lazy: true, overlap: 0.5, direct: true }
     ),
-    steps: withChurn,
+    steps: measured,
   });
   const uhd = ['h264-4k30.mp4', 'hevc-4k30.mp4'].filter(has);
   if (uhd.length > 0) {
@@ -157,7 +172,7 @@ const buildScenarios = (available: Set<string>): Scenario[] => {
     scenarios.push({
       name: '4k-x8-lazy',
       composition: sequence(clips, { lazy: true }),
-      steps: withChurn,
+      steps: measuredLeak,
     });
     scenarios.push({
       name: '4k-x8-lazy-maxLongSide1280',
@@ -167,7 +182,7 @@ const buildScenarios = (available: Set<string>): Scenario[] => {
     scenarios.push({
       name: '4k-x8-lazy-direct',
       composition: sequence(clips, { lazy: true, direct: true }),
-      steps: withChurn,
+      steps: measuredLeak,
     });
     scenarios.push({
       name: '4k-x8-eager',
@@ -217,7 +232,16 @@ const buildScenarios = (available: Set<string>): Scenario[] => {
           { direct }
         ),
         // hold: a still frame, copy and direct, for a screenshot.
-        steps: m.duration >= 2 ? ['play', 'seek', 'loop', 'hold'] : ['play'],
+        steps:
+          m.duration < 2
+            ? ['play']
+            : [
+                'play',
+                'seek',
+                'loop',
+                'hold',
+                ...(PERF_MEDIA.includes(m.file) ? (['perf'] as Step[]) : []),
+              ],
       });
     }
   }
@@ -254,7 +278,11 @@ const buildScenarios = (available: Set<string>): Scenario[] => {
       duration: composition.duration,
       volume: 0.2,
     });
-    scenarios.push({ name: 'audio-lazy', composition, steps: all });
+    scenarios.push({
+      name: 'audio-lazy',
+      composition,
+      steps: [...all, 'leak'],
+    });
   }
   if (has('h264-720p-short.mp4') && has('h264-638x358.mp4')) {
     scenarios.push({
@@ -329,6 +357,13 @@ export default function StressTest({ autorun }: { autorun?: boolean }) {
 
   // Written by drawFrame on the UI thread, read by the runner.
   const ticks = useSharedValue(0);
+  // The perf step: draws, gaps between them and time spent in drawFrame.
+  const perfOn = useSharedValue(false);
+  const perfDraws = useSharedValue(0);
+  const perfGaps = useSharedValue(0);
+  const perfMaxGap = useSharedValue(0);
+  const perfDrawMs = useSharedValue(0);
+  const perfLast = useSharedValue(0);
   const missing = useSharedValue(0);
   const drawnTime = useSharedValue(-1);
   const drawnIds = useSharedValue('');
@@ -368,6 +403,18 @@ export default function StressTest({ autorun }: { autorun?: boolean }) {
           item.compositionStartTime <= currentTime &&
           currentTime < item.compositionStartTime + item.duration
       );
+      const drawStart = performance.now();
+      if (perfOn.value) {
+        if (perfLast.value > 0) {
+          const gap = drawStart - perfLast.value;
+          if (gap > 25) {
+            perfGaps.value += 1;
+          }
+          perfMaxGap.value = Math.max(perfMaxGap.value, gap);
+        }
+        perfLast.value = drawStart;
+        perfDraws.value += 1;
+      }
       const paint = Skia.Paint();
       const ids: string[] = [];
       let missed = false;
@@ -395,8 +442,22 @@ export default function StressTest({ autorun }: { autorun?: boolean }) {
       }
       drawnTime.value = currentTime;
       drawnIds.value = ids.join('|');
+      if (perfOn.value) {
+        perfDrawMs.value += performance.now() - drawStart;
+      }
     },
-    [ticks, missing, drawnTime, drawnIds]
+    [
+      ticks,
+      missing,
+      drawnTime,
+      drawnIds,
+      perfOn,
+      perfDraws,
+      perfGaps,
+      perfMaxGap,
+      perfDrawMs,
+      perfLast,
+    ]
   );
 
   const onError = useCallback((error: any) => {
@@ -533,6 +594,9 @@ export default function StressTest({ autorun }: { autorun?: boolean }) {
           const detail = `${done ? 'completed' : 'no complete'} in ${Date.now() - t0}ms, ${ticks.value} draws, ${missing.value} without a settled item's frame`;
           if (ok) {
             report({ scenario: name, step, ok, detail });
+          } else if (done && scenario.errorAllowed) {
+            // More decoders than the hardware runs in real time.
+            report({ scenario: name, step, ok: 'info', detail });
           } else {
             failOrInfo(step, `${detail} ${events.current.errors.join('; ')}`);
           }
@@ -628,6 +692,78 @@ export default function StressTest({ autorun }: { autorun?: boolean }) {
               `wrapped=${wrapped} drewFirstItems=${drew} ${events.current.errors.join('; ')}`
             );
           }
+        } else if (step === 'perf') {
+          // Frame pacing while playing; the host resets and reads the
+          // system's frame stats (Android gfxinfo) around it.
+          p.pause();
+          p.seekTo(0);
+          await sleep(500);
+          perfDraws.value = 0;
+          perfGaps.value = 0;
+          perfMaxGap.value = 0;
+          perfDrawMs.value = 0;
+          perfLast.value = 0;
+          console.log(`STRESS_PERF_BEGIN|${name}`);
+          const started = Date.now();
+          perfOn.value = true;
+          p.play();
+          await sleep(Math.min(composition.duration - 0.2, 8) * 1000);
+          perfOn.value = false;
+          const seconds = (Date.now() - started) / 1000;
+          console.log(`STRESS_PERF_END|${name}`);
+          p.pause();
+          const draws = perfDraws.value;
+          report({
+            scenario: name,
+            step,
+            ok: true,
+            detail: `${(draws / seconds).toFixed(1)} draws/s, ${perfGaps.value} gaps over 25ms (max ${perfMaxGap.value.toFixed(0)}ms), drawFrame ${(perfDrawMs.value / Math.max(draws, 1)).toFixed(2)}ms avg`,
+          });
+        } else if (step === 'leak') {
+          // The same composition mounted, played, sought and unmounted again
+          // and again; the host samples memory, threads and codecs every ten
+          // cycles, unmounted, and checks they stay flat.
+          let cycles = 0;
+          for (let cycle = 0; cycle <= 40; cycle++) {
+            if (cycle % 10 === 0) {
+              setCurrent(null);
+              await sleep(1500);
+              console.log(`STRESS_SAMPLE|${name}|${cycle}`);
+              await sleep(2000);
+            }
+            if (cycle === 40) {
+              break;
+            }
+            events.current.ready = false;
+            setCurrent(scenario);
+            if (!(await waitFor(() => events.current.ready, 10000))) {
+              break;
+            }
+            playerRef.current?.play();
+            await sleep(400);
+            playerRef.current?.seekTo(composition.duration * 0.7);
+            await sleep(300);
+            cycles++;
+          }
+          setCurrent(null);
+          const ok = cycles === 40 && events.current.errors.length === 0;
+          if (ok) {
+            report({
+              scenario: name,
+              step,
+              ok,
+              detail: `${cycles} mount, play, seek, unmount cycles; memory sampled every 10`,
+            });
+          } else {
+            failOrInfo(
+              step,
+              `${cycles} cycles ${events.current.errors.join('; ')}`
+            );
+          }
+          // Back for the steps after this one.
+          events.current.ready = false;
+          setCurrent(scenario);
+          await waitFor(() => events.current.ready, 15000);
         } else if (step === 'hold') {
           p.pause();
           const time = Math.min(1, composition.duration / 2) + 0.013;
@@ -751,7 +887,20 @@ export default function StressTest({ autorun }: { autorun?: boolean }) {
       .appendFile(`${STRESS_DIR}/results.txt`, 'done\n', 'utf8')
       .catch(() => {});
     running.current = false;
-  }, [scenarios, report, ticks, missing, drawnTime, drawnIds]);
+  }, [
+    scenarios,
+    report,
+    ticks,
+    missing,
+    drawnTime,
+    drawnIds,
+    perfOn,
+    perfDraws,
+    perfGaps,
+    perfMaxGap,
+    perfDrawMs,
+    perfLast,
+  ]);
 
   useEffect(() => {
     if (autorun && scenarios?.length) {
