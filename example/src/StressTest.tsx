@@ -8,6 +8,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import {
+  drawVideoFrame,
   exportVideoComposition,
   getValidEncoderConfigurations,
   useVideoCompositionPlayer,
@@ -57,7 +58,7 @@ const MEDIA: Media[] = [
   { file: 'hevc-4k30-audio.mp4', duration: 8 },
 ];
 
-type Step = 'play' | 'seek' | 'scrub' | 'loop' | 'export' | 'churn';
+type Step = 'play' | 'seek' | 'scrub' | 'loop' | 'export' | 'churn' | 'hold';
 
 type Scenario = {
   name: string;
@@ -80,7 +81,12 @@ const path = (file: string) => `${STRESS_DIR}/${file}`;
 /** Clips one after another, overlapping by `overlap` seconds. */
 const sequence = (
   clips: { file: string; start: number; duration: number; extra?: object }[],
-  options: { lazy?: boolean; overlap?: number; maxLongSide?: number } = {}
+  options: {
+    lazy?: boolean;
+    overlap?: number;
+    maxLongSide?: number;
+    direct?: boolean;
+  } = {}
 ): VideoComposition => {
   let time = 0;
   const items: VideoCompositionItem[] = clips.map((clip, index) => {
@@ -91,6 +97,7 @@ const sequence = (
       startTime: clip.start,
       duration: clip.duration,
       ...(options.maxLongSide ? { maxLongSide: options.maxLongSide } : {}),
+      ...(options.direct ? { textureMode: 'direct' as const } : {}),
       ...clip.extra,
     };
     time += clip.duration - (options.overlap ?? 0);
@@ -128,6 +135,18 @@ const buildScenarios = (available: Set<string>): Scenario[] => {
       errorAllowed: !lazy,
     });
   }
+  scenarios.push({
+    name: 'montage-all-crossfade-lazy-direct',
+    composition: sequence(
+      media.map((m, i) => ({
+        file: m.file,
+        start: (i * 0.7) % (m.duration - 2),
+        duration: 2,
+      })),
+      { lazy: true, overlap: 0.5, direct: true }
+    ),
+    steps: withChurn,
+  });
   const uhd = ['h264-4k30.mp4', 'hevc-4k30.mp4'].filter(has);
   if (uhd.length > 0) {
     const clips = Array.from({ length: 8 }, (_, i) => ({
@@ -144,6 +163,11 @@ const buildScenarios = (available: Set<string>): Scenario[] => {
       name: '4k-x8-lazy-maxLongSide1280',
       composition: sequence(clips, { lazy: true, maxLongSide: 1280 }),
       steps: all,
+    });
+    scenarios.push({
+      name: '4k-x8-lazy-direct',
+      composition: sequence(clips, { lazy: true, direct: true }),
+      steps: withChurn,
     });
     scenarios.push({
       name: '4k-x8-eager',
@@ -185,13 +209,17 @@ const buildScenarios = (available: Set<string>): Scenario[] => {
     });
   }
   for (const m of MEDIA.filter((x) => has(x.file))) {
-    scenarios.push({
-      name: `single-${m.file}`,
-      composition: sequence([
-        { file: m.file, start: 0, duration: Math.min(m.duration, 4) },
-      ]),
-      steps: m.duration >= 2 ? ['play', 'seek', 'loop'] : ['play'],
-    });
+    for (const direct of [false, true]) {
+      scenarios.push({
+        name: `single-${m.file}${direct ? '-direct' : ''}`,
+        composition: sequence(
+          [{ file: m.file, start: 0, duration: Math.min(m.duration, 4) }],
+          { direct }
+        ),
+        // hold: a still frame, copy and direct, for a screenshot.
+        steps: m.duration >= 2 ? ['play', 'seek', 'loop', 'hold'] : ['play'],
+      });
+    }
   }
   if (has('h264-1080p30-audio.mp4') && has('tone.m4a')) {
     const composition = sequence(
@@ -278,17 +306,11 @@ const drawTiles: FrameDrawer = ({
     if (!frame || frame.texture == null) {
       return;
     }
-    const image = Skia.Image.MakeImageFromNativeTextureUnstable(
-      frame.texture,
-      frame.width,
-      frame.height,
-      false
-    );
-    canvas.drawImageRect(
-      image,
-      { x: 0, y: 0, width: frame.width, height: frame.height },
+    drawVideoFrame(
+      canvas,
+      frame,
       { x: 0, y: index * tile, width, height: tile },
-      paint
+      { paint, fit: 'contain' }
     );
   });
 };
@@ -360,17 +382,11 @@ export default function StressTest({ autorun }: { autorun?: boolean }) {
           return;
         }
         ids.push(item.id);
-        const image = Skia.Image.MakeImageFromNativeTextureUnstable(
-          frame.texture,
-          frame.width,
-          frame.height,
-          false
-        );
-        canvas.drawImageRect(
-          image,
-          { x: 0, y: 0, width: frame.width, height: frame.height },
+        drawVideoFrame(
+          canvas,
+          frame,
           { x: 0, y: index * tile, width, height: tile },
-          paint
+          { paint, fit: 'contain' }
         );
       });
       ticks.value += 1;
@@ -611,6 +627,24 @@ export default function StressTest({ autorun }: { autorun?: boolean }) {
               step,
               `wrapped=${wrapped} drewFirstItems=${drew} ${events.current.errors.join('; ')}`
             );
+          }
+        } else if (step === 'hold') {
+          p.pause();
+          const time = Math.min(1, composition.duration / 2) + 0.013;
+          p.seekTo(time);
+          const shown = await waitFor(drawnAt(composition, time), 4000);
+          await sleep(300);
+          console.log(`STRESS_HOLD|${name}`);
+          await sleep(2500);
+          if (shown) {
+            report({
+              scenario: name,
+              step,
+              ok: true,
+              detail: `held ${time.toFixed(3)}s`,
+            });
+          } else {
+            failOrInfo(step, `no frame at ${time.toFixed(3)}s to hold`);
           }
         } else if (step === 'churn') {
           for (let i = 0; i < 25; i++) {
