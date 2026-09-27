@@ -86,6 +86,14 @@ VideoComposition::fromJSIObject(jsi::Runtime& runtime,
                             (int)res.getProperty(runtime, "height").asNumber());
       }
     }
+    if (jsItem.hasProperty(runtime, "textureMode")) {
+      auto modeProp = jsItem.getProperty(runtime, "textureMode");
+      if (modeProp.isString() &&
+          modeProp.asString(runtime).utf8(runtime) == "direct") {
+        item->setFieldValue(itemCls->getField<jboolean>("directTexture"),
+                            (jboolean)JNI_TRUE);
+      }
+    }
     if (jsItem.hasProperty(runtime, "maxLongSide")) {
       auto capProp = jsItem.getProperty(runtime, "maxLongSide");
       if (capProp.isNumber() && capProp.asNumber() > 0) {
@@ -144,5 +152,11 @@ VideoComposition::fromJSIObject(jsi::Runtime& runtime,
     }
   }
   return composition;
+}
+
+bool VideoComposition::hasDirectTextures() const {
+  static const auto hasDirectTexturesMethod =
+      getClass()->getMethod<jboolean()>("hasDirectTextures");
+  return hasDirectTexturesMethod(self());
 }
 } // namespace RNSkiaVideo

@@ -37,6 +37,18 @@ public class VideoComposition {
     return lazyDecoders;
   }
 
+  /**
+   * @return whether an item hands its decoder's buffers over directly
+   */
+  public boolean hasDirectTextures() {
+    for (Item item : items) {
+      if (item.isVideo() && item.isDirectTexture()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public boolean hasAudio() {
     for (Item item : items) {
       if (item.isAudioEnabled()) {
@@ -55,6 +67,8 @@ public class VideoComposition {
     private int width = -1;
     private int height = -1;
     private int maxLongSide = -1;
+    // textureMode: 'direct', set from native code.
+    private boolean directTexture = false;
     private boolean isVideo = true;
     private boolean audioEnabled = false;
     private double audioVolume = 1.0;
@@ -106,6 +120,14 @@ public class VideoComposition {
 
     public int getMaxLongSide() {
       return maxLongSide;
+    }
+
+    /**
+     * @return whether the item's frames are the decoder's own buffers, handed
+     * over without a copy (`textureMode: 'direct'`)
+     */
+    public boolean isDirectTexture() {
+      return directTexture;
     }
 
     public boolean isVideo() {

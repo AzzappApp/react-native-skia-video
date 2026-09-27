@@ -37,6 +37,8 @@ private:
   // while the JS thread disposes, and a use that passed the released check
   // went on with a player release() had just reset.
   std::recursive_mutex playerMutex;
+  // An item hands its decoder's buffers over: see decodeCompositionFrames.
+  bool directTextures = false;
   void release();
 };
 

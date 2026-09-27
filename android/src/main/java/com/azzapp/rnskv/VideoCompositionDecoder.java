@@ -302,6 +302,25 @@ public class VideoCompositionDecoder {
       if (decoder == null) {
         continue;
       }
+      if (glFrameExtractor.isDirect()) {
+        // The decoder's buffer itself: no texture of the item's own, and no
+        // resize, rotation or crop, which the frame describes instead.
+        int pictureWidth = decoder.getVideoWidth();
+        int pictureHeight = decoder.getVideoHeight();
+        if (!glFrameExtractor.decodeNextFrame(pictureWidth, pictureHeight)) {
+          continue;
+        }
+        VideoFrame nextFrame = new VideoFrame(
+          glFrameExtractor.getInputTexId(), VideoFrame.TARGET_EXTERNAL,
+          glFrameExtractor.getBufferWidth(), glFrameExtractor.getBufferHeight(),
+          decoder.getRotation(), glFrameExtractor.getLatestTimeStampNs(),
+          0, 0, pictureWidth, pictureHeight
+        );
+        slot.frame = nextFrame;
+        videoFrames.put(item.getId(), nextFrame);
+        framesVersion++;
+        continue;
+      }
       // The decoder still decodes the whole picture; the cap sizes the texture
       // it is drawn into, which is what an item holds for the life of the player.
       int[] size = FrameSize.of(
@@ -336,6 +355,16 @@ public class VideoCompositionDecoder {
    */
   public long getFramesVersion() {
     return framesVersion;
+  }
+
+  /**
+   * Makes the decoder's GL context current on the calling thread, where its
+   * frames are decoded.
+   */
+  public void makeGLContextCurrent() {
+    if (eglResourcesHolder != null) {
+      eglResourcesHolder.makeCurrent();
+    }
   }
 
   /**
@@ -542,7 +571,7 @@ public class VideoCompositionDecoder {
   }
 
   private GLFrameExtractor newExtractor(VideoComposition.Item item) {
-    GLFrameExtractor glFrameExtractor = new GLFrameExtractor();
+    GLFrameExtractor glFrameExtractor = new GLFrameExtractor(item.isDirectTexture());
     glFrameExtractor.setOnFrameAvailableListener(() -> {
       if (onItemImageAvailableListener != null) {
         onItemImageAvailableListener.onItemImageAvailable(item);

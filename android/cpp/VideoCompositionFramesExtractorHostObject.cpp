@@ -10,6 +10,7 @@ VideoCompositionFramesExtractorHostObject::
     : EventEmitter(runtime, JNIHelpers::getCallInvoker()) {
   jEventDispatcher = make_global(NativeEventDispatcher::create(this));
   auto composition = VideoComposition::fromJSIObject(runtime, jsComposition);
+  directTextures = composition->hasDirectTextures();
   player = make_global(
       VideoCompositionFramesExtractor::create(composition, jEventDispatcher));
 }
@@ -62,6 +63,14 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
           std::lock_guard<std::recursive_mutex> lock(playerMutex);
           if (released.test() || !prepared.test()) {
             return jsi::Object(runtime);
+          }
+          if (directTextures) {
+            // Skia drew the decoders' own buffers last time, and decoding
+            // hands them back to the codecs: the decode waits on the GPU for
+            // those reads, which ran in Skia's context, current here.
+            auto skiaReads = EGLFence::insert();
+            player->makeGLContextCurrent();
+            skiaReads.waitInCurrentContext();
           }
           auto versionBefore = player->getFramesVersion();
           auto frames = player->decodeCompositionFrames();

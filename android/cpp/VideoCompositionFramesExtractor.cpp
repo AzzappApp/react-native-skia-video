@@ -60,6 +60,12 @@ jlong VideoCompositionFramesExtractor::getFramesVersion() const {
   return getFramesVersionMethod(self());
 }
 
+void VideoCompositionFramesExtractor::makeGLContextCurrent() const {
+  static const auto makeGLContextCurrentMethod =
+      getClass()->getMethod<void()>("makeGLContextCurrent");
+  makeGLContextCurrentMethod(self());
+}
+
 local_ref<JMap<JString, VideoFrame>>
 VideoCompositionFramesExtractor::decodeCompositionFrames() {
   static const auto decodeCompositionFramesMethod =

@@ -120,6 +120,14 @@ public class VideoCompositionFramesExtractor {
   }
 
   /**
+   * Makes the decoder's GL context current on the calling thread, the one that
+   * calls {@link #decodeCompositionFrames}.
+   */
+  public void makeGLContextCurrent() {
+    decoder.makeGLContextCurrent();
+  }
+
+  /**
    * @return the current position of the player in microseconds
    */
   public long getCurrentPosition() {
