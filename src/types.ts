@@ -29,9 +29,19 @@ export type VideoFrame = {
    */
   height: number;
   /**
-   * The rotation in degrees of the frame.
+   * The rotation in degrees of the frame: how much to turn it clockwise to
+   * show it upright. iOS frames, and Android frames in `direct` mode, come as
+   * decoded, with the video's rotation; Android frames in `copy` mode are
+   * drawn upright and have none. {@link drawVideoFrame} applies it.
    */
   rotation: number;
+  /**
+   * The part of the texture that is the picture, in pixels, when it is not
+   * all of it: Android frames in `direct` mode are the decoder's own buffer,
+   * often larger than the picture (1920x1088 for a 1080p H.264 stream).
+   * {@link drawVideoFrame} draws only this part.
+   */
+  crop?: { x: number; y: number; width: number; height: number };
 };
 
 /**
@@ -58,7 +68,7 @@ export type VideoDimensions = {
 export type BufferingRange = { start: number; duration: number };
 
 /**
- * How decoded frames reach Skia on iOS.
+ * How decoded frames reach Skia.
  *
  * - `copy` (default): every decoded frame is copied on the GPU into one
  *   texture the player (or the item decoder) owns and reuses. A frame stays
@@ -69,7 +79,11 @@ export type BufferingRange = { start: number; duration: number };
  *   but a frame is only valid for the tick it is handed out in: its `texture`
  *   becomes `undefined` once newer frames have been decoded.
  *
- * Ignored on Android, which always renders through its own GL pipeline.
+ * On Android, composition items honour it (the video player does not yet):
+ * `copy` draws each frame, upright and resized, into a texture the item owns;
+ * `direct` hands Skia the decoder's buffer as an external texture, larger than
+ * its picture and not turned upright, valid until the item's next frame. Draw
+ * frames with {@link drawVideoFrame} to handle both modes on both platforms.
  */
 export type VideoTextureMode = 'copy' | 'direct';
 
@@ -266,10 +280,14 @@ export type VideoCompositionVideoItem = VideoCompositionItemBase & {
    */
   maxLongSide?: number;
   /**
-   * How this item's frames reach Skia on iOS, see {@link VideoTextureMode}.
+   * How this item's frames reach Skia, see {@link VideoTextureMode}.
+   *
+   * On Android, `direct` hands Skia the decoder's buffer as an external
+   * texture: no copy, and no texture of the item's own, so `resolution` and
+   * `maxLongSide` do not apply. The frame is then larger than its picture and
+   * not turned upright: draw it with {@link drawVideoFrame}.
    *
    * @default 'copy'
-   * @platform ios
    */
   textureMode?: VideoTextureMode;
   /**

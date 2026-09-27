@@ -4,6 +4,7 @@ export * from './types.js';
 export * from './videoPlayer.js';
 export * from './videoCompositionPlayer.js';
 export * from './exportVideoComposition.js';
+export * from './videoFrameImage.js';
 export declare const getValidEncoderConfigurations: typeof RNSkiaVideoModule.getValidEncoderConfigurations;
 export declare const getDecodingCapabilitiesFor: typeof RNSkiaVideoModule.getDecodingCapabilitiesFor;
 /**
