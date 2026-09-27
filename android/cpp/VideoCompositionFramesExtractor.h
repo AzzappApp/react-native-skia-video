@@ -42,6 +42,7 @@ public:
 
   local_ref<JMap<JString, VideoFrame>> decodeCompositionFrames();
 
+  void makeGLContextCurrent() const;
   void release() const;
 };
 } // namespace RNSkiaVideo

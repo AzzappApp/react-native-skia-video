@@ -42,6 +42,12 @@ jobs:
       - name: Run unit tests
         run: yarn test --maxWorkers=2 --coverage
 
+      # The Android JVM tests run with the Android build, which has the SDK.
+      - name: Run native unit tests
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror -Iios test/native/DecoderWindowTest.cpp -o "$RUNNER_TEMP/decoder-window"
+          "$RUNNER_TEMP/decoder-window"
+
   build-library:
     runs-on: ubuntu-latest
     steps:
@@ -112,6 +118,68 @@ jobs:
           JAVA_OPTS: "-XX:MaxHeapSize=6g"
         run: |
           yarn turbo run build:android --cache-dir="${{ env.TURBO_CACHE_DIR }}"
+
+  # The Java decoding pipeline on a real decoder: an emulator decodes a video
+  # the tests encode themselves. See android/src/androidTest.
+  test-android-device:
+    runs-on: ubuntu-latest
+    env:
+      JAVA_OPTS: "-XX:MaxHeapSize=6g"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Finalize Android SDK
+        run: |
+          /bin/bash -c "yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null"
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/wrapper
+            ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('example/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # Built before the emulator boots, so its time goes to the tests.
+      - name: Build the instrumented tests
+        working-directory: example/android
+        run: ./gradlew :azzapp_react-native-skia-video:assembleDebugAndroidTest --no-daemon --console=plain -PreactNativeArchitectures=x86_64
+
+      - name: Run them on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          working-directory: example/android
+          script: ./gradlew :azzapp_react-native-skia-video:connectedDebugAndroidTest --no-daemon --console=plain -PreactNativeArchitectures=x86_64
+
+      - name: Upload the test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-device-tests
+          path: android/build/reports/androidTests/
 
   build-ios:
     runs-on: macos-15

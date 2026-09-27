@@ -35,6 +35,9 @@ public class EGLResourcesHolder {
     EGLUtils.purgeOpenGLError();
     EGL10 egl = (EGL10) EGLContext.getEGL();
     EGLDisplay eglDisplay = egl.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY);
+    // Skia has initialized it in the app; a process without Skia has not.
+    // eglInitialize on an initialized display is a no-op.
+    egl.eglInitialize(eglDisplay, new int[2]);
 
     EGLConfig[] configs = new EGLConfig[1];
     int[] numConfigs = new int[1];
@@ -87,6 +90,9 @@ public class EGLResourcesHolder {
     EGLUtils.purgeOpenGLError();
     EGL10 egl = (EGL10) EGLContext.getEGL();
     EGLDisplay eglDisplay = egl.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY);
+    // Skia has initialized it in the app; a process without Skia has not.
+    // eglInitialize on an initialized display is a no-op.
+    egl.eglInitialize(eglDisplay, new int[2]);
 
     EGLConfig[] configs = new EGLConfig[1];
     int[] numConfigs = new int[1];

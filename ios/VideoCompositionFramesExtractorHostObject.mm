@@ -5,7 +5,6 @@
 #import "RNSVJSIUtils.h"
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
-#import <future>
 
 namespace RNSkiaVideo {
 
@@ -13,13 +12,21 @@ VideoCompositionFramesExtractorHostObject::
     VideoCompositionFramesExtractorHostObject(
         jsi::Runtime& runtime, std::shared_ptr<react::CallInvoker> callInvoker,
         std::shared_ptr<VideoComposition> videoComposition)
-    : EventEmitter(runtime, callInvoker), composition(videoComposition) {
+    : EventEmitter(runtime, callInvoker), composition(videoComposition),
+      window(videoComposition->lazyDecoders, true) {
   lock = [[NSObject alloc] init];
 }
 
 VideoCompositionFramesExtractorHostObject::
     ~VideoCompositionFramesExtractorHostObject() {
   this->release();
+  // The queued blocks hold this, a reader being opened among them: this
+  // returns once they have all run.
+  if (decoderQueue) {
+    dispatch_sync(decoderQueue, ^{
+      return;
+    });
+  }
 }
 
 std::vector<jsi::PropNameID>
@@ -203,12 +210,16 @@ void VideoCompositionFramesExtractorHostObject::prepare() {
   displayLink = [[RNSVDisplayLinkWrapper alloc]
       initWithUpdateBlock:^(CADisplayLink* displayLink) {
         dispatch_async(decoderQueue, ^{
-          std::vector<std::future<void>> futures;
+          std::vector<std::shared_ptr<VideoCompositionItemDecoder>> advancing;
+          std::vector<std::shared_ptr<VideoCompositionItem>> opening;
+          std::vector<std::shared_ptr<VideoCompositionItemDecoder>> closing;
+          CMTime currentTime = kCMTimeZero;
+          uint64_t generation = 0;
           @synchronized(lock) {
             if (released.test() || !initialized) {
               return;
             }
-            auto currentTime = getCurrentTime();
+            currentTime = getCurrentTime();
             if (CMTimeGetSeconds(currentTime) >= composition->duration) {
               if (!completeEmitted) {
                 completeEmitted = true;
@@ -234,19 +245,42 @@ void VideoCompositionFramesExtractorHostObject::prepare() {
             } else {
               completeEmitted = false;
             }
+            generation = seekGeneration;
+            updateWindow(currentTime, opening, closing);
+          }
+          // Readers are slow to open and close: not while the UI thread waits
+          // on the lock for its frames.
+          for (const auto& decoder : closing) {
+            decoder->release();
+          }
+          closing.clear();
+          if (!opening.empty()) {
+            openDecoders(opening, currentTime, generation);
+          }
+          @synchronized(lock) {
+            if (released.test()) {
+              return;
+            }
+            // Paused where every decoder has already been advanced to: there
+            // is nothing to decode until the position moves or a seek lands.
+            if (!isPlaying && opening.empty() &&
+                generation == lastAdvancedGeneration &&
+                CMTimeCompare(currentTime, lastAdvancedTime) == 0) {
+              return;
+            }
+            lastAdvancedTime = currentTime;
+            lastAdvancedGeneration = generation;
             for (const auto& entry : itemDecoders) {
-              auto decoder = entry.second;
-              if (decoder) {
-                futures.push_back(
-                    std::async(std::launch::async, [decoder, currentTime]() {
-                      decoder->advanceDecoder(currentTime);
-                    }));
+              if (entry.second) {
+                advancing.push_back(entry.second);
               }
             }
           }
-          for (auto& future : futures) {
-            future.get();
-          }
+          // In parallel on GCD's pool, instead of a new thread per decoder
+          // per vsync.
+          dispatch_apply(advancing.size(), DISPATCH_APPLY_AUTO, ^(size_t i) {
+            advancing[i]->advanceDecoder(currentTime);
+          });
         });
       }];
   [displayLink start];
@@ -259,10 +293,9 @@ void VideoCompositionFramesExtractorHostObject::init() {
     try {
       // Assets are shared between the video decoders and the audio
       // composition so a same file is never opened twice.
-      NSMutableDictionary<NSString*, AVURLAsset*>* assetCache =
-          [NSMutableDictionary dictionary];
+      assetCache = [NSMutableDictionary dictionary];
       for (const auto& item : composition->items) {
-        if (!item->isVideo) {
+        if (!item->isVideo || !opensAt(item, CMTimeGetSeconds(pausePosition))) {
           continue;
         }
         itemDecoders[item->id] = std::make_shared<VideoCompositionItemDecoder>(
@@ -351,8 +384,85 @@ void VideoCompositionFramesExtractorHostObject::seekTo(CMTime time) {
              toleranceAfter:kCMTimeZero];
   }
   @synchronized(lock) {
+    seekGeneration++;
     for (const auto& entry : itemDecoders) {
       entry.second->seekTo(time);
+    }
+  }
+}
+
+bool VideoCompositionFramesExtractorHostObject::opensAt(
+    const std::shared_ptr<VideoCompositionItem>& item, double position) const {
+  return window.opens(item->compositionStartTime,
+                      item->compositionStartTime + item->duration, position,
+                      composition->duration, false);
+}
+
+// Under the lock. Closed decoders leave the maps here and are released by the
+// caller; opened ones are made by openDecoders.
+void VideoCompositionFramesExtractorHostObject::updateWindow(
+    CMTime time, std::vector<std::shared_ptr<VideoCompositionItem>>& opening,
+    std::vector<std::shared_ptr<VideoCompositionItemDecoder>>& closing) {
+  if (!window.isLazy()) {
+    return;
+  }
+  double position = CMTimeGetSeconds(time);
+  for (const auto& item : composition->items) {
+    if (!item->isVideo) {
+      continue;
+    }
+    double start = item->compositionStartTime;
+    double end = start + item->duration;
+    auto it = itemDecoders.find(item->id);
+    if (it == itemDecoders.end()) {
+      if (!failedItems.count(item->id) &&
+          window.opens(start, end, position, composition->duration,
+                       isLooping)) {
+        NSLog(@"[rnskv] open %s at %.3fs", item->id.c_str(), position);
+        opening.push_back(item);
+      }
+    } else if (!window.keeps(start, end, position, composition->duration,
+                             isLooping)) {
+      NSLog(@"[rnskv] close %s at %.3fs", item->id.c_str(), position);
+      closing.push_back(it->second);
+      itemDecoders.erase(it);
+      if (currentFrames.erase(item->id) > 0) {
+        framesVersion++;
+      }
+    }
+  }
+}
+
+// On the decoder queue, outside of the lock.
+void VideoCompositionFramesExtractorHostObject::openDecoders(
+    const std::vector<std::shared_ptr<VideoCompositionItem>>& items,
+    CMTime time, uint64_t generation) {
+  for (const auto& item : items) {
+    std::shared_ptr<VideoCompositionItemDecoder> decoder;
+    NSError* failure = nil;
+    try {
+      decoder = std::make_shared<VideoCompositionItemDecoder>(
+          item, true, getOrCreateAsset(item->path, assetCache), time);
+    } catch (NSError* error) {
+      failure = error;
+    }
+    if (failure) {
+      // Decoder queue only, as updateWindow reads it.
+      failedItems.insert(item->id);
+      emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {
+        return RNSkiaVideo::NSErrorToJSI(runtime, failure);
+      });
+      continue;
+    }
+    @synchronized(lock) {
+      if (released.test()) {
+        decoder->release();
+        return;
+      }
+      if (seekGeneration != generation) {
+        decoder->seekTo(getCurrentTime());
+      }
+      itemDecoders[item->id] = decoder;
     }
   }
 }

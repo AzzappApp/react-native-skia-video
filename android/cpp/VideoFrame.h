@@ -17,6 +17,11 @@ public:
   jint getWidth();
   jint getHeight();
   jint getRotation();
+  jint getTarget();
+  jint getCropX();
+  jint getCropY();
+  jint getCropWidth();
+  jint getCropHeight();
 
   jsi::Value toJS(jsi::Runtime& jsRuntime);
 };

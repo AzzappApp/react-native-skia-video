@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mutex>
+
 #include <fbjni/fbjni.h>
 #include <jsi/jsi.h>
 #include <map>
@@ -31,6 +33,10 @@ private:
   std::shared_ptr<SkiaContextHolder> skiaContextHolder;
   jni::global_ref<VideoPlayer> player;
   std::atomic_flag released = ATOMIC_FLAG_INIT;
+  // Held by every use of `player` and by release(): the UI thread draws
+  // while the JS thread disposes, and a use that passed the released check
+  // went on with a player release() had just reset.
+  std::recursive_mutex playerMutex;
   void release();
 };
 

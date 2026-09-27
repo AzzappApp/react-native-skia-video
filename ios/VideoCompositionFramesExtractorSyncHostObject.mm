@@ -11,7 +11,7 @@ namespace RNSkiaVideo {
 VideoCompositionFramesExtractorSyncHostObject::
     VideoCompositionFramesExtractorSyncHostObject(
         std::shared_ptr<VideoComposition> composition)
-    : composition(composition) {}
+    : composition(composition), window(composition->lazyDecoders, false) {}
 
 VideoCompositionFramesExtractorSyncHostObject::
     ~VideoCompositionFramesExtractorSyncHostObject() {
@@ -42,7 +42,10 @@ jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
           return runPooled([&] {
             try {
               for (const auto& item : composition->items) {
-                if (!item->isVideo) {
+                if (!item->isVideo ||
+                    !window.opens(item->compositionStartTime,
+                                  item->compositionStartTime + item->duration,
+                                  0, composition->duration, false)) {
                   continue;
                 }
                 itemDecoders[item->id] =
@@ -62,7 +65,14 @@ jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
           auto currentTime =
               CMTimeMakeWithSeconds(arguments[0].asNumber(), NSEC_PER_SEC);
           auto frames = jsi::Object(runtime);
+          // Thrown after the pool is drained, as runPooled does.
+          NSError* failure = nil;
           @autoreleasepool {
+            try {
+              updateWindow(currentTime);
+            } catch (NSError* error) {
+              failure = error;
+            }
             for (const auto& entry : itemDecoders) {
               auto itemId = entry.first;
               auto decoder = entry.second;
@@ -83,6 +93,9 @@ jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
                     jsi::Object::createFromHostObject(runtime, frame));
               }
             }
+          }
+          if (failure) {
+            throw (__bridge NSError*)CFBridgingRetain(failure);
           }
           return frames;
         });
@@ -109,6 +122,35 @@ void VideoCompositionFramesExtractorSyncHostObject::release() {
   }
   itemDecoders.clear();
   currentFrames.clear();
+}
+
+// Opens the decoders of the items coming up and closes those left behind.
+void VideoCompositionFramesExtractorSyncHostObject::updateWindow(CMTime time) {
+  if (!window.isLazy()) {
+    return;
+  }
+  double position = CMTimeGetSeconds(time);
+  for (const auto& item : composition->items) {
+    if (!item->isVideo) {
+      continue;
+    }
+    double start = item->compositionStartTime;
+    double end = start + item->duration;
+    auto it = itemDecoders.find(item->id);
+    if (it == itemDecoders.end()) {
+      if (window.opens(start, end, position, composition->duration, false)) {
+        NSLog(@"[rnskv] export open %s at %.3fs", item->id.c_str(), position);
+        itemDecoders[item->id] = std::make_shared<VideoCompositionItemDecoder>(
+            item, false, nil, time);
+      }
+    } else if (!window.keeps(start, end, position, composition->duration,
+                             false)) {
+      NSLog(@"[rnskv] export close %s at %.3fs", item->id.c_str(), position);
+      it->second->release();
+      itemDecoders.erase(it);
+      currentFrames.erase(item->id);
+    }
+  }
 }
 
 } // namespace RNSkiaVideo

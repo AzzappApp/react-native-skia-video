@@ -224,6 +224,22 @@ describe('exportVideoComposition', () => {
     });
   });
 
+  it('encodes and reports a whole number of frames for a summed duration', async () => {
+    for (const duration of [1 - 1e-12, 1 + 1e-12]) {
+      jest.clearAllMocks();
+      const onProgress = jest.fn();
+      const { encoder } = await runExport({
+        videoComposition: { ...composition, duration },
+        onProgress,
+      });
+      expect(encoder.encodeFrame).toHaveBeenCalledTimes(4);
+      expect(onProgress).toHaveBeenLastCalledWith({
+        framesCompleted: 4,
+        nbFrames: 4,
+      });
+    }
+  });
+
   it('rejects with an AbortError when the signal is already aborted', async () => {
     const controller = new AbortController();
     controller.abort();

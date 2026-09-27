@@ -23,6 +23,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     window = UIWindow(frame: UIScreen.main.bounds)
 
+    // Hosting the native tests, which make their own Hermes runtime: React
+    // Native would look for Metro, fail, and crash in its error handler while
+    // the test process exits.
+    let environment = ProcessInfo.processInfo.environment
+    if environment["XCTestConfigurationFilePath"] != nil
+      || environment["XCTestBundlePath"] != nil
+      || NSClassFromString("XCTestCase") != nil {
+      window?.rootViewController = UIViewController()
+      window?.makeKeyAndVisible()
+      return true
+    }
+
     factory.startReactNative(
       withModuleName: "ReactNativeSkiaVideoExample",
       in: window,

@@ -47,6 +47,7 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
         runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          std::lock_guard<std::recursive_mutex> lock(playerMutex);
           if (released.test()) {
             return jsi::Value::null();
           }
@@ -73,6 +74,7 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
         runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          std::lock_guard<std::recursive_mutex> lock(playerMutex);
           if (!released.test()) {
             player->play();
           }
@@ -83,6 +85,7 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
         runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          std::lock_guard<std::recursive_mutex> lock(playerMutex);
           if (!released.test()) {
             player->pause();
           }
@@ -93,6 +96,7 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
         runtime, propName, 1,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          std::lock_guard<std::recursive_mutex> lock(playerMutex);
           if (released.test()) {
             return jsi::Value::undefined();
           }
@@ -101,24 +105,31 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
           return jsi::Value::undefined();
         });
   } else if (propName == "currentTime") {
+    std::lock_guard<std::recursive_mutex> lock(playerMutex);
     return jsi::Value(
         released.test() ? 0 : (double)player->getCurrentPosition() / 1000.0);
   } else if (propName == "duration") {
+    std::lock_guard<std::recursive_mutex> lock(playerMutex);
     return jsi::Value(released.test() ? 0
                                       : (double)player->getDuration() / 1000.0);
   } else if (propName == "volume") {
+    std::lock_guard<std::recursive_mutex> lock(playerMutex);
     return jsi::Value(released.test() ? 0 : (double)player->getVolume());
   } else if (propName == "playbackSpeed") {
+    std::lock_guard<std::recursive_mutex> lock(playerMutex);
     return jsi::Value(released.test() ? 1 : (double)player->getPlaybackSpeed());
   } else if (propName == "isLooping") {
+    std::lock_guard<std::recursive_mutex> lock(playerMutex);
     return jsi::Value(!(released.test()) && player->getIsLooping());
   } else if (propName == "isPlaying") {
+    std::lock_guard<std::recursive_mutex> lock(playerMutex);
     return jsi::Value(!(released.test()) && player->getIsPlaying());
   } else if (propName == "on") {
     return getFunction(
         runtime, propName, 2,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          std::lock_guard<std::recursive_mutex> lock(playerMutex);
           if (released.test()) {
             // Nothing to listen to anymore: hand out a no-op unsubscribe.
             return jsi::Function::createFromHostFunction(
@@ -148,6 +159,7 @@ void VideoPlayerHostObject::set(facebook::jsi::Runtime& runtime,
                                 const facebook::jsi::PropNameID& propNameId,
                                 const facebook::jsi::Value& value) {
   auto propName = propNameId.utf8(runtime);
+  std::lock_guard<std::recursive_mutex> lock(playerMutex);
   if (released.test()) {
     return;
   }
@@ -205,6 +217,7 @@ void VideoPlayerHostObject::handleEvent(std::string eventName,
 }
 
 void VideoPlayerHostObject::release() {
+  std::lock_guard<std::recursive_mutex> lock(playerMutex);
   if (!released.test_and_set()) {
     player->release();
     player = nullptr;

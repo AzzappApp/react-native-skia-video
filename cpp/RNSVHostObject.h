@@ -39,10 +39,11 @@ protected:
                          jsi::HostFunctionType&& function);
 
   /**
-   * Returns the object cached under `key` for `runtime`. The object is created
-   * once, and (re)filled through `fill` only when `version` differs from the
-   * version it was last filled for. Callers keep a monotonic version of the
-   * content they expose, so an unchanged content costs no allocation.
+   * Returns the object cached under `key` for `runtime`. A new object is made
+   * and filled through `fill` only when `version` differs from the version of
+   * the cached one, so it holds exactly what `fill` sets. Callers keep a
+   * monotonic version of the content they expose, so an unchanged content
+   * costs no allocation.
    */
   jsi::Value
   getVersionedObject(jsi::Runtime& runtime, const std::string& key,

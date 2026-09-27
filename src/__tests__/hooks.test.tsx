@@ -46,16 +46,28 @@ jest.mock('react-native-reanimated', () => {
   };
 });
 
+const mockCanvas = { kind: 'canvas', drawColor: jest.fn() };
+
 const mockSurface = {
-  getCanvas: jest.fn(() => ({ kind: 'canvas' })),
+  getCanvas: jest.fn(() => mockCanvas),
   flush: jest.fn(),
   getNativeTextureUnstable: jest.fn(() => ({ kind: 'texture' })),
   dispose: jest.fn(),
 };
 
+// The 1x1 surface the composition player makes before prepare(), so that
+// Skia's context exists on the UI thread.
+const mockWarmUpSurface = { dispose: jest.fn() };
+
 jest.mock('@shopify/react-native-skia', () => ({
+  BlendMode: { Clear: 0 },
   Skia: {
-    Surface: { MakeOffscreen: jest.fn(() => mockSurface) },
+    Color: jest.fn(() => 'transparent'),
+    Surface: {
+      MakeOffscreen: jest.fn((width: number, height: number) =>
+        width === 1 && height === 1 ? mockWarmUpSurface : mockSurface
+      ),
+    },
     Image: {
       MakeImageFromNativeTextureUnstable: jest.fn(
         (
@@ -83,6 +95,11 @@ const createFramesExtractor =
   RNSkiaVideoModule.createVideoCompositionFramesExtractor as jest.Mock;
 const makeImage = Skia.Image.MakeImageFromNativeTextureUnstable as jest.Mock;
 const makeOffscreen = Skia.Surface.MakeOffscreen as jest.Mock;
+/** The player's own surfaces, without the warm-up one. */
+const surfaceCalls = () =>
+  makeOffscreen.mock.calls.filter(
+    ([width, height]) => !(width === 1 && height === 1)
+  );
 
 const createPlayerMock = () => ({
   isPlaying: false,
@@ -351,16 +368,39 @@ describe('useVideoCompositionPlayer', () => {
     expect(drawFrame).toHaveBeenCalledTimes(3);
   });
 
+  it("makes Skia's context before preparing, for a player drawn first", () => {
+    const { extractor } = setup();
+    expect(makeOffscreen).toHaveBeenCalledWith(1, 1);
+    expect(mockWarmUpSurface.dispose).toHaveBeenCalledTimes(1);
+    expect(makeOffscreen.mock.invocationCallOrder[0]).toBeLessThan(
+      extractor.prepare.mock.invocationCallOrder[0]!
+    );
+  });
+
   it('waits for a real size before creating the surface', () => {
     const { drawFrame, rerender } = setup({ width: 0, height: 0 });
     tick();
-    expect(makeOffscreen).not.toHaveBeenCalled();
+    expect(surfaceCalls()).toHaveLength(0);
     expect(drawFrame).not.toHaveBeenCalled();
 
     rerender({ composition, drawFrame, width: 100, height: 50 });
     tick();
-    expect(makeOffscreen).toHaveBeenCalledTimes(1);
+    expect(surfaceCalls()).toHaveLength(1);
     expect(drawFrame).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the canvas before each draw, as the export does', () => {
+    const { extractor, drawFrame } = setup();
+    extractor.isPlaying = true;
+    drawFrame.mockImplementation(() => {
+      expect(mockCanvas.drawColor).toHaveBeenCalledTimes(
+        drawFrame.mock.calls.length
+      );
+    });
+    tick();
+    tick();
+    expect(drawFrame).toHaveBeenCalledTimes(2);
+    expect(mockCanvas.drawColor).toHaveBeenLastCalledWith('transparent', 0);
   });
 
   it('hands the decoded frames and the time to drawFrame at the surface size', () => {
@@ -401,7 +441,7 @@ describe('useVideoCompositionPlayer', () => {
     expect(firstImage).not.toBeNull();
 
     tick();
-    expect(makeOffscreen).toHaveBeenCalledTimes(1);
+    expect(surfaceCalls()).toHaveLength(1);
     expect(makeImage).toHaveBeenCalledTimes(2);
     // The second wrap is asked to reuse the first image.
     expect(makeImage.mock.calls[1]?.[4]).toBe(firstImage);
@@ -412,7 +452,7 @@ describe('useVideoCompositionPlayer', () => {
     const { extractor, rerender } = setup();
     extractor.isPlaying = true;
     tick();
-    expect(makeOffscreen).toHaveBeenCalledTimes(1);
+    expect(surfaceCalls()).toHaveLength(1);
 
     rerender({
       composition,
@@ -422,7 +462,7 @@ describe('useVideoCompositionPlayer', () => {
     });
     tick();
     expect(mockSurface.dispose).toHaveBeenCalledTimes(1);
-    expect(makeOffscreen).toHaveBeenCalledTimes(2);
+    expect(surfaceCalls()).toHaveLength(2);
   });
 
   it('runs beforeDrawFrame and afterDrawFrame around each draw', () => {

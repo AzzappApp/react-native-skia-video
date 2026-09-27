@@ -1,5 +1,6 @@
 #pragma once
 
+#import "DecoderWindow.h"
 #import "RNSVHostObject.h"
 #import "VideoComposition.h"
 #import "VideoCompositionItemDecoder.h"
@@ -22,10 +23,12 @@ public:
 
 private:
   std::shared_ptr<VideoComposition> composition;
+  DecoderWindow window;
   std::map<std::string, std::shared_ptr<VideoCompositionItemDecoder>>
       itemDecoders;
   std::map<std::string, std::shared_ptr<VideoFrame>> currentFrames;
   void release();
+  void updateWindow(CMTime time);
 };
 
 } // namespace RNSkiaVideo

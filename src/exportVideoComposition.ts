@@ -188,7 +188,13 @@ export const exportVideoComposition = async <T = undefined>({
             );
           frameExtractor.start();
 
-          const nbFrames = videoComposition.duration * options.frameRate;
+          // A whole number of frames: a duration summed from clip lengths
+          // (11.999999999999998 s) gave 359.9999999999999, reported as is to
+          // onProgress, and one a hair above a whole number encoded an extra
+          // frame past the end.
+          const nbFrames = Math.ceil(
+            videoComposition.duration * options.frameRate - 1e-6
+          );
           const canvas = surface.getCanvas();
           const clearColor = Skia.Color('#00000000');
           // Each frame runs inside a native autorelease pool: the worklet

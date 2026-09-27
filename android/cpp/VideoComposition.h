@@ -30,5 +30,7 @@ struct VideoComposition : public JavaClass<VideoComposition> {
   create(double duration, alias_ref<JList<VideoCompositionItem>> items);
   static local_ref<VideoComposition> fromJSIObject(jsi::Runtime& runtime,
                                                    jsi::Object& jsComposition);
+  /** Whether an item hands its decoder's buffers over (textureMode: direct). */
+  bool hasDirectTextures() const;
 };
 } // namespace RNSkiaVideo

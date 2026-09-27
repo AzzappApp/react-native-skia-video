@@ -36,6 +36,8 @@ class VideoComposition {
 public:
   double duration;
   std::vector<std::shared_ptr<VideoCompositionItem>> items;
+  /** Decoders opened around their item's time, see DecoderWindow. */
+  bool lazyDecoders = false;
 
   bool hasAudio() const {
     for (const auto& item : items) {
@@ -51,6 +53,10 @@ public:
     auto composition = std::make_shared<VideoComposition>();
     composition->duration =
         jsComposition.getProperty(runtime, "duration").asNumber();
+    if (jsComposition.hasProperty(runtime, "lazyDecoders")) {
+      auto lazyProp = jsComposition.getProperty(runtime, "lazyDecoders");
+      composition->lazyDecoders = lazyProp.isBool() && lazyProp.getBool();
+    }
     auto jsItems = jsComposition.getProperty(runtime, "items")
                        .asObject(runtime)
                        .asArray(runtime);

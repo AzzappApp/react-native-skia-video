@@ -1,5 +1,5 @@
 import type { SkImage, SkSurface } from '@shopify/react-native-skia';
-import { Skia } from '@shopify/react-native-skia';
+import { BlendMode, Skia } from '@shopify/react-native-skia';
 import {
   useSharedValue,
   useFrameCallback,
@@ -123,7 +123,16 @@ export const useVideoCompositionPlayer = <T = undefined>({
 
   useEffect(() => {
     runOnUI(() => {
-      framesExtractor?.prepare();
+      if (!framesExtractor) {
+        return;
+      }
+      // On Android prepare() shares the GL context current on this thread,
+      // Skia's, which Skia only makes on its first drawing: a player that is
+      // the app's first Skia content found none and threw, killing the app.
+      // A throwaway surface makes it, as the export's surface does before the
+      // encoder shares it.
+      Skia.Surface.MakeOffscreen(1, 1)?.dispose();
+      framesExtractor.prepare();
     })();
   }, [framesExtractor]);
 
@@ -258,6 +267,9 @@ export const useVideoCompositionPlayer = <T = undefined>({
     }
 
     const canvas = surface.getCanvas();
+    // Cleared as the export clears it: a drawFrame that leaves part of the
+    // canvas alone showed the previous frames there, and not in the export.
+    canvas.drawColor(Skia.Color('#00000000'), BlendMode.Clear);
     const context = beforeDrawFrame?.() as T;
     drawFrame({
       canvas,

@@ -7,6 +7,7 @@ export * from './types';
 export * from './videoPlayer';
 export * from './videoCompositionPlayer';
 export * from './exportVideoComposition';
+export * from './videoFrameImage';
 
 export const getValidEncoderConfigurations: typeof RNSkiaVideoModule.getValidEncoderConfigurations =
   (...args) => {

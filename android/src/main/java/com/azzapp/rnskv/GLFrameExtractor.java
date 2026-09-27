@@ -36,7 +36,23 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
 
   private long latestTimeStampNs = -1;
 
+  private final boolean direct;
+
+  private int bufferWidth = -1;
+
+  private int bufferHeight = -1;
+
   public GLFrameExtractor() {
+    this(false);
+  }
+
+  /**
+   * @param direct whether frames are handed over as the decoder's buffer, in
+   *               the input texture, instead of being drawn into the output
+   *               texture, whose storage is then never allocated
+   */
+  public GLFrameExtractor(boolean direct) {
+    this.direct = direct;
     EGLUtils.purgeOpenGLError();
 
     int[] texIds = new int[2];
@@ -91,6 +107,14 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
 
     EGLUtils.purgeOpenGLError();
 
+    if (direct) {
+      surfaceTexture.updateTexImage();
+      latestTimeStampNs = surfaceTexture.getTimestamp();
+      surfaceTexture.getTransformMatrix(transformMatrix);
+      measureBuffer(width, height);
+      return true;
+    }
+
     if (width != frameWidth || height != frameHeight) {
       frameWidth = width;
       frameHeight = height;
@@ -127,6 +151,68 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
     return true;
   }
 
+
+  /**
+   * The decoder's buffer is often larger than the picture (1920x1088 for a
+   * 1080p H.264 stream), and the transform maps the picture into it, shrunk by
+   * up to a texel on each side against bilinear bleeding. The padding is at the
+   * right and the bottom, so the picture's two ends along each texture axis,
+   * summed, give its share of the buffer along that axis.
+   *
+   * @param pictureWidth  the picture's width, in the buffer's orientation
+   * @param pictureHeight the picture's height, in the buffer's orientation
+   */
+  private void measureBuffer(int pictureWidth, int pictureHeight) {
+    float[] m = transformMatrix;
+    float minS = Float.MAX_VALUE;
+    float maxS = -Float.MAX_VALUE;
+    float minT = Float.MAX_VALUE;
+    float maxT = -Float.MAX_VALUE;
+    for (int corner = 0; corner < 4; corner++) {
+      float s = corner & 1;
+      float t = corner >> 1;
+      float u = m[0] * s + m[4] * t + m[12];
+      float v = m[1] * s + m[5] * t + m[13];
+      minS = Math.min(minS, u);
+      maxS = Math.max(maxS, u);
+      minT = Math.min(minT, v);
+      maxT = Math.max(maxT, v);
+    }
+    float sumS = minS + maxS;
+    float sumT = minT + maxT;
+    bufferWidth = Math.max(pictureWidth, sumS > 0 ? Math.round(pictureWidth / sumS) : pictureWidth);
+    bufferHeight = Math.max(pictureHeight, sumT > 0 ? Math.round(pictureHeight / sumT) : pictureHeight);
+  }
+
+  /**
+   * @return whether frames are handed over in the input texture
+   */
+  public boolean isDirect() {
+    return direct;
+  }
+
+  /**
+   * @return the external texture the decoder's buffers are bound to
+   */
+  public int getInputTexId() {
+    return inputTexId;
+  }
+
+  /**
+   * @return the width of the decoder's buffer, in direct mode, once a frame
+   * was decoded
+   */
+  public int getBufferWidth() {
+    return bufferWidth;
+  }
+
+  /**
+   * @return the height of the decoder's buffer, in direct mode, once a frame
+   * was decoded
+   */
+  public int getBufferHeight() {
+    return bufferHeight;
+  }
 
   /**
    * Get the name of the texture that contains the output frame.

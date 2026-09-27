@@ -11,6 +11,8 @@ public class VideoComposition {
 
   private final double duration;
 
+  private boolean lazyDecoders = false;
+
   public VideoComposition(
     double duration,
     List<Item> items
@@ -25,6 +27,26 @@ public class VideoComposition {
 
   public double getDuration() {
     return duration;
+  }
+
+  /**
+   * @return whether decoders are opened around their item's time rather than
+   * all at once, see {@link DecoderWindow}
+   */
+  public boolean isLazyDecoders() {
+    return lazyDecoders;
+  }
+
+  /**
+   * @return whether an item hands its decoder's buffers over directly
+   */
+  public boolean hasDirectTextures() {
+    for (Item item : items) {
+      if (item.isVideo() && item.isDirectTexture()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public boolean hasAudio() {
@@ -44,6 +66,9 @@ public class VideoComposition {
     private double duration;
     private int width = -1;
     private int height = -1;
+    private int maxLongSide = -1;
+    // textureMode: 'direct', set from native code.
+    private boolean directTexture = false;
     private boolean isVideo = true;
     private boolean audioEnabled = false;
     private double audioVolume = 1.0;
@@ -91,6 +116,18 @@ public class VideoComposition {
 
     public int getHeight() {
       return height;
+    }
+
+    public int getMaxLongSide() {
+      return maxLongSide;
+    }
+
+    /**
+     * @return whether the item's frames are the decoder's own buffers, handed
+     * over without a copy (`textureMode: 'direct'`)
+     */
+    public boolean isDirectTexture() {
+      return directTexture;
     }
 
     public boolean isVideo() {

@@ -62,7 +62,11 @@ public class VideoCompositionFramesExtractor {
   public VideoCompositionFramesExtractor(VideoComposition composition, NativeEventDispatcher eventDispatcher) {
     this.eventDispatcher = eventDispatcher;
     this.composition = composition;
-    decoder = new VideoCompositionDecoder(composition);
+    decoder = new VideoCompositionDecoder(composition, true);
+    // Only a decoder that cannot open, as on iOS: a codec's passing errors
+    // stay quiet, since the player gives up on the first error it reports.
+    decoder.setOnOpenErrorListener(
+      error -> eventDispatcher.dispatchEvent("error", messageOf(error)));
     playbackThread = new PlaybackThread();
     playbackThread.start();
     handler = new Handler(playbackThread.getLooper(), playbackThread);
@@ -73,7 +77,14 @@ public class VideoCompositionFramesExtractor {
       return;
     }
     EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
-    decoder.prepare(sharedContext);
+    try {
+      decoder.prepare(sharedContext);
+    } catch (RuntimeException error) {
+      // A decoder that cannot open, as a lazy one reports it: thrown, it
+      // reached the UI thread's worklet uncaught and killed the app.
+      eventDispatcher.dispatchEvent("error", messageOf(error));
+      return;
+    }
     handler.sendEmptyMessage(PLAYBACK_PREPARE);
   }
 
@@ -106,6 +117,14 @@ public class VideoCompositionFramesExtractor {
    */
   public Map<String, VideoFrame> decodeCompositionFrames() {
     return decoder.updateVideosFrames();
+  }
+
+  /**
+   * Makes the decoder's GL context current on the calling thread, the one that
+   * calls {@link #decodeCompositionFrames}.
+   */
+  public void makeGLContextCurrent() {
+    decoder.makeGLContextCurrent();
   }
 
   /**
@@ -220,6 +239,7 @@ public class VideoCompositionFramesExtractor {
     } else {
       completeDispatched = false;
     }
+    decoder.updateWindow(currentPosition);
     decoder.render(currentPosition);
     if (isEOS && looping) {
       playInternal();
@@ -243,6 +263,8 @@ public class VideoCompositionFramesExtractor {
       return;
     }
     decoder.seekTo(position);
+    // After the seek, so a decoder opened for this position is not sought again.
+    decoder.updateWindow(position);
     if (audioPlayer != null) {
       audioPlayer.seekTo(position);
     }
@@ -311,13 +333,18 @@ public class VideoCompositionFramesExtractor {
           }
         }
       } catch (Exception error) {
-        eventDispatcher.dispatchEvent("error", error.getMessage());
+        eventDispatcher.dispatchEvent("error", messageOf(error));
       }
 
       // Release after an exception
       releaseInternal();
       return true;
     }
+  }
+
+  // Never null: the native side reads the message as a string.
+  private static String messageOf(Exception error) {
+    return error.getMessage() != null ? error.getMessage() : error.toString();
   }
 
   private static long microTime() {

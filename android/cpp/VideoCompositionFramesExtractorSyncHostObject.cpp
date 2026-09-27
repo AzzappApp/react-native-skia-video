@@ -1,4 +1,5 @@
 #include "VideoCompositionFramesExtractorSyncHostObject.h"
+#include <GLES2/gl2.h>
 
 namespace RNSkiaVideo {
 using namespace facebook::jni;
@@ -31,6 +32,7 @@ VideoCompositionFramesExtractorSyncHostObject::
     VideoCompositionFramesExtractorSyncHostObject(jsi::Runtime& runtime,
                                                   jsi::Object jsComposition) {
   auto composition = VideoComposition::fromJSIObject(runtime, jsComposition);
+  directTextures = composition->hasDirectTextures();
   framesExtractor =
       make_global(VideoCompositionFramesExtractorSync::create(composition));
 }
@@ -66,6 +68,12 @@ jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
             return result;
           }
           auto time = arguments[0].asNumber();
+          if (directTextures) {
+            // Skia drew the decoders' own buffers for the previous frame, from
+            // this thread's context, and decoding the next one, on the export
+            // thread, hands them back to the codecs.
+            glFinish();
+          }
           auto frames = framesExtractor->decodeCompositionFrames(time);
           for (auto& entry : *frames) {
             auto id = entry.first->toStdString();

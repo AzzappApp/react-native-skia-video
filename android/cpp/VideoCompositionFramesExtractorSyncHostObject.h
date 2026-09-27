@@ -39,6 +39,8 @@ public:
 private:
   global_ref<VideoCompositionFramesExtractorSync> framesExtractor;
   std::atomic_flag released = ATOMIC_FLAG_INIT;
+  // An item hands its decoder's buffers over: see decodeCompositionFrames.
+  bool directTextures = false;
   void release();
 };
 
