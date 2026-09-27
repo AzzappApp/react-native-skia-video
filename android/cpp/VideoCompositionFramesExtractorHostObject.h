@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mutex>
+
 #include "NativeEventDispatcher.h"
 #include "RNSVHostObject.h"
 #include "SkiaContextHolder.h"
@@ -31,6 +33,10 @@ private:
   std::shared_ptr<SkiaContextHolder> skiaContextHolder;
   std::atomic_flag prepared = ATOMIC_FLAG_INIT;
   std::atomic_flag released = ATOMIC_FLAG_INIT;
+  // Held by every use of `player` and by release(): the UI thread draws
+  // while the JS thread disposes, and a use that passed the released check
+  // went on with a player release() had just reset.
+  std::recursive_mutex playerMutex;
   void release();
 };
 

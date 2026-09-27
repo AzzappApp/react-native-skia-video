@@ -47,6 +47,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          std::lock_guard<std::recursive_mutex> lock(playerMutex);
           if (!released.test() && !prepared.test_and_set()) {
             skiaContextHolder = std::make_shared<SkiaContextHolder>();
             player->prepare();
@@ -58,6 +59,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          std::lock_guard<std::recursive_mutex> lock(playerMutex);
           if (released.test() || !prepared.test()) {
             return jsi::Object(runtime);
           }
@@ -93,6 +95,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          std::lock_guard<std::recursive_mutex> lock(playerMutex);
           if (!released.test()) {
             player->play();
           }
@@ -103,6 +106,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, propName, 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          std::lock_guard<std::recursive_mutex> lock(playerMutex);
           if (!released.test()) {
             player->pause();
           }
@@ -113,6 +117,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, propName, 1,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          std::lock_guard<std::recursive_mutex> lock(playerMutex);
           if (!released.test()) {
             if (count != 1) {
               throw jsi::JSError(
@@ -130,6 +135,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, propName, 2,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          std::lock_guard<std::recursive_mutex> lock(playerMutex);
           if (released.test()) {
             // Nothing to listen to anymore: hand out a no-op unsubscribe.
             return jsi::Function::createFromHostFunction(
@@ -152,15 +158,19 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
           return jsi::Value::undefined();
         });
   } else if (propName == "currentTime") {
+    std::lock_guard<std::recursive_mutex> lock(playerMutex);
     return {released.test() ? 0
                             : (double)player->getCurrentPosition() / 1000000.0};
   } else if (propName == "framesVersion") {
+    std::lock_guard<std::recursive_mutex> lock(playerMutex);
     return {released.test() || !prepared.test()
                 ? 0
                 : (double)player->getFramesVersion()};
   } else if (propName == "isLooping") {
+    std::lock_guard<std::recursive_mutex> lock(playerMutex);
     return {!released.test() && player->getIsLooping()};
   } else if (propName == "isPlaying") {
+    std::lock_guard<std::recursive_mutex> lock(playerMutex);
     return {!released.test() && player->getIsPlaying()};
   }
   return jsi::Value::undefined();
@@ -170,6 +180,7 @@ void VideoCompositionFramesExtractorHostObject::set(
     facebook::jsi::Runtime& runtime,
     const facebook::jsi::PropNameID& propNameId,
     const facebook::jsi::Value& value) {
+  std::lock_guard<std::recursive_mutex> lock(playerMutex);
   if (released.test()) {
     return;
   }
@@ -195,6 +206,7 @@ void VideoCompositionFramesExtractorHostObject::handleEvent(
 }
 
 void VideoCompositionFramesExtractorHostObject::release() {
+  std::lock_guard<std::recursive_mutex> lock(playerMutex);
   if (!released.test_and_set()) {
     removeAllListeners();
     player->release();
