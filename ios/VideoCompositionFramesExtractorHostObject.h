@@ -7,6 +7,7 @@
 #import "VideoCompositionItemDecoder.h"
 #import "VideoFrame.h"
 #import <AVFoundation/AVFoundation.h>
+#import <atomic>
 #import <jsi/jsi.h>
 #import <map>
 #import <set>
@@ -69,6 +70,8 @@ private:
   bool isPlaying = false;
   bool isLooping = false;
   bool initialized = false;
+  /** Set by a seek, cleared by the first frame drawn after it. */
+  std::atomic<bool> seekPending = false;
   bool completeEmitted = false;
   // Plays the audio of the composition; when present it is also the master
   // clock of the playback.

@@ -770,6 +770,66 @@ struct FrameView {
   }
 }
 
+/*
+ * A drag is a run of small forward seeks. Each one used to build a fresh
+ * AVAssetReader, which is what made scrubbing stutter on a 4K clip: a seek
+ * within kSeekReadOnSeconds now reads the running reader on instead.
+ */
+- (void)testAForwardScrubReadsTheReaderOn {
+  Clip clip{"a", 0, 0, 6};
+  [self open:clip spec:VideoSpec()];
+  [self tick:0];
+  // Steps of a tenth, the size a finger lands: every one is served, in order.
+  for (double t = 0.1; t < 1.0; t += 0.1) {
+    XCTAssertEqual([self seek:t], clip.frameAt(t, 30), @"at %.4fs", t);
+  }
+  // Past the threshold, and backwards: a new reader, and still the right frame.
+  XCTAssertEqual([self seek:4.5], clip.frameAt(4.5, 30), "a jump forward");
+  XCTAssertEqual([self seek:1.0], clip.frameAt(1.0, 30), "backwards");
+}
+
+/*
+ * seekTo used to call release(), which empties the frame ring: in direct mode
+ * the frame on screen lost its texture and the preview went black until the
+ * new reader produced one. The frame a seek replaces outlives it.
+ */
+- (void)testASeekKeepsTheFrameOnScreenAlive {
+  Clip clip{"a", 0, 0, 6};
+  VideoSpec spec = VideoSpec();
+  NSString* path = [self video:spec];
+  auto item = makeItem(path, clip);
+  item->directTexture = true;
+  decoder = std::make_shared<VideoCompositionItemDecoder>(item, true);
+  hasFrame = false;
+  shown = -1;
+
+  decoder->advanceDecoder(seconds(0));
+  auto frame = decoder->acquireFrameForTime(seconds(0), true);
+  XCTAssertTrue(frame != nullptr);
+  XCTAssertNotNil([self view:frame].texture, "drawable before the seek");
+  decoder->seekTo(seconds(3.0));
+  // Still drawable: a seek is not what retires a frame.
+  XCTAssertNotNil([self view:frame].texture, "and after it");
+}
+
+/*
+ * The frames a new reader hands back start at the keyframe before the target,
+ * so a decoder that only accepts a frame stamped at or past the seek holds the
+ * pre-seek picture for up to a GOP. Forced, the first frame after a seek is
+ * shown: the scrub keeps moving instead of sticking and then jumping.
+ */
+- (void)testTheFirstFrameAfterASeekIsShown {
+  Clip clip{"a", 0, 0, 6};
+  [self open:clip spec:VideoSpec()];
+  [self tick:0];
+  // Between keyframes, so the reader's first frame is behind the target.
+  decoder->seekTo(seconds(2.37));
+  decoder->advanceDecoder(seconds(2.37));
+  int drawn = [self tick:2.37];
+  XCTAssertNotEqual(drawn, 0, "the pre-seek frame is gone");
+  XCTAssertEqual(drawn, clip.frameAt(2.37, 30));
+}
+
 - (void)testSeekIntoTheMiddleOfAMontageItem {
   Clip clip = kMontage[1];
   [self open:clip spec:VideoSpec()];

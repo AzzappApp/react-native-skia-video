@@ -1,5 +1,6 @@
 #pragma once
 
+#import "SeekPolicy.h"
 #import "VideoComposition.h"
 #import "VideoFrame.h"
 #import <AVFoundation/AVFoundation.h>
@@ -46,6 +47,8 @@ private:
   id<MTLTexture> persistentTexture;
 
   void setupReader(CMTime initialTime);
+  /** Drops the reader and its decoded frames, keeping the issued ones. */
+  void discardReader();
   std::shared_ptr<VideoFrame> makeFrame(CVPixelBufferRef buffer);
 };
 

@@ -117,8 +117,13 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
                 auto itemId = entry.first;
                 auto decoder = entry.second;
                 auto previousFrame = currentFrames[itemId];
-                auto frame =
-                    decoder->acquireFrameForTime(currentTime, !previousFrame);
+                // Forced after a seek as well as when there is nothing on
+                // screen: the frames the new reader hands back start at the
+                // keyframe before the target, so waiting for one stamped at
+                // or past it holds the pre-seek picture for up to a GOP —
+                // the scrub looks stuck, then jumps.
+                auto frame = decoder->acquireFrameForTime(
+                    currentTime, !previousFrame || seekPending);
                 if (frame) {
                   currentFrames[itemId] = frame;
                   changed = true;
@@ -126,6 +131,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
               }
               if (changed) {
                 framesVersion++;
+                seekPending = false;
               }
             }
             // The frames object is only rebuilt when a decoder produced a
@@ -373,6 +379,7 @@ void VideoCompositionFramesExtractorHostObject::pause() {
 }
 
 void VideoCompositionFramesExtractorHostObject::seekTo(CMTime time) {
+  seekPending = true;
   if (isPlaying) {
     startDate = [NSDate dateWithTimeIntervalSinceNow:-CMTimeGetSeconds(time)];
   } else {

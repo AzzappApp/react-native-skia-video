@@ -129,6 +129,7 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
 
 #define DECODER_INPUT_TIME_ADVANCE 0.1
 
+
 void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
   @synchronized(lock) {
     CMTime startTime = CMTimeMakeWithSeconds(item->startTime, NSEC_PER_SEC);
@@ -288,12 +289,31 @@ VideoCompositionItemDecoder::makeFrame(CVPixelBufferRef buffer) {
 
 void VideoCompositionItemDecoder::seekTo(CMTime currentTime) {
   @synchronized(lock) {
-    release();
+    // A seek the reader can simply read up to: a scrub is a run of small
+    // forward steps, and rebuilding an AVAssetReader for each one is what
+    // makes dragging the playhead stutter. Reading on costs the frames in
+    // between, which is cheaper than a new reader for anything this short.
+    if (seekReadsOn(assetReader &&
+                        assetReader.status == AVAssetReaderStatusReading,
+                    CMTIME_IS_VALID(lastRequestedTime),
+                    CMTimeGetSeconds(lastRequestedTime),
+                    CMTimeGetSeconds(currentTime))) {
+      for (const auto& frame : decodedFrames) {
+        CFRelease(frame.second);
+      }
+      decodedFrames.clear();
+      return;
+    }
+    // Not release(): that drops the frame ring too, and in direct mode the
+    // frame on screen loses its texture — the preview goes black for as long
+    // as the new reader takes to decode. The picture a seek replaces stays
+    // alive until its replacement arrives.
+    discardReader();
     setupReader(currentTime);
   }
 }
 
-void VideoCompositionItemDecoder::release() {
+void VideoCompositionItemDecoder::discardReader() {
   @synchronized(lock) {
     if (assetReader) {
       [assetReader cancelReading];
@@ -307,9 +327,15 @@ void VideoCompositionItemDecoder::release() {
       CFRelease(frame.second);
     }
     nextLoopFrames.clear();
-    frameRing.releaseAll();
     hasLooped = false;
     lastRequestedTime = kCMTimeInvalid;
+  }
+}
+
+void VideoCompositionItemDecoder::release() {
+  @synchronized(lock) {
+    discardReader();
+    frameRing.releaseAll();
     currentFrame = nullptr;
   }
 }
