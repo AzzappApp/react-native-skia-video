@@ -79,7 +79,7 @@ type FrameDrawer<T = undefined> = (args: {
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `texture` | `unknown` | Native GPU texture — wrap with `Skia.Image.MakeImageFromNativeTextureUnstable(texture, width, height)`. |
+| `buffer` | `NativeBuffer` | Native buffer holding the frame (`CVPixelBufferRef` on iOS, `AHardwareBuffer*` on Android) — wrap with `Skia.Image.MakeImageFromNativeBuffer(buffer)`. Owned and recycled by the player. |
 | `width` / `height` | `number` | Frame size in pixels, as stored. |
 | `rotation` | `number` | Display rotation in degrees (0, 90, 180, 270). |
 

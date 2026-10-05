@@ -1,9 +1,8 @@
 #include "VideoEncoderHostObject.h"
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
-#include <GLES/gl.h>
-#include <GLES/glext.h>
-#include <android/hardware_buffer_jni.h>
+#include "EGLContextGuard.h"
+#include "HardwareBufferGL.h"
+#include <GLES2/gl2.h>
+#include <android/hardware_buffer.h>
 
 namespace RNSkiaVideo {
 using namespace facebook::jni;
@@ -80,14 +79,31 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "encodeFrame"), 2,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          if (count < 2 || !arguments[0].isBigInt()) {
+            throw jsi::JSError(runtime,
+                               "VideoEncoder.encodeFrame(..) expects a native "
+                               "buffer (BigInt) and a time (number)!");
+          }
+          auto buffer = reinterpret_cast<AHardwareBuffer*>(
+              arguments[0].asBigInt(runtime).asUint64(runtime));
+          if (buffer == nullptr) {
+            throw jsi::JSError(runtime,
+                               "VideoEncoder.encodeFrame(..) received a null "
+                               "native buffer!");
+          }
+          if (released.test()) {
+            return jsi::Value::undefined();
+          }
+          EGLContextGuard contextGuard;
           framesExtractor->makeGLContextCurrent();
-          auto texId = arguments[0]
-                           .asObject(runtime)
-                           .getProperty(runtime, "glID")
-                           .asNumber();
-
-          framesExtractor->encodeFrame((int)texId, arguments[1].asNumber());
-          skiaContextHolder->makeCurrent();
+          {
+            HardwareBufferTexture texture(buffer);
+            framesExtractor->encodeFrame((jint)texture.getTexture(),
+                                         arguments[1].asNumber());
+            // The caller releases the buffer once this method returns: the
+            // GPU must be done reading it.
+            glFinish();
+          }
           return jsi::Value::undefined();
         });
   } else if (propName == "prepare") {
@@ -96,9 +112,9 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (!released.test()) {
-            skiaContextHolder = std::make_shared<SkiaContextHolder>();
+            // The encoder renders the frames with its own EGL context.
+            EGLContextGuard contextGuard;
             framesExtractor->prepare();
-            skiaContextHolder->makeCurrent();
           }
           return jsi::Value::undefined();
         });

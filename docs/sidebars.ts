@@ -16,6 +16,7 @@ const sidebars: SidebarsConfig = {
     },
     'android-capabilities',
     'example',
+    'migration',
     'api',
   ],
 };

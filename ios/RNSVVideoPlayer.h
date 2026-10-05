@@ -1,6 +1,5 @@
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
-#import <Metal/Metal.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -32,7 +31,13 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithURL:(NSURL*)url
                    delegate:(id<RNSVVideoPlayerDelegate>)delegate
                  resolution:(CGSize)resolution;
-- (nullable id<MTLTexture>)getNextTextureForTime:(CMTime)time;
+/**
+ * Returns the frame to display at `time` if a new one is available, copied
+ * into one of the player's buffers (see RNSVPixelBufferRing). The returned
+ * buffer is retained: release it with CVPixelBufferRelease.
+ */
+- (nullable CVPixelBufferRef)copyPixelBufferForTime:(CMTime)time
+    CF_RETURNS_RETAINED;
 - (void)pause;
 - (void)play;
 - (void)seekTo:(CMTime)time completionHandler:(void (^)(BOOL))completionHandle;

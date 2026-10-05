@@ -1,5 +1,4 @@
 #include "VideoCompositionItemDecoder.h"
-#include "MTLTextureUtils.h"
 
 #import "AVAssetTrackUtils.h"
 #import <AVFoundation/AVFoundation.h>
@@ -34,17 +33,8 @@ VideoCompositionItemDecoder::VideoCompositionItemDecoder(
   height = videoTrack.naturalSize.height;
   rotation = AVAssetTrackUtils::GetTrackRotationInDegree(videoTrack);
   currentFrame = nullptr;
+  pixelBufferRing = [[RNSVPixelBufferRing alloc] init];
   this->setupReader(kCMTimeZero);
-
-  CGSize resolution = item->resolution;
-  if (resolution.width <= 0 || resolution.height <= 0) {
-    resolution.width = width;
-    resolution.height = height;
-  }
-  mtlTexture = [MTLTextureUtils createMTLTextureForVideoOutput:resolution];
-  if (!mtlTexture) {
-    throw std::runtime_error("Failed to create persistent Metal texture!");
-  }
 }
 
 void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
@@ -227,10 +217,19 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
     }
   }
   if (nextFrame) {
-    CVPixelBufferRef buffer = CMSampleBufferGetImageBuffer(nextFrame);
-    [MTLTextureUtils updateTexture:mtlTexture with:buffer];
+    CVPixelBufferRef pixelBuffer = NULL;
+    try {
+      pixelBuffer = [pixelBufferRing
+          copyNextBufferFilledWith:CMSampleBufferGetImageBuffer(nextFrame)];
+    } catch (...) {
+      CFRelease(nextFrame);
+      throw;
+    }
     CFRelease(nextFrame);
-    return std::make_shared<VideoFrame>(mtlTexture, width, height, rotation);
+    auto frame =
+        std::make_shared<VideoFrame>(pixelBuffer, width, height, rotation);
+    CVPixelBufferRelease(pixelBuffer);
+    return frame;
   }
   return nullptr;
 }
@@ -260,13 +259,13 @@ void VideoCompositionItemDecoder::release() {
     lastRequestedTime = kCMTimeInvalid;
     currentFrame = nullptr;
   }
-  [MTLTextureUtils flushTextureCache];
+  [RNSVPixelBufferRing flushTextureCache];
 }
 
 VideoCompositionItemDecoder::~VideoCompositionItemDecoder() {
   @synchronized(lock) {
-    [mtlTexture setPurgeableState:MTLPurgeableStateEmpty];
-    mtlTexture = nil;
+    [pixelBufferRing releaseBuffers];
+    pixelBufferRing = nil;
   }
 }
 

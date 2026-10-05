@@ -1,6 +1,5 @@
 #pragma once
 
-#include "SkiaContextHolder.h"
 #include "VideoComposition.h"
 #include <EGL/egl.h>
 #include <fbjni/fbjni.h>
@@ -49,7 +48,6 @@ public:
 private:
   global_ref<VideoEncoder> framesExtractor;
   std::atomic_flag released = ATOMIC_FLAG_INIT;
-  std::shared_ptr<SkiaContextHolder> skiaContextHolder;
   void release();
 };
 

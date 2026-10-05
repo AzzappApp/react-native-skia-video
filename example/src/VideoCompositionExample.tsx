@@ -37,7 +37,7 @@ import {
   Image as ImageSkia,
   Skia,
   type SkImage,
-} from '@shopify/react-native-skia';
+} from 'react-native-skia';
 import { createId } from '@paralleldrive/cuid2';
 import Slider from '@react-native-community/slider';
 import Animated, {
@@ -190,10 +190,6 @@ const drawFrame: FrameDrawer = ({
 
   const durationMS = videoComposition.duration;
 
-  // A single SkImage recycled (outputImage) for every item of the tick:
-  // drawImageRect captures the underlying Skia image synchronously, so the
-  // wrapper can be safely rebound to the next item's texture.
-  let reusableImage: SkImage | undefined;
   for (const item of items) {
     const frame = frames[item.id];
     if (!frame) {
@@ -212,14 +208,7 @@ const drawFrame: FrameDrawer = ({
     );
     let image: SkImage;
     try {
-      image = Skia.Image.MakeImageFromNativeTextureUnstable(
-        frame.texture,
-        frame.width,
-        frame.height,
-        false,
-        reusableImage
-      );
-      reusableImage = image;
+      image = Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
     } catch (error) {
       console.log('error', error);
       continue;
@@ -245,6 +234,9 @@ const drawFrame: FrameDrawer = ({
       { x: 0, y: 0, width, height },
       paint
     );
+    // drawImageRect captures the underlying Skia image, so the wrapper can be
+    // released right away instead of waiting for the garbage collector.
+    image.dispose();
   }
 };
 

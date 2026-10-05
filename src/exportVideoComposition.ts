@@ -4,8 +4,8 @@ import {
   scheduleOnRN,
   type WorkletRuntime,
 } from 'react-native-worklets';
-import { Skia, BlendMode } from '@shopify/react-native-skia';
-import type { SkSurface } from '@shopify/react-native-skia';
+import { Skia, BlendMode } from 'react-native-skia';
+import type { SkImage, SkSurface } from 'react-native-skia';
 import type {
   ExportOptions,
   FrameDrawer,
@@ -185,6 +185,9 @@ export const exportVideoComposition = async <T = undefined>({
           const currentSurface = surface;
           const currentExtractor = frameExtractor;
           const currentEncoder = encoder;
+          // Recycled across frames (outputImage) to avoid allocating a new
+          // JSI object per frame.
+          let snapshot: SkImage | undefined;
           for (let i = 0; i < nbFrames; i++) {
             if (cancelledSynchronizable.getDirty()) {
               return;
@@ -204,12 +207,16 @@ export const exportVideoComposition = async <T = undefined>({
                 width: options.width,
                 height: options.height,
               });
-              // Synchronous flush: block until the GPU is done rendering the
-              // frame, since the encoder reads the surface's texture from its
-              // own command queue / GL context.
-              currentSurface.flush(true);
-              const texture = currentSurface.getNativeTextureUnstable();
-              currentEncoder.encodeFrame(texture, currentTime);
+              // The snapshot submits the frame's recording, then
+              // MakeFromImage reads it back into a native buffer
+              // (CVPixelBuffer / AHardwareBuffer) that the encoder consumes.
+              snapshot = currentSurface.makeImageSnapshot(undefined, snapshot);
+              const buffer = Skia.NativeBuffer.MakeFromImage(snapshot);
+              try {
+                currentEncoder.encodeFrame(buffer, currentTime);
+              } finally {
+                Skia.NativeBuffer.Release(buffer);
+              }
               afterDrawFrame?.(context);
               if (onProgress) {
                 scheduleOnRN(onProgress, {
@@ -219,6 +226,7 @@ export const exportVideoComposition = async <T = undefined>({
               }
             });
           }
+          snapshot?.dispose();
         } finally {
           // Note: the surface is deliberately not disposed — it is the
           // cached shared surface reused by the next export.

@@ -1,6 +1,6 @@
 # React Native Skia Video
 
-Video encoding/decoding support for [React Native Skia](https://github.com/Shopify/react-native-skia)
+Video encoding/decoding support for [React Native Skia](https://github.com/wcandillon/react-native-skia)
 
 > 📖 **[Documentation](https://azzappapp.github.io/react-native-skia-video/)** — getting started, guides (video player, compositions, audio, exporting), full API reference and a [complete example app](https://azzappapp.github.io/react-native-skia-video/docs/example).
 
@@ -12,6 +12,12 @@ Video encoding/decoding support for [React Native Skia](https://github.com/Shopi
 npm install @azzapp/react-native-skia-video
 ```
 
+This library requires [React Native Skia](https://wcandillon.github.io/react-native-skia/) v3
+(`react-native-skia`, Graphite backend), [Reanimated](https://docs.swmansion.com/react-native-reanimated/) 4
+and [Worklets](https://docs.swmansion.com/react-native-worklets/). On Android the minimum API level is 28.
+
+> Upgrading from 0.x (React Native Skia v2)? See [Migrating to 1.0](#migrating-to-10).
+
 ## Usage
 
 ### VideoPlayer
@@ -19,7 +25,7 @@ npm install @azzapp/react-native-skia-video
 The `useVideoPlayer` is a custom React hook used in the context of a video player component. This hook encapsulates the logic for playing, pausing, and controlling video playback. It returns a [Reanimated](https://docs.swmansion.com/react-native-reanimated/) shared value that holds the current frame of the playing video.
 
 ```js
-import { Canvas, Image, Skia } from '@shopify/react-native-skia';
+import { Canvas, Image, Skia } from 'react-native-skia';
 import { useVideoPlayer } from '@azzapp/react-native-skia-video';
 
 const MyVideoPlayer = ({ uri, width, height }) =>{
@@ -31,11 +37,7 @@ const MyVideoPlayer = ({ uri, width, height }) =>{
     if (!frame) {
       return null;
     }
-    return Skia.Image.MakeImageFromNativeTextureUnstable(
-      frame.texture,
-      frame.width,
-      frame.height
-    );
+    return Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
   });
 
   return (
@@ -54,7 +56,7 @@ This library offers a mechanism for previewing and exporting videos created by c
 To preview a composition, use the `useVideoCompositionPlayer` hook:
 
 ```js
-import { Canvas, Picture, Skia } from '@shopify/react-native-skia';
+import { Canvas, Image, Skia } from 'react-native-skia';
 import { useVideoCompositionPlayer } from '@azzapp/react-native-skia-video'
 
 const videoComposition = {
@@ -84,13 +86,18 @@ const drawFrame: FrameDrawer = ({
 }) => {
   'worklet';
   const frame = frames[currentTime < 5 ? 'video1' : 'video2'];
-  const image = Skia.Image.MakeImageFromNativeTextureUnstable(
-    frame.texture,
-    width,
-    height,
+  if (!frame) {
+    return;
+  }
+  const image = Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
+  canvas.drawImageRect(
+    image,
+    { x: 0, y: 0, width: frame.width, height: frame.height },
+    { x: 0, y: 0, width, height },
+    Skia.Paint()
   );
-  const paint = Skia.Paint();
-  canvas.drawImage(image, 0, 0, paint)
+  // the canvas keeps its own reference to the image
+  image.dispose();
 }
 
 
@@ -184,6 +191,27 @@ This function will returns the decoding capabilities of this device for the give
 This function will returns a list of valid configuration in regards of your device encoding capabilities with the corresponding encoder.
 If the provided parameters are not supported the returned configurations will be overridden with valid parameters (by decreasing, resolution, framerate or bitrate) while keeping the same aspect ratio.
 
+
+## Migrating to 1.0
+
+Version 1.0 targets React Native Skia v3, which renders with Skia Graphite
+(Metal on iOS, Vulkan on Android) and no longer accepts raw OpenGL/Metal
+texture handles. Video frames are now exchanged as native buffers.
+
+- Replace `@shopify/react-native-skia` with `react-native-skia` (v3), see
+  [the React Native Skia migration guide](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/).
+- `VideoFrame.texture` is replaced by `VideoFrame.buffer`, a native buffer
+  (`CVPixelBufferRef` on iOS, `AHardwareBuffer*` on Android):
+
+  ```diff
+  - Skia.Image.MakeImageFromNativeTextureUnstable(frame.texture, frame.width, frame.height)
+  + Skia.Image.MakeImageFromNativeBuffer(frame.buffer)
+  ```
+
+- The frame buffers are owned and recycled by the player: create the image
+  when you draw the frame instead of keeping it around (use
+  `image.makeNonTextureImage()` to keep a copy).
+- `useVideoCompositionPlayer` and `exportVideoComposition` keep the same API.
 
 ## Contributing
 

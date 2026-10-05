@@ -1,5 +1,6 @@
 #pragma once
 
+#import "RNSVPixelBufferRing.h"
 #import "VideoComposition.h"
 #import "VideoFrame.h"
 #import <AVFoundation/AVFoundation.h>
@@ -32,7 +33,7 @@ private:
   AVAssetTrack* videoTrack;
   NSArray<AVAssetTrackSegment*>* segments;
   AVAssetReader* assetReader;
-  id<MTLTexture> mtlTexture;
+  RNSVPixelBufferRing* pixelBufferRing;
   std::list<std::pair<double, CMSampleBufferRef>> decodedFrames;
   std::list<std::pair<double, CMSampleBufferRef>> nextLoopFrames;
   CMTime lastRequestedTime = kCMTimeInvalid;

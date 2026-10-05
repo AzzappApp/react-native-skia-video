@@ -66,17 +66,13 @@ of the active video items and a Skia canvas to draw into:
 
 ```ts
 import type { FrameDrawer } from '@azzapp/react-native-skia-video';
-import { Skia } from '@shopify/react-native-skia';
+import { Skia } from 'react-native-skia';
 
 const drawFrame: FrameDrawer = ({ canvas, currentTime, frames, width, height }) => {
   'worklet';
   const frame = frames[currentTime < 5 ? 'clipA' : 'clipB'];
   if (!frame) return;
-  const image = Skia.Image.MakeImageFromNativeTextureUnstable(
-    frame.texture,
-    frame.width,
-    frame.height
-  );
+  const image = Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
   canvas.drawImageRect(
     image,
     Skia.XYWHRect(0, 0, image.width(), image.height()),
@@ -92,7 +88,7 @@ A few rules of thumb:
 - **It must be a worklet** (`'worklet'` directive) and only call
   worklet-compatible code. Define helper worklets *before* the worklets that
   call them — closures are captured at the definition site.
-- `frames` maps item ids to `VideoFrame`s (`{ texture, width, height, rotation }`).
+- `frames` maps item ids to `VideoFrame`s (`{ buffer, width, height, rotation }`).
   A frame's `rotation` is the display rotation in degrees of the source
   (phone footage is often stored rotated).
 - Skia objects can't hop between worklet runtimes. Decode/cache per runtime

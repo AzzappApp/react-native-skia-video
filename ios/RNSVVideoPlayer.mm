@@ -5,7 +5,7 @@
 
 #import "RNSVVideoPlayer.h"
 #import "AVAssetTrackUtils.h"
-#import "MTLTextureUtils.h"
+#import "RNSVPixelBufferRing.h"
 
 static void* timeRangeContext = &timeRangeContext;
 static void* statusContext = &statusContext;
@@ -17,7 +17,7 @@ static void* rateContext = &rateContext;
 @implementation RNSVVideoPlayer {
   AVPlayer* _player;
   AVPlayerItemVideoOutput* _videoOutput;
-  id<MTLTexture> _mtlTexture;
+  RNSVPixelBufferRing* _pixelBufferRing;
   CADisplayLink* _displayLink;
   id<RNSVVideoPlayerDelegate> _delegate;
   Boolean _complete;
@@ -51,6 +51,7 @@ static void* rateContext = &rateContext;
 
   _videoOutput = [[AVPlayerItemVideoOutput alloc]
       initWithPixelBufferAttributes:pixBuffAttributes];
+  _pixelBufferRing = [[RNSVPixelBufferRing alloc] init];
 
   _displayLink =
       [CADisplayLink displayLinkWithTarget:self
@@ -115,25 +116,22 @@ static void* rateContext = &rateContext;
   }
 }
 
-- (nullable id<MTLTexture>)getNextTextureForTime:(CMTime)time {
-  id<MTLTexture> texture = NULL;
+- (nullable CVPixelBufferRef)copyPixelBufferForTime:(CMTime)time {
+  CVPixelBufferRef pixelBuffer = NULL;
   if ([_videoOutput hasNewPixelBufferForItemTime:time]) {
     auto buffer = [_videoOutput copyPixelBufferForItemTime:time
                                         itemTimeForDisplay:nil];
     if (buffer) {
-      size_t width = CVPixelBufferGetWidth(buffer);
-      size_t height = CVPixelBufferGetHeight(buffer);
-      if (!_mtlTexture || width != _mtlTexture.width ||
-          height != _mtlTexture.height) {
-        _mtlTexture = [MTLTextureUtils
-            createMTLTextureForVideoOutput:CGSizeMake(width, height)];
+      try {
+        pixelBuffer = [_pixelBufferRing copyNextBufferFilledWith:buffer];
+      } catch (...) {
+        CVPixelBufferRelease(buffer);
+        throw;
       }
-      [MTLTextureUtils updateTexture:_mtlTexture with:buffer];
       CVPixelBufferRelease(buffer);
-      texture = _mtlTexture;
     }
   }
-  return texture;
+  return pixelBuffer;
 }
 
 - (void)seekTo:(CMTime)time
@@ -389,6 +387,7 @@ static void* rateContext = &rateContext;
   [_player replaceCurrentItemWithPlayerItem:nil];
   _player = nil;
   _displayLink = nil;
+  [_pixelBufferRing releaseBuffers];
   _disposed = true;
 }
 

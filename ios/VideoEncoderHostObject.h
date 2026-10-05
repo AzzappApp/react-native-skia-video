@@ -27,12 +27,8 @@ private:
   int audioSampleRate;
   int audioChannelCount;
   std::shared_ptr<VideoComposition> composition;
-  id<MTLDevice> device;
-  id<MTLCommandQueue> commandQueue;
-  id<MTLTexture> cpuAccessibleTexture;
   AVAssetWriter* assetWriter;
   AVAssetWriterInput* assetWriterInput;
-  CVPixelBufferPoolRef pixelBufferPool = NULL;
 
   AVAssetWriterInput* audioWriterInput;
   AVAssetReader* audioReader;
@@ -42,7 +38,7 @@ private:
   NSMutableArray<NSError*>* audioErrorHolder;
 
   void prepare();
-  void encodeFrame(id<MTLTexture> mlTexture, CMTime time);
+  void encodeFrame(CVPixelBufferRef pixelBuffer, CMTime time);
   void setupAudio();
   void startWritingAudio();
   void finish();

@@ -1,5 +1,5 @@
-import type { SkImage, SkSurface } from '@shopify/react-native-skia';
-import { Skia } from '@shopify/react-native-skia';
+import type { SkImage, SkSurface } from 'react-native-skia';
+import { Skia } from 'react-native-skia';
 import {
   useSharedValue,
   useFrameCallback,
@@ -187,16 +187,13 @@ export const useVideoCompositionPlayer = ({
       width: width * pixelRatio,
       height: height * pixelRatio,
     });
-    surface.flush();
     const previousFrame = currentFrame.value;
     try {
-      // Recycle the previous SkImage (outputImage) to avoid allocating a new
-      // JSI object on every frame.
-      const nextFrame = Skia.Image.MakeImageFromNativeTextureUnstable(
-        surface.getNativeTextureUnstable(),
-        width * pixelRatio,
-        height * pixelRatio,
-        false,
+      // The snapshot submits the frame's recording; Graphite images can then
+      // be drawn by any canvas, from any thread. Recycle the previous SkImage
+      // (outputImage) to avoid allocating a new JSI object on every frame.
+      const nextFrame = surface.makeImageSnapshot(
+        undefined,
         previousFrame ?? undefined
       );
       if (nextFrame === previousFrame) {
@@ -207,7 +204,7 @@ export const useVideoCompositionPlayer = ({
         currentFrame.value = nextFrame;
       }
     } catch (error) {
-      console.warn('Failed to create image from texture', error);
+      console.warn('Failed to snapshot the composition frame', error);
       return;
     }
     afterDrawFrame?.(context);

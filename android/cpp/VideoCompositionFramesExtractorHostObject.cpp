@@ -1,4 +1,5 @@
 #include "VideoCompositionFramesExtractorHostObject.h"
+#include "EGLContextGuard.h"
 #include "JNIHelpers.h"
 
 namespace RNSkiaVideo {
@@ -43,9 +44,9 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "prepare"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          auto result = jsi::Object(runtime);
           if (!released.test() && !prepared.test_and_set()) {
-            skiaContextHolder = std::make_shared<SkiaContextHolder>();
+            // The decoders render the frames with their own EGL context.
+            EGLContextGuard contextGuard;
             player->prepare();
           }
           return jsi::Value::undefined();
@@ -60,14 +61,15 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
           if (released.test() || !prepared.test()) {
             return result;
           }
+          EGLContextGuard contextGuard;
           auto frames = player->decodeCompositionFrames();
           for (auto& entry : *frames) {
             auto id = entry.first->toStdString();
-            auto frame = entry.second;
-            auto jsFrame = frame->toJS(runtime);
-            result.setProperty(runtime, id.c_str(), std::move(jsFrame));
+            auto jsFrame = entry.second->toJS(runtime);
+            if (!jsFrame.isNull()) {
+              result.setProperty(runtime, id.c_str(), std::move(jsFrame));
+            }
           }
-          skiaContextHolder->makeCurrent();
           return result;
         });
   } else if (propName == "play") {

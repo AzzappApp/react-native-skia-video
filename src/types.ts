@@ -1,15 +1,20 @@
-// @ts-expect-error unused
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import type { SkCanvas, SkSurface, Skia } from '@shopify/react-native-skia';
+import type { NativeBuffer, SkCanvas } from 'react-native-skia';
 
 /**
  * Represents a video frame.
  */
 export type VideoFrame = {
   /**
-   * The native texture of the frame.
+   * The native buffer holding the pixels of the frame: a `CVPixelBufferRef`
+   * on iOS and an `AHardwareBuffer*` on Android, passed as a `BigInt`
+   * pointer. Wrap it with `Skia.Image.MakeImageFromNativeBuffer(frame.buffer)`
+   * to draw it.
+   *
+   * The buffer is owned by the player (or composition extractor) that
+   * produced the frame and is recycled for the following frames: create the
+   * image when you draw the frame, don't keep it around.
    */
-  texture: unknown;
+  buffer: NativeBuffer;
   /**
    * The width in pixels of the frame.
    */
@@ -348,9 +353,14 @@ export type VideoEncoder = {
    */
   prepare(): void;
   /**
-   * Encodes the video frame to the video composition.
+   * Encodes a frame to the video.
+   *
+   * @param buffer A native buffer holding the frame pixels, as returned by
+   * `Skia.NativeBuffer.MakeFromImage`. The encoder does not take ownership of
+   * the buffer: the caller releases it once this method returns.
+   * @param time The presentation time of the frame in seconds.
    */
-  encodeFrame(texture: unknown, time: number): void;
+  encodeFrame(buffer: NativeBuffer, time: number): void;
   /*
    * Finish writing the video to the output file.
    */

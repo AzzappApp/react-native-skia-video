@@ -10,9 +10,6 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 
-import javax.microedition.khronos.egl.EGL10;
-import javax.microedition.khronos.egl.EGLContext;
-
 public class EGLUtils {
 
   /**
@@ -30,14 +27,6 @@ public class EGLUtils {
 
   static {
     Matrix.setIdentityM(IDENTITY_MATRIX, 0);
-  }
-
-  static public EGLContext getCurrentContextOrThrows() {
-    EGLContext context = ((EGL10) EGLContext.getEGL()).eglGetCurrentContext();
-    if (context == EGL10.EGL_NO_CONTEXT) {
-      throw new RuntimeException("Skia context is not initialized");
-    }
-    return context;
   }
 
   /**
@@ -120,7 +109,6 @@ public class EGLUtils {
   /**
    * Purge all OpenGL errors.
    * Useful to call this method before starting a new OpenGL operation.
-   * Especially since react-native-skia seems to leave some errors behind.
    */
   public static void purgeOpenGLError() {
     int i = 0;

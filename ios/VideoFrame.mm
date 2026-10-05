@@ -9,12 +9,19 @@
 
 namespace RNSkiaVideo {
 
-VideoFrame::VideoFrame(id<MTLTexture> mtlTexture, double width, double height,
-                       int rotation) {
-  this->mtlTexture = mtlTexture;
+VideoFrame::VideoFrame(CVPixelBufferRef pixelBuffer, double width,
+                       double height, int rotation) {
+  this->pixelBuffer = CVPixelBufferRetain(pixelBuffer);
   this->width = width;
   this->height = height;
   this->rotation = rotation;
+}
+
+VideoFrame::~VideoFrame() {
+  if (pixelBuffer) {
+    CVPixelBufferRelease(pixelBuffer);
+    pixelBuffer = NULL;
+  }
 }
 
 std::vector<jsi::PropNameID> VideoFrame::getPropertyNames(jsi::Runtime& rt) {
@@ -22,7 +29,7 @@ std::vector<jsi::PropNameID> VideoFrame::getPropertyNames(jsi::Runtime& rt) {
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("width")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("height")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("rotation")));
-  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("texture")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("buffer")));
   return result;
 }
 
@@ -35,13 +42,10 @@ jsi::Value VideoFrame::get(jsi::Runtime& runtime,
     return jsi::Value(height);
   } else if (propName == "rotation") {
     return jsi::Value(rotation);
-  } else if (propName == "texture") {
-    if (mtlTexture) {
-      auto object = jsi::Object(runtime);
-      auto pointer = jsi::BigInt::fromUint64(
-          runtime, reinterpret_cast<uintptr_t>(mtlTexture));
-      object.setProperty(runtime, "mtlTexture", pointer);
-      return object;
+  } else if (propName == "buffer") {
+    if (pixelBuffer) {
+      return jsi::BigInt::fromUint64(runtime,
+                                     reinterpret_cast<uintptr_t>(pixelBuffer));
     }
   }
 

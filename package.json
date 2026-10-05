@@ -73,7 +73,6 @@
     "@react-native/babel-preset": "0.86.2",
     "@react-native/jest-preset": "0.86.2",
     "@release-it/conventional-changelog": "^12.0.0",
-    "@shopify/react-native-skia": "^2.10.1",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.19.11",
     "@types/react": "^19.2.18",
@@ -92,6 +91,7 @@
     "react-native": "0.86.2",
     "react-native-builder-bob": "^0.43.0",
     "react-native-reanimated": "^4.5.3",
+    "react-native-skia": "^3.0.3",
     "react-native-worklets": "^0.11.3",
     "react-test-renderer": "19.2.3",
     "release-it": "^21.0.0",
@@ -100,10 +100,10 @@
     "typescript-eslint": "^8.65.0"
   },
   "peerDependencies": {
-    "@shopify/react-native-skia": ">= 2.0.0",
     "react": "*",
     "react-native": "*",
     "react-native-reanimated": ">= 4.0.0",
+    "react-native-skia": ">= 3.0.0",
     "react-native-worklets": ">= 0.10.0"
   },
   "workspaces": [

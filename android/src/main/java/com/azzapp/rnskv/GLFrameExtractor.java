@@ -1,6 +1,7 @@
 package com.azzapp.rnskv;
 
 import android.graphics.SurfaceTexture;
+import android.hardware.HardwareBuffer;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import android.view.Surface;
@@ -8,9 +9,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * A class that extracts frames from a SurfaceTexture streaming to an external texture and renders
- * them to a 2D texture.
+ * them to hardware buffers (see {@link HardwareBufferTexture}).
  */
 public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener {
+
+  /**
+   * Number of hardware buffers the frames are rendered to in turn. A frame handed to JS is drawn
+   * while the next ones are decoded (React Native Skia replays the canvas on its own threads), so
+   * it must survive a couple of decodes before its buffer is reused.
+   */
+  private static final int OUTPUT_RING_CAPACITY = 3;
 
   private final AtomicBoolean frameAvailable = new AtomicBoolean(false);
 
@@ -26,7 +34,12 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
 
   private final int inputTexId;
 
-  private final int outputTexId;
+  private final HardwareBufferTexture[] outputTextures =
+    new HardwareBufferTexture[OUTPUT_RING_CAPACITY];
+
+  private int nextOutputIndex = 0;
+
+  private HardwareBufferTexture currentOutput;
 
   private final int frameBuffer;
 
@@ -39,14 +52,11 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
   public GLFrameExtractor() {
     EGLUtils.purgeOpenGLError();
 
-    int[] texIds = new int[2];
-    GLES20.glGenTextures(2, texIds,0);
+    int[] texIds = new int[1];
+    GLES20.glGenTextures(1, texIds,0);
 
     inputTexId = texIds[0];
     EGLUtils.configureTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, inputTexId);
-
-    outputTexId = texIds[1];
-    EGLUtils.configureTexture(GLES20.GL_TEXTURE_2D, outputTexId);
 
     int[] bufferIds = new int[1];
     GLES20.glGenFramebuffers(1, bufferIds, 0);
@@ -70,7 +80,7 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
   }
 
   /**
-   * Decode the next frame and render it to the output texture.
+   * Decode the next frame and render it to the next output hardware buffer.
    * @param width the width of the frame
    * @param height the height of the frame
    * @return true if a new frame was decoded, false otherwise
@@ -85,18 +95,15 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
     if (width != frameWidth || height != frameHeight) {
       frameWidth = width;
       frameHeight = height;
-      GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, outputTexId);
-      GLES20.glTexImage2D(
-        GLES20.GL_TEXTURE_2D,
-        0,
-        GLES20.GL_RGBA,
-        width, height,
-        0,
-        GLES20.GL_RGBA,
-        GLES20.GL_UNSIGNED_BYTE,
-        null
-      );
+      releaseOutputTextures();
     }
+    HardwareBufferTexture output = outputTextures[nextOutputIndex];
+    if (output == null) {
+      output = new HardwareBufferTexture(width, height);
+      outputTextures[nextOutputIndex] = output;
+    }
+    nextOutputIndex = (nextOutputIndex + 1) % OUTPUT_RING_CAPACITY;
+
     surfaceTexture.updateTexImage();
     latestTimeStampNs = surfaceTexture.getTimestamp();
     surfaceTexture.getTransformMatrix(transformMatrix);
@@ -106,7 +113,7 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
       GLES20.GL_FRAMEBUFFER,
       GLES20.GL_COLOR_ATTACHMENT0,
       GLES20.GL_TEXTURE_2D,
-      outputTexId,
+      output.getTextureId(),
       0
     );
     GLES20.glClearColor(0,0,0,0);
@@ -115,15 +122,30 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
     textureRenderer.draw(inputTexId, transformMatrix);
     EGLUtils.checkGlError("GLFrameExtractor.draw()");
     GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+    // React Native Skia samples the hardware buffer without waiting on any
+    // GPU fence: the rendering must be complete before the frame is handed out.
+    GLES20.glFinish();
+    currentOutput = output;
     return true;
   }
 
 
   /**
-   * Get the name of the texture that contains the output frame.
+   * Get the hardware buffer that contains the last decoded frame.
    */
-  public int getOutputTexId() {
-    return outputTexId;
+  public HardwareBuffer getOutputBuffer() {
+    return currentOutput != null ? currentOutput.getHardwareBuffer() : null;
+  }
+
+  private void releaseOutputTextures() {
+    for (int i = 0; i < OUTPUT_RING_CAPACITY; i++) {
+      if (outputTextures[i] != null) {
+        outputTextures[i].release();
+        outputTextures[i] = null;
+      }
+    }
+    nextOutputIndex = 0;
+    currentOutput = null;
   }
 
   /**
@@ -156,8 +178,9 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
       GLES20.glDeleteFramebuffers(1, new int[]{frameBuffer}, 0);
     }
     if (inputTexId != -1) {
-      GLES20.glDeleteTextures(2, new int[]{inputTexId, outputTexId}, 0);
+      GLES20.glDeleteTextures(1, new int[]{inputTexId}, 0);
     }
+    releaseOutputTextures();
   }
 
   /**

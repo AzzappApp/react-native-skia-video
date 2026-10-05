@@ -8,8 +8,8 @@ slug: /getting-started
 # Getting Started
 
 **React Native Skia Video** adds video superpowers to
-[React Native Skia](https://shopify.github.io/react-native-skia/): it decodes
-videos straight into **GPU textures** you can draw with the Skia canvas API,
+[React Native Skia](https://wcandillon.github.io/react-native-skia/): it decodes
+videos straight into **GPU buffers** you can draw with the Skia canvas API,
 lets you **compose** multiple videos (and anything Skia can draw) frame by
 frame, and **exports** the result through the platform's hardware encoders —
 with audio mixed in.
@@ -22,6 +22,11 @@ The library is still in beta. The API is stable in practice but may evolve
 between minor versions.
 :::
 
+:::info React Native Skia v3
+Version 1.0 requires React Native Skia v3 (`react-native-skia`, Graphite
+backend). Coming from 0.x? Read [Migrating to 1.0](/docs/migration).
+:::
+
 ## Installation
 
 ```sh
@@ -32,12 +37,12 @@ The library relies on the following peer dependencies:
 
 | Package | Version |
 | --- | --- |
-| `@shopify/react-native-skia` | `>= 2.0.0` |
+| `react-native-skia` | `>= 3.0.0` |
 | `react-native-reanimated` | `>= 4.0.0` |
 | `react-native-worklets` | `>= 0.10.0` |
 
 It ships native code for **iOS** (Metal, AVFoundation) and **Android**
-(OpenGL, MediaCodec). With Expo, use a
+(OpenGL, MediaCodec, API level 28 or above). With Expo, use a
 [development build](https://docs.expo.dev/develop/development-builds/introduction/)
 (`npx expo prebuild && npx expo run:ios`) — Expo Go can't load custom native
 modules.
@@ -51,7 +56,7 @@ you its current frame as a Reanimated shared value, ready to be wrapped in an
 `SkImage`:
 
 ```tsx
-import { Canvas, Image, Skia } from '@shopify/react-native-skia';
+import { Canvas, Image, Skia } from 'react-native-skia';
 import { useVideoPlayer } from '@azzapp/react-native-skia-video';
 import { useDerivedValue } from 'react-native-reanimated';
 
@@ -61,11 +66,7 @@ const MyVideoPlayer = ({ uri, width, height }) => {
   const videoImage = useDerivedValue(() => {
     const frame = currentFrame.value;
     if (!frame) return null;
-    return Skia.Image.MakeImageFromNativeTextureUnstable(
-      frame.texture,
-      frame.width,
-      frame.height
-    );
+    return Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
   });
 
   return (

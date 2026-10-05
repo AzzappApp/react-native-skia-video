@@ -27,11 +27,10 @@ public class EGLResourcesHolder {
   /**
    * Create a new EGLResourcesHolder holder with a Windowed surface
    *
-   * @param sharedContext the context passed as share_context arguments to the eglCreateContext method
    * @param surface       the native android surface used to create the windowed surface
    * @return the created EGLResourcesHolder
    */
-  public static EGLResourcesHolder createWithWindowedSurface(EGLContext sharedContext, Surface surface) {
+  public static EGLResourcesHolder createWithWindowedSurface(Surface surface) {
     EGLUtils.purgeOpenGLError();
     EGL10 egl = (EGL10) EGLContext.getEGL();
     EGLDisplay eglDisplay = egl.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY);
@@ -66,7 +65,7 @@ public class EGLResourcesHolder {
     }
 
     int[] glAttributes = new int[]{EGLUtils.EGL_CONTEXT_CLIENT_VERSION, 2, EGL10.EGL_NONE};
-    EGLContext eglContext = egl.eglCreateContext(eglDisplay, config, sharedContext, glAttributes);
+    EGLContext eglContext = egl.eglCreateContext(eglDisplay, config, EGL10.EGL_NO_CONTEXT, glAttributes);
     EGLUtils.checkGlError("eglCreateContext");
 
     int[] surfaceAttributes = {
@@ -80,10 +79,9 @@ public class EGLResourcesHolder {
 
   /**
    * Create a new EGLResourcesHolder holder with 1x1 PBBuffer surface
-   * @param sharedContext the context passed as share_context arguments to the eglCreateContext method
    * @return the created EGLResourcesHolder
    */
-  public static EGLResourcesHolder createWithPBBufferSurface(EGLContext sharedContext) {
+  public static EGLResourcesHolder createWithPBBufferSurface() {
     EGLUtils.purgeOpenGLError();
     EGL10 egl = (EGL10) EGLContext.getEGL();
     EGLDisplay eglDisplay = egl.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY);
@@ -118,7 +116,7 @@ public class EGLResourcesHolder {
     EGLConfig config = configs[0];
 
     int[] glAttributes = new int[]{EGLUtils.EGL_CONTEXT_CLIENT_VERSION, 2, EGL10.EGL_NONE};
-    EGLContext eglContext = egl.eglCreateContext(eglDisplay, config, sharedContext, glAttributes);
+    EGLContext eglContext = egl.eglCreateContext(eglDisplay, config, EGL10.EGL_NO_CONTEXT, glAttributes);
     EGLUtils.checkGlError("eglCreateContext");
 
     int[] surfaceAttributes = {

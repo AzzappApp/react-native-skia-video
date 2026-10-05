@@ -9,8 +9,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
-import javax.microedition.khronos.egl.EGLContext;
-
 public class VideoCompositionFramesExtractorSync {
   private final VideoComposition composition;
 
@@ -41,10 +39,9 @@ public class VideoCompositionFramesExtractorSync {
     exportThread.start();
     handler = new Handler(exportThread.getLooper());
     CompletableFuture<Void> future = new CompletableFuture<>();
-    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
     handler.post(() -> {
       try {
-        decoder.prepare(sharedContext);
+        decoder.prepare();
         decoder.setOnErrorListener(this::handleError);
         decoder.setOnFrameAvailableListener(this::onFrameAvailable);
         decoder.setOnItemEndReachedListener(this::onItemEndReached);

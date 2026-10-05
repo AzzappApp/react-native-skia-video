@@ -14,10 +14,6 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.microedition.khronos.egl.EGL10;
-import javax.microedition.khronos.egl.EGLContext;
-
-
 /**
  * Helper class for encoding video (and the audio of the composition items,
  * if any).
@@ -125,7 +121,6 @@ public class VideoEncoder {
    * Configures encoder and muxer state, and prepares the input Surface.
    */
   public void prepare() throws IOException {
-    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
     encoder = encoderName != null
       ? MediaCodec.createByCodecName(encoderName)
       : MediaCodec.createEncoderByType(MIME_TYPE);
@@ -140,7 +135,7 @@ public class VideoEncoder {
     encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
 
     inputSurface = encoder.createInputSurface();
-    eglResourcesHolder = EGLResourcesHolder.createWithWindowedSurface(sharedContext, inputSurface);
+    eglResourcesHolder = EGLResourcesHolder.createWithWindowedSurface(inputSurface);
     eglResourcesHolder.makeCurrent();
     textureRenderer = new TextureRenderer();
     encoder.start();

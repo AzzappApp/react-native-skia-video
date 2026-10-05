@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Blur, Canvas, Image, Rect, Skia } from '@shopify/react-native-skia';
+import { Blur, Canvas, Image, Rect, Skia } from 'react-native-skia';
 import {
   ActivityIndicator,
   Button,
@@ -117,13 +117,9 @@ const VideoPlayerExample = () => {
       return null;
     }
     try {
-      return Skia.Image.MakeImageFromNativeTextureUnstable(
-        frame.texture,
-        frame.width,
-        frame.height
-      );
+      return Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
     } catch (e) {
-      console.error('Failed to convert native texture to SkImage', e);
+      console.error('Failed to convert native buffer to SkImage', e);
       return null;
     }
   });

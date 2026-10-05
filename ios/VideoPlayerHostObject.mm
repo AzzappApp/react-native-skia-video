@@ -58,13 +58,14 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
               CMTimeCompare(lastFrameDrawn, lastFrameAvailable) == 0) {
             return jsi::Value::null();
           }
-          auto texture = [player getNextTextureForTime:lastFrameAvailable];
-          if (texture == nil) {
+          auto pixelBuffer = [player copyPixelBufferForTime:lastFrameAvailable];
+          if (pixelBuffer == NULL) {
             return jsi::Value::null();
           }
           lastFrameDrawn = lastFrameAvailable;
-          currentFrame =
-              std::make_shared<VideoFrame>(texture, width, height, rotation);
+          currentFrame = std::make_shared<VideoFrame>(pixelBuffer, width,
+                                                      height, rotation);
+          CVPixelBufferRelease(pixelBuffer);
           return jsi::Object::createFromHostObject(runtime, currentFrame);
         });
   } else if (propName == "play") {

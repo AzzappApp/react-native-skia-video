@@ -1,31 +1,36 @@
 package com.azzapp.rnskv;
 
+import android.hardware.HardwareBuffer;
+
 /**
  * A class to represent a video frame.
  */
 public class VideoFrame {
-  private int texture;
+  private final HardwareBuffer hardwareBuffer;
   private final int width;
   private final int height;
   private final int rotation;
   private final long timestampNs;
 
   public VideoFrame(
-    int texture,
+    HardwareBuffer hardwareBuffer,
     int width,
     int height,
     int rotation,
     long timestampNs
   ) {
-    this.texture = texture;
+    this.hardwareBuffer = hardwareBuffer;
     this.width = width;
     this.height = height;
     this.rotation = rotation;
     this.timestampNs = timestampNs;
   }
 
-  public int getTexture() {
-    return texture;
+  /**
+   * @return the hardware buffer holding the pixels of the frame
+   */
+  public HardwareBuffer getHardwareBuffer() {
+    return hardwareBuffer;
   }
 
   public int getWidth() {

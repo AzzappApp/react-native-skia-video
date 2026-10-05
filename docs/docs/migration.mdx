@@ -1,0 +1,60 @@
+---
+id: migration
+title: Migrating to 1.0
+sidebar_position: 6
+slug: /migration
+---
+
+# Migrating to 1.0
+
+Version 1.0 targets [React Native Skia v3](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/),
+which renders with Skia Graphite (Metal on iOS, Vulkan on Android). Graphite no
+longer accepts raw OpenGL or Metal texture handles, so video frames are now
+exchanged with Skia as **native buffers** (`CVPixelBufferRef` on iOS,
+`AHardwareBuffer*` on Android), imported without copy.
+
+## 1. Upgrade React Native Skia
+
+Follow the [React Native Skia v3 migration guide](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/):
+the package is now `react-native-skia` (instead of `@shopify/react-native-skia`)
+and Android requires API level 26 or above (this library requires 28).
+
+```sh
+yarn remove @shopify/react-native-skia
+yarn add react-native-skia @azzapp/react-native-skia-video@^1.0.0
+```
+
+## 2. Wrap frames with `MakeImageFromNativeBuffer`
+
+`VideoFrame.texture` is replaced by `VideoFrame.buffer`:
+
+```diff
+- const image = Skia.Image.MakeImageFromNativeTextureUnstable(
+-   frame.texture,
+-   frame.width,
+-   frame.height
+- );
++ const image = Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
+```
+
+`MakeImageFromNativeBuffer` doesn't take an `outputImage` to recycle: in a
+`drawFrame` worklet, dispose the image once it is drawn (the canvas keeps its
+own reference to it):
+
+```ts
+const image = Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
+canvas.drawImageRect(image, src, dst, paint);
+image.dispose();
+```
+
+## 3. Don't keep frames around
+
+The buffers are owned by the player (or composition player) and recycled: a
+frame's pixels are overwritten a few frames later. Create the `SkImage` when
+you draw the frame; use `image.makeNonTextureImage()` if you need a lasting
+copy (a thumbnail for instance).
+
+## What doesn't change
+
+`useVideoPlayer`, `useVideoCompositionPlayer`, `exportVideoComposition`, the
+composition model and the audio support keep the same API.
