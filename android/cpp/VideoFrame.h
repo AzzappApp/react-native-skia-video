@@ -12,12 +12,12 @@ using namespace jni;
 struct VideoFrame : JavaClass<VideoFrame> {
 public:
   static constexpr auto kJavaDescriptor = "Lcom/azzapp/rnskv/VideoFrame;";
-  AHardwareBuffer* getHardwareBuffer();
-  jint getWidth();
-  jint getHeight();
-  jint getRotation();
+  AHardwareBuffer* getHardwareBuffer() const;
+  jint getWidth() const;
+  jint getHeight() const;
+  jint getRotation() const;
 
-  jsi::Value toJS(jsi::Runtime& jsRuntime);
+  jsi::Value toJS(jsi::Runtime& jsRuntime) const;
 };
 
 /**

@@ -3,7 +3,7 @@
 
 namespace RNSkiaVideo {
 
-AHardwareBuffer* VideoFrame::getHardwareBuffer() {
+AHardwareBuffer* VideoFrame::getHardwareBuffer() const {
   static const auto getHardwareBufferMethod =
       getClass()->getMethod<jobject()>("getHardwareBuffer");
   auto hardwareBuffer = getHardwareBufferMethod(self());
@@ -14,24 +14,24 @@ AHardwareBuffer* VideoFrame::getHardwareBuffer() {
                                             hardwareBuffer.get());
 }
 
-jint VideoFrame::getWidth() {
+jint VideoFrame::getWidth() const {
   static const auto getWidthMethod = getClass()->getMethod<jint()>("getWidth");
   return getWidthMethod(self());
 }
 
-jint VideoFrame::getHeight() {
+jint VideoFrame::getHeight() const {
   static const auto getHeightMethod =
       getClass()->getMethod<jint()>("getHeight");
   return getHeightMethod(self());
 }
 
-jint VideoFrame::getRotation() {
+jint VideoFrame::getRotation() const {
   static const auto getRotationMethod =
       getClass()->getMethod<jint()>("getRotation");
   return getRotationMethod(self());
 }
 
-jsi::Value VideoFrame::toJS(jsi::Runtime& runtime) {
+jsi::Value VideoFrame::toJS(jsi::Runtime& runtime) const {
   auto buffer = getHardwareBuffer();
   if (buffer == nullptr) {
     return jsi::Value::null();
