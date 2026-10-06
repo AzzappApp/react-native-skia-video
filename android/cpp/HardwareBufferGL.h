@@ -23,26 +23,4 @@ EGLImageKHR bindHardwareBufferToTexture(AHardwareBuffer* buffer,
  */
 void destroyHardwareBufferImage(EGLImageKHR image);
 
-/**
- * A GL_TEXTURE_2D of the current GL context backed by a hardware buffer, for
- * the lifetime of the object. Must be created and destroyed with the same GL
- * context current.
- */
-class HardwareBufferTexture {
-public:
-  explicit HardwareBufferTexture(AHardwareBuffer* buffer);
-  ~HardwareBufferTexture();
-
-  HardwareBufferTexture(const HardwareBufferTexture&) = delete;
-  HardwareBufferTexture& operator=(const HardwareBufferTexture&) = delete;
-
-  GLuint getTexture() const {
-    return texture;
-  }
-
-private:
-  GLuint texture = 0;
-  EGLImageKHR image = EGL_NO_IMAGE_KHR;
-};
-
 } // namespace RNSkiaVideo

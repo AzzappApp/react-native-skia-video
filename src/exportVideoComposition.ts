@@ -4,8 +4,9 @@ import {
   scheduleOnRN,
   type WorkletRuntime,
 } from 'react-native-worklets';
-import { Skia, BlendMode } from 'react-native-skia';
-import type { SkImage, SkSurface } from 'react-native-skia';
+import { AlphaType, BlendMode, ColorType, Skia } from 'react-native-skia';
+import type { ImageInfo, SkImage, SkSurface } from 'react-native-skia';
+import { Platform } from 'react-native';
 import type {
   ExportOptions,
   FrameDrawer,
@@ -21,6 +22,22 @@ const Promise = global.Promise;
 const DEFAULT_AUDIO_BIT_RATE = 128000;
 const DEFAULT_AUDIO_SAMPLE_RATE = 44100;
 const DEFAULT_AUDIO_CHANNEL_COUNT = 2;
+
+// The pixel layout the encoders expect: the native layout of the platform's
+// video buffers (CVPixelBuffer kCVPixelFormatType_32BGRA on iOS, OpenGL RGBA
+// on Android).
+const FRAME_COLOR_TYPE =
+  Platform.OS === 'ios' ? ColorType.BGRA_8888 : ColorType.RGBA_8888;
+
+// `SkImage.readPixels` also accepts a destination array (4th argument), which
+// is not part of its TypeScript signature: reading every frame into the same
+// array avoids allocating width × height × 4 bytes per frame.
+type ReadPixelsInto = (
+  srcX: number,
+  srcY: number,
+  imageInfo: ImageInfo,
+  dest: Uint8Array
+) => Uint8Array | Float32Array | null;
 
 // The standard abort behavior is to reject with `signal.reason`. React
 // Native's AbortController polyfill (`abort-controller`) predates `reason`,
@@ -188,6 +205,13 @@ export const exportVideoComposition = async <T = undefined>({
           // Recycled across frames (outputImage) to avoid allocating a new
           // JSI object per frame.
           let snapshot: SkImage | undefined;
+          const frameInfo: ImageInfo = {
+            width,
+            height,
+            colorType: FRAME_COLOR_TYPE,
+            alphaType: AlphaType.Premul,
+          };
+          const framePixels = new Uint8Array(width * height * 4);
           for (let i = 0; i < nbFrames; i++) {
             if (cancelledSynchronizable.getDirty()) {
               return;
@@ -207,16 +231,19 @@ export const exportVideoComposition = async <T = undefined>({
                 width: options.width,
                 height: options.height,
               });
-              // The snapshot submits the frame's recording, then
-              // MakeFromImage reads it back into a native buffer
-              // (CVPixelBuffer / AHardwareBuffer) that the encoder consumes.
+              // The snapshot submits the frame's recording, then the frame is
+              // read back to the CPU and handed to the encoder, which copies
+              // it into its own video buffers.
+              // (Skia.NativeBuffer.MakeFromImage is not used: on iOS it leaks
+              // the IOSurface of every buffer it creates.)
               snapshot = currentSurface.makeImageSnapshot(undefined, snapshot);
-              const buffer = Skia.NativeBuffer.MakeFromImage(snapshot);
-              try {
-                currentEncoder.encodeFrame(buffer, currentTime);
-              } finally {
-                Skia.NativeBuffer.Release(buffer);
+              const pixels = (
+                snapshot as unknown as { readPixels: ReadPixelsInto }
+              ).readPixels(0, 0, frameInfo, framePixels);
+              if (!(pixels instanceof Uint8Array)) {
+                throw new Error('Failed to read the pixels of the frame');
               }
+              currentEncoder.encodeFrame(pixels, currentTime);
               afterDrawFrame?.(context);
               if (onProgress) {
                 scheduleOnRN(onProgress, {

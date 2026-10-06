@@ -29,6 +29,7 @@ private:
   std::shared_ptr<VideoComposition> composition;
   AVAssetWriter* assetWriter;
   AVAssetWriterInput* assetWriterInput;
+  CVPixelBufferPoolRef pixelBufferPool = NULL;
 
   AVAssetWriterInput* audioWriterInput;
   AVAssetReader* audioReader;
@@ -38,7 +39,7 @@ private:
   NSMutableArray<NSError*>* audioErrorHolder;
 
   void prepare();
-  void encodeFrame(CVPixelBufferRef pixelBuffer, CMTime time);
+  void encodeFrame(const uint8_t* pixels, size_t size, CMTime time);
   void setupAudio();
   void startWritingAudio();
   void finish();

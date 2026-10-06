@@ -355,12 +355,12 @@ export type VideoEncoder = {
   /**
    * Encodes a frame to the video.
    *
-   * @param buffer A native buffer holding the frame pixels, as returned by
-   * `Skia.NativeBuffer.MakeFromImage`. The encoder does not take ownership of
-   * the buffer: the caller releases it once this method returns.
+   * @param pixels The pixels of the frame, `width × height` premultiplied
+   * 32 bits pixels without row padding, in BGRA order on iOS and RGBA order on
+   * Android. The encoder copies them before returning.
    * @param time The presentation time of the frame in seconds.
    */
-  encodeFrame(buffer: NativeBuffer, time: number): void;
+  encodeFrame(pixels: Uint8Array, time: number): void;
   /*
    * Finish writing the video to the output file.
    */

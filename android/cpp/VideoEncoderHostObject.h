@@ -26,7 +26,7 @@ public:
 
   void makeGLContextCurrent() const;
 
-  void encodeFrame(jint texture, jdouble time) const;
+  void encodePixels(uint8_t* pixels, size_t size, jdouble time) const;
 
   void finishWriting() const;
 

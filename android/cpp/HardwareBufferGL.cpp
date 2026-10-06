@@ -3,7 +3,6 @@
 #include <GLES2/gl2ext.h>
 #include <android/hardware_buffer_jni.h>
 #include <jni.h>
-#include <stdexcept>
 
 namespace RNSkiaVideo {
 
@@ -84,27 +83,6 @@ void destroyHardwareBufferImage(EGLImageKHR image) {
   if (image != EGL_NO_IMAGE_KHR && functions.destroyImage != nullptr) {
     functions.destroyImage(getDisplay(), image);
   }
-}
-
-HardwareBufferTexture::HardwareBufferTexture(AHardwareBuffer* buffer) {
-  glGenTextures(1, &texture);
-  glBindTexture(GL_TEXTURE_2D, texture);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glBindTexture(GL_TEXTURE_2D, 0);
-  image = bindHardwareBufferToTexture(buffer, texture);
-  if (image == EGL_NO_IMAGE_KHR) {
-    glDeleteTextures(1, &texture);
-    throw std::runtime_error(
-        "Could not bind the native buffer to an OpenGL texture");
-  }
-}
-
-HardwareBufferTexture::~HardwareBufferTexture() {
-  glDeleteTextures(1, &texture);
-  destroyHardwareBufferImage(image);
 }
 
 } // namespace RNSkiaVideo

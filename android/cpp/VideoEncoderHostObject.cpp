@@ -1,8 +1,6 @@
 #include "VideoEncoderHostObject.h"
 #include "EGLContextGuard.h"
-#include "HardwareBufferGL.h"
-#include <GLES2/gl2.h>
-#include <android/hardware_buffer.h>
+#include "RNSVPixelData.h"
 
 namespace RNSkiaVideo {
 using namespace facebook::jni;
@@ -30,10 +28,15 @@ void VideoEncoder::makeGLContextCurrent() const {
   makeGLContextCurrentMethod(self());
 }
 
-void VideoEncoder::encodeFrame(jint texture, jdouble time) const {
-  static const auto encodeFrameMethod =
-      getClass()->getMethod<void(jint, jdouble)>("encodeFrame");
-  encodeFrameMethod(self(), texture, time);
+void VideoEncoder::encodePixels(uint8_t* pixels, size_t size,
+                                jdouble time) const {
+  static const auto encodePixelsMethod =
+      getClass()->getMethod<void(alias_ref<JByteBuffer>, jdouble)>(
+          "encodePixels");
+  // A direct ByteBuffer on the JS array memory: no copy, valid during the
+  // call only (the encoder uploads the pixels before returning).
+  auto buffer = JByteBuffer::wrapBytes(pixels, size);
+  encodePixelsMethod(self(), buffer, time);
 }
 
 void VideoEncoder::release() const {
@@ -79,31 +82,20 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "encodeFrame"), 2,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (count < 2 || !arguments[0].isBigInt()) {
+          if (count < 2 || !arguments[1].isNumber()) {
             throw jsi::JSError(runtime,
-                               "VideoEncoder.encodeFrame(..) expects a native "
-                               "buffer (BigInt) and a time (number)!");
+                               "VideoEncoder.encodeFrame(..) expects pixels "
+                               "(Uint8Array) and a time (number)!");
           }
-          auto buffer = reinterpret_cast<AHardwareBuffer*>(
-              arguments[0].asBigInt(runtime).asUint64(runtime));
-          if (buffer == nullptr) {
-            throw jsi::JSError(runtime,
-                               "VideoEncoder.encodeFrame(..) received a null "
-                               "native buffer!");
-          }
+          auto pixels = getPixelData(runtime, arguments[0],
+                                     "VideoEncoder.encodeFrame(..)");
           if (released.test()) {
             return jsi::Value::undefined();
           }
           EGLContextGuard contextGuard;
           framesExtractor->makeGLContextCurrent();
-          {
-            HardwareBufferTexture texture(buffer);
-            framesExtractor->encodeFrame((jint)texture.getTexture(),
-                                         arguments[1].asNumber());
-            // The caller releases the buffer once this method returns: the
-            // GPU must be done reading it.
-            glFinish();
-          }
+          framesExtractor->encodePixels(const_cast<uint8_t*>(pixels.data),
+                                        pixels.size, arguments[1].asNumber());
           return jsi::Value::undefined();
         });
   } else if (propName == "prepare") {

@@ -56,6 +56,8 @@ public class VideoEncoder {
 
   private TextureRenderer textureRenderer;
 
+  private int pixelsTexture = 0;
+
   private MediaMuxer muxer;
 
   private int trackIndex;
@@ -185,6 +187,35 @@ public class VideoEncoder {
 
   public void makeGLContextCurrent() {
     eglResourcesHolder.makeCurrent();
+  }
+
+  /**
+   * Encodes a frame given as pixels.
+   *
+   * @param pixels the RGBA premultiplied pixels of the frame, width × height without row padding
+   * @param time   the presentation time of the frame in seconds
+   */
+  public void encodePixels(ByteBuffer pixels, double time) {
+    if (pixelsTexture == 0) {
+      int[] texIds = new int[1];
+      GLES20.glGenTextures(1, texIds, 0);
+      pixelsTexture = texIds[0];
+      EGLUtils.configureTexture(GLES20.GL_TEXTURE_2D, pixelsTexture);
+      GLES20.glTexImage2D(
+        GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0,
+        GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null
+      );
+    }
+    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, pixelsTexture);
+    GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 4);
+    // glTexSubImage2D copies the pixels before returning: the caller can
+    // reuse its buffer afterwards.
+    GLES20.glTexSubImage2D(
+      GLES20.GL_TEXTURE_2D, 0, 0, 0, width, height,
+      GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels
+    );
+    EGLUtils.checkGlError("VideoEncoder.encodePixels()");
+    encodeFrame(pixelsTexture, time);
   }
 
   public void encodeFrame(int texture, double time) {

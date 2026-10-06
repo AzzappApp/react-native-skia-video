@@ -1,6 +1,7 @@
 #import "VideoEncoderHostObject.h"
 #import "AudioCompositionUtils.h"
 #import "RNSVJSIUtils.h"
+#import "RNSVPixelData.h"
 #import <future>
 
 NS_INLINE NSError* createErrorWithMessage(NSString* message) {
@@ -52,22 +53,18 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "encodeFrame"), 2,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (count < 2 || !arguments[0].isBigInt()) {
+          if (count < 2 || !arguments[1].isNumber()) {
             throw jsi::JSError(runtime,
-                               "VideoEncoder.encodeFrame(..) expects a native "
-                               "buffer (BigInt) and a time (number)!");
+                               "VideoEncoder.encodeFrame(..) expects pixels "
+                               "(Uint8Array) and a time (number)!");
           }
-          auto pixelBuffer = reinterpret_cast<CVPixelBufferRef>(
-              arguments[0].asBigInt(runtime).asUint64(runtime));
-          if (pixelBuffer == NULL) {
-            throw jsi::JSError(runtime,
-                               "VideoEncoder.encodeFrame(..) received a null "
-                               "native buffer!");
-          }
+          auto pixels = getPixelData(runtime, arguments[0],
+                                     "VideoEncoder.encodeFrame(..)");
           auto time =
               CMTimeMakeWithSeconds(arguments[1].asNumber(), NSEC_PER_SEC);
 
-          return runPooled([&] { encodeFrame(pixelBuffer, time); });
+          return runPooled(
+              [&] { encodeFrame(pixels.data, pixels.size, time); });
         });
   }
   if (propName == "finishWriting") {
@@ -136,12 +133,35 @@ void VideoEncoderHostObject::prepare() {
   if (audioWriterInput) {
     startWritingAudio();
   }
+
+  NSDictionary* attributes = @{
+    (NSString*)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
+    (NSString*)kCVPixelBufferWidthKey : @(width),
+    (NSString*)kCVPixelBufferHeightKey : @(height),
+    (NSString*)kCVPixelBufferIOSurfacePropertiesKey : @{},
+  };
+  // Allocate a fresh buffer per frame from this pool instead of reusing a
+  // single CVPixelBuffer. AVAssetWriter encodes appended buffers
+  // asynchronously, so a reused buffer could be overwritten by the next frame
+  // while the encoder is still reading it, producing torn frames on fast
+  // motion. The pool only recycles a buffer once every reference to it (the
+  // encoder's included) is gone, which also keeps the memory used bounded.
+  if (pixelBufferPool) {
+    CVPixelBufferPoolRelease(pixelBufferPool);
+    pixelBufferPool = NULL;
+  }
+  CVReturn status = CVPixelBufferPoolCreate(
+      kCFAllocatorDefault, NULL, (__bridge CFDictionaryRef)attributes,
+      &pixelBufferPool);
+  if (status != kCVReturnSuccess) {
+    throw createErrorWithMessage(@"Could not create pixel buffer pool");
+  }
 }
 
-void VideoEncoderHostObject::encodeFrame(CVPixelBufferRef pixelBuffer,
+void VideoEncoderHostObject::encodeFrame(const uint8_t* pixels, size_t size,
                                          CMTime time) {
-  if (CVPixelBufferGetWidth(pixelBuffer) != (size_t)width ||
-      CVPixelBufferGetHeight(pixelBuffer) != (size_t)height) {
+  const size_t srcBytesPerRow = (size_t)width * 4;
+  if (size < srcBytesPerRow * height) {
     throw createErrorWithMessage(
         @"The frame dimensions do not match the export dimensions");
   }
@@ -155,9 +175,31 @@ void VideoEncoderHostObject::encodeFrame(CVPixelBufferRef pixelBuffer,
     usleep(5000);
   }
 
-  // The sample buffer retains the pixel buffer for as long as AVAssetWriter
-  // needs it (it encodes appended buffers asynchronously), so the caller can
-  // release its own reference once this method returns.
+  CVPixelBufferRef pixelBuffer = NULL;
+  CVReturn status = CVPixelBufferPoolCreatePixelBuffer(
+      kCFAllocatorDefault, pixelBufferPool, &pixelBuffer);
+  if (status != kCVReturnSuccess || pixelBuffer == NULL) {
+    throw createErrorWithMessage(@"Could not allocate pixel buffer from pool");
+  }
+  CVPixelBufferLockBaseAddress(pixelBuffer, 0);
+  uint8_t* dst = (uint8_t*)CVPixelBufferGetBaseAddress(pixelBuffer);
+  if (dst == NULL) {
+    CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+    CVPixelBufferRelease(pixelBuffer);
+    throw createErrorWithMessage(@"Could not write the frame pixels");
+  }
+  // The pixel buffer rows may be padded.
+  const size_t dstBytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
+  if (dstBytesPerRow == srcBytesPerRow) {
+    memcpy(dst, pixels, srcBytesPerRow * height);
+  } else {
+    for (int y = 0; y < height; y++) {
+      memcpy(dst + y * dstBytesPerRow, pixels + y * srcBytesPerRow,
+             srcBytesPerRow);
+    }
+  }
+  CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+
   CMSampleBufferRef sampleBuffer = NULL;
   CMVideoFormatDescriptionRef formatDescription = NULL;
   CMVideoFormatDescriptionCreateForImageBuffer(NULL, pixelBuffer,
@@ -186,6 +228,7 @@ void VideoEncoderHostObject::encodeFrame(CVPixelBufferRef pixelBuffer,
   if (formatDescription) {
     CFRelease(formatDescription);
   };
+  CVPixelBufferRelease(pixelBuffer);
   if (error) {
     throw error;
   }
@@ -366,6 +409,10 @@ void VideoEncoderHostObject::release() {
   }
   assetWriter = nil;
   assetWriterInput = nil;
+  if (pixelBufferPool) {
+    CVPixelBufferPoolRelease(pixelBufferPool);
+    pixelBufferPool = NULL;
+  }
 }
 
 } // namespace RNSkiaVideo
