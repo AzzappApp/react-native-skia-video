@@ -11,7 +11,6 @@ import type {
   SkImage,
   SkSurface,
 } from 'react-native-skia';
-import type { GPUSharedTextureMemory } from 'react-native-webgpu';
 import { Platform } from 'react-native';
 import type {
   ExportOptions,
@@ -64,14 +63,6 @@ const createAbortError = (signal?: AbortSignal): unknown => {
   const error = new Error('Aborted');
   error.name = 'AbortError';
   return error;
-};
-
-// An encoder's frame buffer imported into Skia's device, see
-// `VideoEncoder.beginFrame`.
-type ExportTarget = {
-  memory: GPUSharedTextureMemory;
-  texture: GPUTexture;
-  surface: SkSurface;
 };
 
 let exportRuntime: WorkletRuntime | null = null;
@@ -170,9 +161,6 @@ export const exportVideoComposition = async <T = undefined>({
       let encoder: VideoEncoder | null = null;
       const { width, height } = options;
       try {
-        // The surfaces wrapping the encoder's frame buffers (zero-copy path),
-        // by IOSurface.
-        const targets = new Map<string, ExportTarget>();
         try {
           encoder = RNSkiaVideoModule.createVideoEncoder(
             {
@@ -254,26 +242,6 @@ export const exportVideoComposition = async <T = undefined>({
           const framePixels = zeroCopy
             ? null
             : new Uint8Array(width * height * 4);
-          // The encoder's pool recycles a few buffers: their IOSurfaces are
-          // imported once and kept (the imports retain them) until the end of
-          // the export.
-          const getTarget = (handle: bigint): ExportTarget => {
-            const id = handle.toString();
-            let target = targets.get(id);
-            if (target == null) {
-              const memory = frameImageContext.device.importSharedTextureMemory(
-                { handle }
-              );
-              const texture = memory.createTexture();
-              target = {
-                memory,
-                texture,
-                surface: Skia.Surface.MakeFromGPUTexture(texture),
-              };
-              targets.set(id, target);
-            }
-            return target;
-          };
           for (let i = 0; i < nbFrames; i++) {
             if (cancelledSynchronizable.getDirty()) {
               return;
@@ -299,15 +267,31 @@ export const exportVideoComposition = async <T = undefined>({
                 });
               };
               if (zeroCopy) {
-                const target = getTarget(currentEncoder.beginFrame!());
-                target.memory.beginAccess(target.texture, false);
+                // The buffer is imported for this frame only: a texture kept
+                // over its IOSurface would keep it in use, so that the
+                // encoder's pool could never recycle it and would allocate a
+                // new buffer for every frame.
+                const memory =
+                  frameImageContext.device.importSharedTextureMemory({
+                    handle: currentEncoder.beginFrame!(),
+                  });
+                const texture = memory.createTexture();
+                memory.beginAccess(texture, false);
                 try {
-                  draw(target.surface.getCanvas());
-                  // The encoder reads the buffer as soon as it is handed
-                  // back: wait for the GPU to finish drawing into it.
-                  target.surface.flush(true);
+                  const frameSurface = Skia.Surface.MakeFromGPUTexture(texture);
+                  try {
+                    draw(frameSurface.getCanvas());
+                    // The encoder reads the buffer as soon as it is handed
+                    // back: wait for the GPU to finish drawing into it.
+                    frameSurface.flush(true);
+                  } finally {
+                    frameSurface.dispose();
+                  }
                 } finally {
-                  target.memory.endAccess(target.texture);
+                  memory.endAccess(texture);
+                  // Releases the Metal texture over the IOSurface now rather
+                  // than when the JS wrappers are garbage collected.
+                  texture.destroy();
                 }
                 currentEncoder.endFrame!(currentTime);
               } else {
@@ -340,11 +324,6 @@ export const exportVideoComposition = async <T = undefined>({
         } finally {
           // Note: the offscreen surface is deliberately not disposed — it is
           // the cached shared surface reused by the next export.
-          for (const target of targets.values()) {
-            target.surface.dispose();
-            target.texture.destroy();
-          }
-          targets.clear();
           frameExtractor?.dispose();
           releaseFrameImages(framesKey);
         }
