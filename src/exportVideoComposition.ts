@@ -5,7 +5,13 @@ import {
   type WorkletRuntime,
 } from 'react-native-worklets';
 import { AlphaType, BlendMode, ColorType, Skia } from 'react-native-skia';
-import type { ImageInfo, SkImage, SkSurface } from 'react-native-skia';
+import type {
+  ImageInfo,
+  SkCanvas,
+  SkImage,
+  SkSurface,
+} from 'react-native-skia';
+import type { GPUSharedTextureMemory } from 'react-native-webgpu';
 import { Platform } from 'react-native';
 import type {
   ExportOptions,
@@ -58,6 +64,14 @@ const createAbortError = (signal?: AbortSignal): unknown => {
   const error = new Error('Aborted');
   error.name = 'AbortError';
   return error;
+};
+
+// An encoder's frame buffer imported into Skia's device, see
+// `VideoEncoder.beginFrame`.
+type ExportTarget = {
+  memory: GPUSharedTextureMemory;
+  texture: GPUTexture;
+  surface: SkSurface;
 };
 
 let exportRuntime: WorkletRuntime | null = null;
@@ -156,35 +170,10 @@ export const exportVideoComposition = async <T = undefined>({
       let encoder: VideoEncoder | null = null;
       const { width, height } = options;
       try {
+        // The surfaces wrapping the encoder's frame buffers (zero-copy path),
+        // by IOSurface.
+        const targets = new Map<string, ExportTarget>();
         try {
-          // Reuse a single offscreen surface across exports (per
-          // dimensions). Disposing the surface is not enough to free its
-          // GPU texture: the canvas wrapper returned by getCanvas() keeps
-          // the surface alive until the runtime GC collects it, so creating
-          // a fresh surface per export leaks its backing texture
-          // (width × height × 4 bytes) on every run.
-          const cache = globalThis as unknown as {
-            __rnskvExportSurface?: SkSurface | null;
-            __rnskvExportSurfaceWidth?: number;
-            __rnskvExportSurfaceHeight?: number;
-          };
-          let surface = cache.__rnskvExportSurface ?? null;
-          if (
-            surface == null ||
-            cache.__rnskvExportSurfaceWidth !== width ||
-            cache.__rnskvExportSurfaceHeight !== height
-          ) {
-            surface?.dispose();
-            cache.__rnskvExportSurface = null;
-            surface = Skia.Surface.MakeOffscreen(width, height);
-            if (!surface) {
-              throw new Error('Failed to create Skia surface');
-            }
-            cache.__rnskvExportSurface = surface;
-            cache.__rnskvExportSurfaceWidth = width;
-            cache.__rnskvExportSurfaceHeight = height;
-          }
-
           encoder = RNSkiaVideoModule.createVideoEncoder(
             {
               ...options,
@@ -197,6 +186,44 @@ export const exportVideoComposition = async <T = undefined>({
             videoComposition
           );
           encoder.prepare();
+          const currentEncoder = encoder;
+          // iOS: Skia draws each frame directly into a buffer of the encoder.
+          // Otherwise each frame is read back to the CPU and handed to the
+          // encoder, which copies it into its own buffers.
+          const zeroCopy =
+            currentEncoder.beginFrame != null &&
+            currentEncoder.endFrame != null;
+
+          let surface: SkSurface | null = null;
+          if (!zeroCopy) {
+            // Reuse a single offscreen surface across exports (per
+            // dimensions). Disposing the surface is not enough to free its
+            // GPU texture: the canvas wrapper returned by getCanvas() keeps
+            // the surface alive until the runtime GC collects it, so creating
+            // a fresh surface per export leaks its backing texture
+            // (width × height × 4 bytes) on every run.
+            const cache = globalThis as unknown as {
+              __rnskvExportSurface?: SkSurface | null;
+              __rnskvExportSurfaceWidth?: number;
+              __rnskvExportSurfaceHeight?: number;
+            };
+            surface = cache.__rnskvExportSurface ?? null;
+            if (
+              surface == null ||
+              cache.__rnskvExportSurfaceWidth !== width ||
+              cache.__rnskvExportSurfaceHeight !== height
+            ) {
+              surface?.dispose();
+              cache.__rnskvExportSurface = null;
+              surface = Skia.Surface.MakeOffscreen(width, height);
+              if (!surface) {
+                throw new Error('Failed to create Skia surface');
+              }
+              cache.__rnskvExportSurface = surface;
+              cache.__rnskvExportSurfaceWidth = width;
+              cache.__rnskvExportSurfaceHeight = height;
+            }
+          }
 
           frameExtractor =
             RNSkiaVideoModule.createVideoCompositionFramesExtractorSync(
@@ -205,7 +232,6 @@ export const exportVideoComposition = async <T = undefined>({
           frameExtractor.start();
 
           const nbFrames = videoComposition.duration * options.frameRate;
-          const canvas = surface.getCanvas();
           const clearColor = Skia.Color('#00000000');
           // Each frame runs inside a native autorelease pool: the worklet
           // thread never drains its own, so the ObjC objects autoreleased
@@ -216,7 +242,6 @@ export const exportVideoComposition = async <T = undefined>({
             ((fn: () => void) => fn());
           const currentSurface = surface;
           const currentExtractor = frameExtractor;
-          const currentEncoder = encoder;
           // Recycled across frames (outputImage) to avoid allocating a new
           // JSI object per frame.
           let snapshot: SkImage | undefined;
@@ -226,7 +251,29 @@ export const exportVideoComposition = async <T = undefined>({
             colorType: FRAME_COLOR_TYPE,
             alphaType: AlphaType.Premul,
           };
-          const framePixels = new Uint8Array(width * height * 4);
+          const framePixels = zeroCopy
+            ? null
+            : new Uint8Array(width * height * 4);
+          // The encoder's pool recycles a few buffers: their IOSurfaces are
+          // imported once and kept (the imports retain them) until the end of
+          // the export.
+          const getTarget = (handle: bigint): ExportTarget => {
+            const id = handle.toString();
+            let target = targets.get(id);
+            if (target == null) {
+              const memory = frameImageContext.device.importSharedTextureMemory(
+                { handle }
+              );
+              const texture = memory.createTexture();
+              target = {
+                memory,
+                texture,
+                surface: Skia.Surface.MakeFromGPUTexture(texture),
+              };
+              targets.set(id, target);
+            }
+            return target;
+          };
           for (let i = 0; i < nbFrames; i++) {
             if (cancelledSynchronizable.getDirty()) {
               return;
@@ -238,28 +285,48 @@ export const exportVideoComposition = async <T = undefined>({
                 framesKey,
                 currentExtractor.decodeCompositionFrames(currentTime)
               );
-              canvas.drawColor(clearColor, BlendMode.Clear);
               const context = beforeDrawFrame?.() as any;
-              drawFrame({
-                context,
-                canvas,
-                videoComposition,
-                currentTime,
-                frames,
-                width: options.width,
-                height: options.height,
-              });
-              // The snapshot submits the frame's recording, then the frame is
-              // read back to the CPU and handed to the encoder, which copies
-              // it into its own video buffers.
-              snapshot = currentSurface.makeImageSnapshot(undefined, snapshot);
-              const pixels = (
-                snapshot as unknown as { readPixels: ReadPixelsInto }
-              ).readPixels(0, 0, frameInfo, framePixels);
-              if (!(pixels instanceof Uint8Array)) {
-                throw new Error('Failed to read the pixels of the frame');
+              const draw = (canvas: SkCanvas) => {
+                canvas.drawColor(clearColor, BlendMode.Clear);
+                drawFrame({
+                  context,
+                  canvas,
+                  videoComposition,
+                  currentTime,
+                  frames,
+                  width: options.width,
+                  height: options.height,
+                });
+              };
+              if (zeroCopy) {
+                const target = getTarget(currentEncoder.beginFrame!());
+                target.memory.beginAccess(target.texture, false);
+                try {
+                  draw(target.surface.getCanvas());
+                  // The encoder reads the buffer as soon as it is handed
+                  // back: wait for the GPU to finish drawing into it.
+                  target.surface.flush(true);
+                } finally {
+                  target.memory.endAccess(target.texture);
+                }
+                currentEncoder.endFrame!(currentTime);
+              } else {
+                draw(currentSurface!.getCanvas());
+                // The snapshot submits the frame's recording, then the frame
+                // is read back to the CPU and handed to the encoder, which
+                // copies it into its own video buffers.
+                snapshot = currentSurface!.makeImageSnapshot(
+                  undefined,
+                  snapshot
+                );
+                const pixels = (
+                  snapshot as unknown as { readPixels: ReadPixelsInto }
+                ).readPixels(0, 0, frameInfo, framePixels!);
+                if (!(pixels instanceof Uint8Array)) {
+                  throw new Error('Failed to read the pixels of the frame');
+                }
+                currentEncoder.encodeFrame(pixels, currentTime);
               }
-              currentEncoder.encodeFrame(pixels, currentTime);
               afterDrawFrame?.(context);
               if (onProgress) {
                 scheduleOnRN(onProgress, {
@@ -271,8 +338,13 @@ export const exportVideoComposition = async <T = undefined>({
           }
           snapshot?.dispose();
         } finally {
-          // Note: the surface is deliberately not disposed — it is the
-          // cached shared surface reused by the next export.
+          // Note: the offscreen surface is deliberately not disposed — it is
+          // the cached shared surface reused by the next export.
+          for (const target of targets.values()) {
+            target.surface.dispose();
+            target.texture.destroy();
+          }
+          targets.clear();
           frameExtractor?.dispose();
           releaseFrameImages(framesKey);
         }

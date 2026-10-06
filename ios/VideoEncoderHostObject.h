@@ -2,6 +2,7 @@
 
 #import "VideoComposition.h"
 #import <AVFoundation/AVFoundation.h>
+#import <IOSurface/IOSurfaceRef.h>
 #import <jsi/jsi.h>
 #import <map>
 
@@ -30,6 +31,8 @@ private:
   AVAssetWriter* assetWriter;
   AVAssetWriterInput* assetWriterInput;
   CVPixelBufferPoolRef pixelBufferPool = NULL;
+  // The buffer handed out by beginFrame(), appended by endFrame().
+  CVPixelBufferRef pendingFrameBuffer = NULL;
 
   AVAssetWriterInput* audioWriterInput;
   AVAssetReader* audioReader;
@@ -39,7 +42,12 @@ private:
   NSMutableArray<NSError*>* audioErrorHolder;
 
   void prepare();
+  CVPixelBufferRef createFrameBuffer();
+  void appendFrameBuffer(CVPixelBufferRef pixelBuffer, CMTime time);
   void encodeFrame(const uint8_t* pixels, size_t size, CMTime time);
+  IOSurfaceRef beginFrame();
+  void endFrame(CMTime time);
+  void releasePendingFrameBuffer();
   void setupAudio();
   void startWritingAudio();
   void finish();

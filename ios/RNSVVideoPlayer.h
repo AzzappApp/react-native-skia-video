@@ -32,9 +32,8 @@ NS_ASSUME_NONNULL_BEGIN
                    delegate:(id<RNSVVideoPlayerDelegate>)delegate
                  resolution:(CGSize)resolution;
 /**
- * Returns the frame to display at `time` if a new one is available, copied
- * into one of the player's buffers (see RNSVPixelBufferRing). The returned
- * buffer is retained: release it with CVPixelBufferRelease.
+ * Returns the frame to display at `time` if a new one is available: the
+ * decoder's own NV12 buffer, retained (release it with CVPixelBufferRelease).
  */
 - (nullable CVPixelBufferRef)copyPixelBufferForTime:(CMTime)time
     CF_RETURNS_RETAINED;

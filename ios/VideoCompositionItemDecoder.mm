@@ -33,7 +33,6 @@ VideoCompositionItemDecoder::VideoCompositionItemDecoder(
   height = videoTrack.naturalSize.height;
   rotation = AVAssetTrackUtils::GetTrackRotationInDegree(videoTrack);
   currentFrame = nullptr;
-  pixelBufferRing = [[RNSVPixelBufferRing alloc] init];
   this->setupReader(kCMTimeZero);
 }
 
@@ -53,8 +52,13 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
       CMTimeSubtract(CMTimeMakeWithSeconds(item->duration, NSEC_PER_SEC),
                      position));
 
+  // NV12 is the decoder's native output: requesting BGRA would make
+  // VideoToolbox convert every frame. The YUV to RGB conversion happens on the
+  // GPU when the frame is copied into a texture (React Native WebGPU's
+  // copyExternalImageToTexture), which needs IOSurface-backed buffers.
   NSDictionary* pixBuffAttributes = @{
-    (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
+    (id)kCVPixelBufferPixelFormatTypeKey :
+        @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
     (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
     (id)kCVPixelBufferMetalCompatibilityKey : @YES
   };
@@ -73,6 +77,9 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
   AVAssetReaderOutput* assetReaderOutput =
       [[AVAssetReaderTrackOutput alloc] initWithTrack:videoTrack
                                        outputSettings:pixBuffAttributes];
+  // The decoded buffers are handed to the GPU as is, never modified: no need
+  // for the reader to copy them.
+  assetReaderOutput.alwaysCopiesSampleData = NO;
   [assetReader addOutput:assetReaderOutput];
   [assetReader startReading];
 }
@@ -217,18 +224,10 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
     }
   }
   if (nextFrame) {
-    CVPixelBufferRef pixelBuffer = NULL;
-    try {
-      pixelBuffer = [pixelBufferRing
-          copyNextBufferFilledWith:CMSampleBufferGetImageBuffer(nextFrame)];
-    } catch (...) {
-      CFRelease(nextFrame);
-      throw;
-    }
+    // The frame retains the decoded buffer itself (no copy).
+    auto frame = std::make_shared<VideoFrame>(
+        CMSampleBufferGetImageBuffer(nextFrame), width, height, rotation);
     CFRelease(nextFrame);
-    auto frame =
-        std::make_shared<VideoFrame>(pixelBuffer, width, height, rotation);
-    CVPixelBufferRelease(pixelBuffer);
     return frame;
   }
   return nullptr;
@@ -259,14 +258,8 @@ void VideoCompositionItemDecoder::release() {
     lastRequestedTime = kCMTimeInvalid;
     currentFrame = nullptr;
   }
-  [RNSVPixelBufferRing flushTextureCache];
 }
 
-VideoCompositionItemDecoder::~VideoCompositionItemDecoder() {
-  @synchronized(lock) {
-    [pixelBufferRing releaseBuffers];
-    pixelBufferRing = nil;
-  }
-}
+VideoCompositionItemDecoder::~VideoCompositionItemDecoder() {}
 
 } // namespace RNSkiaVideo

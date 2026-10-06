@@ -89,7 +89,21 @@ export const makeVideoFrame = (
     textures[key] = state;
   }
   const { device, webgpu } = context;
-  const nativeFrame = webgpu.createVideoFrameFromNativeBuffer(frame.buffer);
+  const buffer = frame.buffer;
+  if (buffer == null) {
+    // The frame was already copied into the texture (a producer hands out its
+    // current frame again until a new one is decoded).
+    if (state.image == null) {
+      throw new Error('The video frame was released before being drawn');
+    }
+    return {
+      image: state.image,
+      width: frame.width,
+      height: frame.height,
+      rotation: frame.rotation,
+    };
+  }
+  const nativeFrame = webgpu.createVideoFrameFromNativeBuffer(buffer);
   let texture: GPUTexture;
   try {
     const { width, height } = nativeFrame;
@@ -109,8 +123,9 @@ export const makeVideoFrame = (
       });
     }
     texture = state.texture;
-    // A GPU copy, submitted on Skia's queue: the copy is complete when Skia
-    // samples the texture. The native frame can be released right away.
+    // A GPU copy (converting YUV frames to RGB), submitted on Skia's queue:
+    // the copy is complete when Skia samples the texture. The frame can be
+    // released right away.
     device.queue.copyExternalImageToTexture(
       { source: nativeFrame },
       { texture },
@@ -118,6 +133,9 @@ export const makeVideoFrame = (
     );
   } finally {
     nativeFrame.release();
+    // Hand the buffer back to the decoder now rather than when the JS
+    // wrapper is garbage collected.
+    frame.release?.();
   }
   const previousImage = state.image;
   const image = Skia.Image.MakeImageFromGPUTexture(texture);

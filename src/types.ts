@@ -34,8 +34,15 @@ export type DecodedFrame = {
   /**
    * The native buffer holding the pixels of the frame: a `CVPixelBufferRef`
    * on iOS and an `AHardwareBuffer*` on Android, as a `BigInt` pointer.
+   * Undefined once the frame has been released: its pixels were already
+   * copied by the library when the frame was first handed out.
    */
-  buffer: bigint;
+  buffer: bigint | undefined;
+  /**
+   * Hands the native buffer back to the decoder, once its pixels were copied
+   * (iOS only: the Android decoders recycle their own buffers).
+   */
+  release?: () => void;
   /**
    * The width in pixels of the frame.
    */
@@ -382,6 +389,22 @@ export type VideoEncoder = {
    * @param time The presentation time of the frame in seconds.
    */
   encodeFrame(pixels: Uint8Array, time: number): void;
+  /**
+   * Hands out a buffer of the encoder for the next frame, to render into
+   * without copy, as the `IOSurfaceRef` backing it (a `BigInt` pointer).
+   * The frame is encoded by `endFrame`.
+   *
+   * @platform ios
+   */
+  beginFrame?: () => bigint;
+  /**
+   * Encodes the frame rendered into the buffer handed out by `beginFrame`.
+   * The rendering must be complete (flushed synchronously).
+   *
+   * @param time The presentation time of the frame in seconds.
+   * @platform ios
+   */
+  endFrame?: (time: number) => void;
   /*
    * Finish writing the video to the output file.
    */

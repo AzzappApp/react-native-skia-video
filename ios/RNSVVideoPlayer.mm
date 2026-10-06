@@ -5,7 +5,6 @@
 
 #import "RNSVVideoPlayer.h"
 #import "AVAssetTrackUtils.h"
-#import "RNSVPixelBufferRing.h"
 
 static void* timeRangeContext = &timeRangeContext;
 static void* statusContext = &statusContext;
@@ -17,7 +16,6 @@ static void* rateContext = &rateContext;
 @implementation RNSVVideoPlayer {
   AVPlayer* _player;
   AVPlayerItemVideoOutput* _videoOutput;
-  RNSVPixelBufferRing* _pixelBufferRing;
   CADisplayLink* _displayLink;
   id<RNSVVideoPlayerDelegate> _delegate;
   Boolean _complete;
@@ -36,8 +34,14 @@ static void* rateContext = &rateContext;
 
   AVAsset* asset = [AVAsset assetWithURL:url];
   self.resolution = resolution;
+  // NV12 is the decoder's native output: requesting BGRA would make
+  // VideoToolbox convert every frame. The YUV to RGB conversion happens on the
+  // GPU when the frame is copied into a texture (React Native WebGPU's
+  // copyExternalImageToTexture), which needs IOSurface-backed buffers.
   NSDictionary* pixBuffAttributes = @{
-    (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
+    (id)kCVPixelBufferPixelFormatTypeKey :
+        @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+    (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
     (id)kCVPixelBufferMetalCompatibilityKey : @YES
   };
   if (!CGSizeEqualToSize(CGSizeZero, resolution)) {
@@ -51,7 +55,6 @@ static void* rateContext = &rateContext;
 
   _videoOutput = [[AVPlayerItemVideoOutput alloc]
       initWithPixelBufferAttributes:pixBuffAttributes];
-  _pixelBufferRing = [[RNSVPixelBufferRing alloc] init];
 
   _displayLink =
       [CADisplayLink displayLinkWithTarget:self
@@ -117,21 +120,10 @@ static void* rateContext = &rateContext;
 }
 
 - (nullable CVPixelBufferRef)copyPixelBufferForTime:(CMTime)time {
-  CVPixelBufferRef pixelBuffer = NULL;
-  if ([_videoOutput hasNewPixelBufferForItemTime:time]) {
-    auto buffer = [_videoOutput copyPixelBufferForItemTime:time
-                                        itemTimeForDisplay:nil];
-    if (buffer) {
-      try {
-        pixelBuffer = [_pixelBufferRing copyNextBufferFilledWith:buffer];
-      } catch (...) {
-        CVPixelBufferRelease(buffer);
-        throw;
-      }
-      CVPixelBufferRelease(buffer);
-    }
+  if (![_videoOutput hasNewPixelBufferForItemTime:time]) {
+    return NULL;
   }
-  return pixelBuffer;
+  return [_videoOutput copyPixelBufferForItemTime:time itemTimeForDisplay:nil];
 }
 
 - (void)seekTo:(CMTime)time
@@ -387,7 +379,6 @@ static void* rateContext = &rateContext;
   [_player replaceCurrentItemWithPlayerItem:nil];
   _player = nil;
   _displayLink = nil;
-  [_pixelBufferRing releaseBuffers];
   _disposed = true;
 }
 
