@@ -279,7 +279,14 @@ public class VideoCapabilities {
           }
           aspectRatioOverride = 1;
         } else {
-          continue;
+          // Clamping a single dimension is not enough (e.g. 1920x1920 on an
+          // encoder capped at 1920x1088): scale both down, keeping the ratio.
+          int[] scaledSize = findLargestSupportedSize(videoCapabilities, width, height);
+          if (scaledSize == null) {
+            continue;
+          }
+          currentWidth = scaledSize[0];
+          currentHeight = scaledSize[1];
         }
         resolutionOverride = 1;
       }
@@ -319,6 +326,32 @@ public class VideoCapabilities {
       .thenComparingInt(MediaCodecInfoWithOverrides::bitrateOverride));
 
     return codecInfoWithOverrides;
+  }
+
+  /**
+   * Finds the largest size supported by the encoder that keeps the aspect ratio
+   * of the requested size, or null if there is none.
+   */
+  private static int[] findLargestSupportedSize(
+    MediaCodecInfo.VideoCapabilities videoCapabilities,
+    int width,
+    int height
+  ) {
+    float aspectRatio = (float) width / height;
+    int widthAlignment = Math.max(videoCapabilities.getWidthAlignment(), 2);
+    int heightAlignment = Math.max(videoCapabilities.getHeightAlignment(), 2);
+    int minWidth = videoCapabilities.getSupportedWidths().getLower();
+    int candidateWidth = Math.min(width, videoCapabilities.getSupportedWidths().getUpper());
+    candidateWidth -= candidateWidth % widthAlignment;
+    for (; candidateWidth >= minWidth; candidateWidth -= widthAlignment) {
+      int candidateHeight = Math.round(candidateWidth / aspectRatio);
+      candidateHeight -= candidateHeight % heightAlignment;
+      if (candidateHeight > 0
+        && videoCapabilities.isSizeSupported(candidateWidth, candidateHeight)) {
+        return new int[]{candidateWidth, candidateHeight};
+      }
+    }
+    return null;
   }
 
   private static boolean isHardwareAccelerated(MediaCodecInfo codecInfo) {

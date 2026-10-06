@@ -9,6 +9,10 @@ namespace RNSkiaVideo {
 using namespace facebook;
 using namespace jni;
 
+struct JHardwareBuffer : JavaClass<JHardwareBuffer> {
+  static constexpr auto kJavaDescriptor = "Landroid/hardware/HardwareBuffer;";
+};
+
 struct VideoFrame : JavaClass<VideoFrame> {
 public:
   static constexpr auto kJavaDescriptor = "Lcom/azzapp/rnskv/VideoFrame;";

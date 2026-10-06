@@ -1,6 +1,7 @@
 package com.azzapp.rnskv;
 
 import android.media.MediaCodec;
+import android.media.MediaCodecList;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.view.Surface;
@@ -87,7 +88,15 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     if (mime == null) {
       throw new IOException("Could not determine file mime type");
     }
-    codec = MediaCodec.createDecoderByType(mime);
+    // createDecoderByType always returns the first decoder for the mime type
+    // (usually the hardware one) even when it can't handle the stream, e.g. a
+    // 1080x2048 portrait video on a decoder capped at 1920x1088. Pick one that
+    // supports the actual format, falling back to the default otherwise.
+    String decoderName = new MediaCodecList(MediaCodecList.REGULAR_CODECS)
+      .findDecoderForFormat(format);
+    codec = decoderName != null
+      ? MediaCodec.createByCodecName(decoderName)
+      : MediaCodec.createDecoderByType(mime);
     extractor.selectTrack(trackIndex);
     if (item.getStartTime() != 0) {
       extractor.seekTo(

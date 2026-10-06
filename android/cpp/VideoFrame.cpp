@@ -5,7 +5,7 @@ namespace RNSkiaVideo {
 
 AHardwareBuffer* VideoFrame::getHardwareBuffer() const {
   static const auto getHardwareBufferMethod =
-      getClass()->getMethod<jobject()>("getHardwareBuffer");
+      getClass()->getMethod<JHardwareBuffer::javaobject()>("getHardwareBuffer");
   auto hardwareBuffer = getHardwareBufferMethod(self());
   if (!hardwareBuffer) {
     return nullptr;
