@@ -63,8 +63,8 @@ const CompositionPlayer = ({ composition, width, height }) => {
   1080p to show a 300pt preview wastes decoder bandwidth and memory.
 - `drawFrame` runs on the UI thread — keep per-frame allocations low and
   cache expensive Skia objects (paragraphs, runtime effects) between frames.
-- The player owns the frame buffers; don't hold on to `VideoFrame`s across
-  frames. Dispose any `SkImage` wrappers you create once drawn.
+- The player owns the frame images; don't hold on to `VideoFrame`s across
+  frames.
 - Re-creating the player (new `composition` object identity) is not free:
   memoize the composition and only rebuild it when playback inputs actually
   change.

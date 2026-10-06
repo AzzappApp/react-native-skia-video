@@ -1,20 +1,41 @@
-import type { NativeBuffer, SkCanvas } from 'react-native-skia';
+import type { SkCanvas, SkImage } from 'react-native-skia';
 
 /**
  * Represents a video frame.
  */
 export type VideoFrame = {
   /**
-   * The native buffer holding the pixels of the frame: a `CVPixelBufferRef`
-   * on iOS and an `AHardwareBuffer*` on Android, passed as a `BigInt`
-   * pointer. Wrap it with `Skia.Image.MakeImageFromNativeBuffer(frame.buffer)`
-   * to draw it.
+   * The image of the frame, ready to be drawn with React Native Skia.
    *
-   * The buffer is owned by the player (or composition extractor) that
-   * produced the frame and is recycled for the following frames: create the
-   * image when you draw the frame, don't keep it around.
+   * The image is owned by the player (or composition player) that produced the
+   * frame and is disposed when the next frame is produced: draw it, don't keep
+   * it around (use `image.makeNonTextureImage()` to keep a copy).
    */
-  buffer: NativeBuffer;
+  image: SkImage;
+  /**
+   * The width in pixels of the frame.
+   */
+  width: number;
+  /**
+   * The height in pixels of the frame.
+   */
+  height: number;
+  /**
+   * The rotation in degrees of the frame.
+   */
+  rotation: number;
+};
+
+/**
+ * A frame as decoded by the native module: its pixels are in a native buffer,
+ * turned into a `VideoFrame` by the library.
+ */
+export type DecodedFrame = {
+  /**
+   * The native buffer holding the pixels of the frame: a `CVPixelBufferRef`
+   * on iOS and an `AHardwareBuffer*` on Android, as a `BigInt` pointer.
+   */
+  buffer: bigint;
   /**
    * The width in pixels of the frame.
    */
@@ -77,7 +98,7 @@ export type VideoPlayer = {
    *
    * @returns The next frame of the video.
    */
-  decodeNextFrame(): VideoFrame;
+  decodeNextFrame(): DecodedFrame | null;
   /**
    * The current time in seconds of the playback.
    */
@@ -292,7 +313,7 @@ export type VideoCompositionFramesExtractor = {
    *
    * @returns The decoded video frames of the composition items.
    */
-  decodeCompositionFrames(): Record<string, VideoFrame>;
+  decodeCompositionFrames(): Record<string, DecodedFrame>;
   /**
    * Disposes of the video composition frames extractor.
    */
@@ -337,7 +358,7 @@ export type VideoCompositionFramesExtractorSync = {
    *
    * @returns The decoded video frames of the composition items.
    */
-  decodeCompositionFrames(currentTime: number): Record<string, VideoFrame>;
+  decodeCompositionFrames(currentTime: number): Record<string, DecodedFrame>;
   /**
    * Disposes of the video composition frames extractor.
    */

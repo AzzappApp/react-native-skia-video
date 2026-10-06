@@ -9,11 +9,12 @@ slug: /migration
 
 Version 1.0 targets [React Native Skia v3](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/),
 which renders with Skia Graphite (Metal on iOS, Vulkan on Android). Graphite no
-longer accepts raw OpenGL or Metal texture handles, so video frames are now
-exchanged with Skia as **native buffers** (`CVPixelBufferRef` on iOS,
-`AHardwareBuffer*` on Android), imported without copy.
+longer accepts native textures: video frames reach Skia through textures of its
+GPU device, created with [React Native WebGPU](https://wcandillon.github.io/react-native-webgpu/).
+The library copies each decoded frame into such a texture on the GPU and hands
+you an `SkImage`.
 
-## 1. Upgrade React Native Skia
+## 1. Upgrade React Native Skia and install React Native WebGPU
 
 Follow the [React Native Skia v3 migration guide](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/):
 the package is now `react-native-skia` (instead of `@shopify/react-native-skia`)
@@ -21,12 +22,17 @@ and Android requires API level 26 or above (this library requires 28).
 
 ```sh
 yarn remove @shopify/react-native-skia
-yarn add react-native-skia @azzapp/react-native-skia-video@^1.0.0
+yarn add react-native-skia react-native-webgpu @azzapp/react-native-skia-video@^1.0.0
 ```
 
-## 2. Wrap frames with `MakeImageFromNativeBuffer`
+React Native Skia and React Native WebGPU must be built against the same Dawn
+release: the native build fails with a `Dawn version mismatch` error otherwise.
+Upgrade them together (see the [compatibility table](https://wcandillon.github.io/react-native-webgpu/docs/integrations/react-native-skia#compatibility)).
 
-`VideoFrame.texture` is replaced by `VideoFrame.buffer`:
+## 2. Draw `frame.image`
+
+`VideoFrame.texture` is replaced by `VideoFrame.image`, an `SkImage` ready to be
+drawn:
 
 ```diff
 - const image = Skia.Image.MakeImageFromNativeTextureUnstable(
@@ -34,25 +40,27 @@ yarn add react-native-skia @azzapp/react-native-skia-video@^1.0.0
 -   frame.width,
 -   frame.height
 - );
-+ const image = Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
+- canvas.drawImageRect(image, src, dst, paint);
++ canvas.drawImageRect(frame.image, src, dst, paint);
 ```
 
-`MakeImageFromNativeBuffer` doesn't take an `outputImage` to recycle: in a
-`drawFrame` worklet, dispose the image once it is drawn (the canvas keeps its
-own reference to it):
+With `useVideoPlayer`:
 
-```ts
-const image = Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
-canvas.drawImageRect(image, src, dst, paint);
-image.dispose();
+```diff
+  const videoImage = useDerivedValue(() => {
+    const frame = currentFrame.value;
+-   if (!frame) return null;
+-   return Skia.Image.MakeImageFromNativeTextureUnstable(frame.texture, frame.width, frame.height);
++   return frame?.image ?? null;
+  });
 ```
 
 ## 3. Don't keep frames around
 
-The buffers are owned by the player (or composition player) and recycled: a
-frame's pixels are overwritten a few frames later. Create the `SkImage` when
-you draw the frame; use `image.makeNonTextureImage()` if you need a lasting
-copy (a thumbnail for instance).
+The images are owned by the player (or composition player): an image is
+disposed when the next frame is produced. Don't dispose them yourself, and use
+`image.makeNonTextureImage()` if you need a lasting copy (a thumbnail for
+instance).
 
 ## What doesn't change
 

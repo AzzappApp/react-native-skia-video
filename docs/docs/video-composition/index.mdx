@@ -72,14 +72,13 @@ const drawFrame: FrameDrawer = ({ canvas, currentTime, frames, width, height }) 
   'worklet';
   const frame = frames[currentTime < 5 ? 'clipA' : 'clipB'];
   if (!frame) return;
-  const image = Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
+  const { image } = frame;
   canvas.drawImageRect(
     image,
     Skia.XYWHRect(0, 0, image.width(), image.height()),
     Skia.XYWHRect(0, 0, width, height),
     Skia.Paint()
   );
-  image.dispose();
 };
 ```
 
@@ -88,7 +87,9 @@ A few rules of thumb:
 - **It must be a worklet** (`'worklet'` directive) and only call
   worklet-compatible code. Define helper worklets *before* the worklets that
   call them — closures are captured at the definition site.
-- `frames` maps item ids to `VideoFrame`s (`{ buffer, width, height, rotation }`).
+- `frames` maps item ids to `VideoFrame`s (`{ image, width, height, rotation }`).
+  The images are owned by the player: don't dispose them, and don't keep them
+  after the call.
   A frame's `rotation` is the display rotation in degrees of the source
   (phone footage is often stored rotated).
 - Skia objects can't hop between worklet runtimes. Decode/cache per runtime

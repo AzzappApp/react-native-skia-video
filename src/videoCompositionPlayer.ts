@@ -13,6 +13,12 @@ import type {
   VideoCompositionFramesExtractor,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
+import {
+  createFrameImagesKey,
+  getFrameImageContext,
+  makeVideoFrames,
+  releaseFrameImages,
+} from './frameImages';
 import useEventListener from './utils/useEventListener';
 import { PixelRatio } from 'react-native';
 
@@ -117,13 +123,17 @@ export const useVideoCompositionPlayer = ({
     })();
   }, [framesExtractor]);
 
+  const frameImageContext = useMemo(() => getFrameImageContext(), []);
+  const framesKey = useMemo(() => createFrameImagesKey(), []);
+
   const currentFrame = useSharedValue<SkImage | null>(null);
   useEffect(
     () => () => {
       currentFrame.value = null;
       framesExtractor?.dispose();
+      runOnUI(releaseFrameImages)(framesKey);
     },
-    [currentFrame, framesExtractor]
+    [currentFrame, framesExtractor, framesKey]
   );
 
   const retry = useCallback(() => {
@@ -183,7 +193,11 @@ export const useVideoCompositionPlayer = ({
       context,
       videoComposition: composition!,
       currentTime: framesExtractor.currentTime,
-      frames: framesExtractor.decodeCompositionFrames(),
+      frames: makeVideoFrames(
+        frameImageContext,
+        framesKey,
+        framesExtractor.decodeCompositionFrames()
+      ),
       width: width * pixelRatio,
       height: height * pixelRatio,
     });

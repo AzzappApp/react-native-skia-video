@@ -15,6 +15,12 @@ import type {
   VideoCompositionFramesExtractorSync,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
+import {
+  createFrameImagesKey,
+  getFrameImageContext,
+  makeVideoFrames,
+  releaseFrameImages,
+} from './frameImages';
 import { createSynchronizable } from 'react-native-worklets';
 
 const Promise = global.Promise;
@@ -134,6 +140,15 @@ export const exportVideoComposition = async <T = undefined>({
       reject(error);
     };
 
+    let frameImageContext: ReturnType<typeof getFrameImageContext>;
+    try {
+      frameImageContext = getFrameImageContext();
+    } catch (error) {
+      settleReject(error);
+      return;
+    }
+    const framesKey = createFrameImagesKey();
+
     runOnRuntime(getExportRuntime(), () => {
       'worklet';
 
@@ -218,8 +233,11 @@ export const exportVideoComposition = async <T = undefined>({
             }
             const currentTime = i / options.frameRate;
             runPooled(() => {
-              const frames =
-                currentExtractor.decodeCompositionFrames(currentTime);
+              const frames = makeVideoFrames(
+                frameImageContext,
+                framesKey,
+                currentExtractor.decodeCompositionFrames(currentTime)
+              );
               canvas.drawColor(clearColor, BlendMode.Clear);
               const context = beforeDrawFrame?.() as any;
               drawFrame({
@@ -234,8 +252,6 @@ export const exportVideoComposition = async <T = undefined>({
               // The snapshot submits the frame's recording, then the frame is
               // read back to the CPU and handed to the encoder, which copies
               // it into its own video buffers.
-              // (Skia.NativeBuffer.MakeFromImage is not used: on iOS it leaks
-              // the IOSurface of every buffer it creates.)
               snapshot = currentSurface.makeImageSnapshot(undefined, snapshot);
               const pixels = (
                 snapshot as unknown as { readPixels: ReadPixelsInto }
@@ -258,6 +274,7 @@ export const exportVideoComposition = async <T = undefined>({
           // Note: the surface is deliberately not disposed — it is the
           // cached shared surface reused by the next export.
           frameExtractor?.dispose();
+          releaseFrameImages(framesKey);
         }
 
         encoder!.finishWriting();

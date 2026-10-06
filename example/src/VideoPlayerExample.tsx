@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Blur, Canvas, Image, Rect, Skia } from 'react-native-skia';
+import { Blur, Canvas, Image, Rect } from 'react-native-skia';
 import {
   ActivityIndicator,
   Button,
@@ -111,18 +111,7 @@ const VideoPlayerExample = () => {
     resolution,
   });
 
-  const videoImage = useDerivedValue(() => {
-    const frame = currentFrame.value;
-    if (!frame) {
-      return null;
-    }
-    try {
-      return Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
-    } catch (e) {
-      console.error('Failed to convert native buffer to SkImage', e);
-      return null;
-    }
-  });
+  const videoImage = useDerivedValue(() => currentFrame.value?.image ?? null);
 
   const currentTime = useSharedValue<number>(0);
   const duration = useSharedValue<number>(1);

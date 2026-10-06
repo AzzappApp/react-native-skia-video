@@ -9,12 +9,17 @@ Video encoding/decoding support for [React Native Skia](https://github.com/wcand
 ## Installation
 
 ```sh
-npm install @azzapp/react-native-skia-video
+npm install @azzapp/react-native-skia-video react-native-webgpu
 ```
 
 This library requires [React Native Skia](https://wcandillon.github.io/react-native-skia/) v3
-(`react-native-skia`, Graphite backend), [Reanimated](https://docs.swmansion.com/react-native-reanimated/) 4
+(`react-native-skia` 3.0.5 or above, Graphite backend),
+[React Native WebGPU](https://wcandillon.github.io/react-native-webgpu/) 0.11.1 or above (built
+against the same Dawn release as React Native Skia), [Reanimated](https://docs.swmansion.com/react-native-reanimated/) 4
 and [Worklets](https://docs.swmansion.com/react-native-worklets/). On Android the minimum API level is 28.
+
+Video frames are handed to Skia as images: the library copies each decoded frame on the GPU into
+a texture of Skia's device with React Native WebGPU, without going through the CPU.
 
 > Upgrading from 0.x (React Native Skia v2)? See [Migrating to 1.0](#migrating-to-10).
 
@@ -25,20 +30,14 @@ and [Worklets](https://docs.swmansion.com/react-native-worklets/). On Android th
 The `useVideoPlayer` is a custom React hook used in the context of a video player component. This hook encapsulates the logic for playing, pausing, and controlling video playback. It returns a [Reanimated](https://docs.swmansion.com/react-native-reanimated/) shared value that holds the current frame of the playing video.
 
 ```js
-import { Canvas, Image, Skia } from 'react-native-skia';
+import { Canvas, Image } from 'react-native-skia';
 import { useVideoPlayer } from '@azzapp/react-native-skia-video';
 
 const MyVideoPlayer = ({ uri, width, height }) =>{
 
   const { currentFrame } = useVideoPlayer({ uri })
 
-  const videoImage = useDerivedValue(() => {
-    const frame = currentFrame.value;
-    if (!frame) {
-      return null;
-    }
-    return Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
-  });
+  const videoImage = useDerivedValue(() => currentFrame.value?.image ?? null);
 
   return (
     <Canvas style={{ width, height }}>
@@ -89,15 +88,12 @@ const drawFrame: FrameDrawer = ({
   if (!frame) {
     return;
   }
-  const image = Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
   canvas.drawImageRect(
-    image,
+    frame.image,
     { x: 0, y: 0, width: frame.width, height: frame.height },
     { x: 0, y: 0, width, height },
     Skia.Paint()
   );
-  // the canvas keeps its own reference to the image
-  image.dispose();
 }
 
 
@@ -195,21 +191,23 @@ If the provided parameters are not supported the returned configurations will be
 ## Migrating to 1.0
 
 Version 1.0 targets React Native Skia v3, which renders with Skia Graphite
-(Metal on iOS, Vulkan on Android) and no longer accepts raw OpenGL/Metal
-texture handles. Video frames are now exchanged as native buffers.
+(Metal on iOS, Vulkan on Android) and no longer accepts native textures: video
+frames reach Skia through textures of its GPU device, created with React Native
+WebGPU.
 
 - Replace `@shopify/react-native-skia` with `react-native-skia` (v3), see
-  [the React Native Skia migration guide](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/).
-- `VideoFrame.texture` is replaced by `VideoFrame.buffer`, a native buffer
-  (`CVPixelBufferRef` on iOS, `AHardwareBuffer*` on Android):
+  [the React Native Skia migration guide](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/),
+  and install `react-native-webgpu`.
+- `VideoFrame.texture` is replaced by `VideoFrame.image`, an `SkImage` ready
+  to be drawn:
 
   ```diff
   - Skia.Image.MakeImageFromNativeTextureUnstable(frame.texture, frame.width, frame.height)
-  + Skia.Image.MakeImageFromNativeBuffer(frame.buffer)
+  + frame.image
   ```
 
-- The frame buffers are owned and recycled by the player: create the image
-  when you draw the frame instead of keeping it around (use
+- The images are owned by the player: an image is disposed when the next frame
+  is produced, so draw it instead of keeping it around (use
   `image.makeNonTextureImage()` to keep a copy).
 - `useVideoCompositionPlayer` and `exportVideoComposition` keep the same API.
 

@@ -32,12 +32,7 @@ import ReactNativeBlobUtil, {
   type FetchBlobResponse,
   type StatefulPromise,
 } from 'react-native-blob-util';
-import {
-  Canvas,
-  Image as ImageSkia,
-  Skia,
-  type SkImage,
-} from 'react-native-skia';
+import { Canvas, Image as ImageSkia, Skia } from 'react-native-skia';
 import { createId } from '@paralleldrive/cuid2';
 import Slider from '@react-native-community/slider';
 import Animated, {
@@ -206,13 +201,7 @@ const drawFrame: FrameDrawer = ({
           : 1 - (currentTime - itemEndTime)
         : currentTime - itemStartTime
     );
-    let image: SkImage;
-    try {
-      image = Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
-    } catch (error) {
-      console.log('error', error);
-      continue;
-    }
+    const { image } = frame;
     const frameAspectRatio = frame.width / frame.height;
     const aspectRatio = width / height;
 
@@ -234,9 +223,6 @@ const drawFrame: FrameDrawer = ({
       { x: 0, y: 0, width, height },
       paint
     );
-    // drawImageRect captures the underlying Skia image, so the wrapper can be
-    // released right away instead of waiting for the garbage collector.
-    image.dispose();
   }
 };
 

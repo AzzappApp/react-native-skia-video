@@ -8,11 +8,12 @@ slug: /video-player
 # Video Player
 
 `useVideoPlayer` plays a single video file and exposes its current frame as a
-Reanimated shared value. Each frame is a **native GPU buffer** — wrap it with
-`Skia.Image.MakeImageFromNativeBuffer` and draw it like any other `SkImage`.
+Reanimated shared value. Each frame carries an `image`: an `SkImage` backed by
+a GPU texture (the decoded frame is copied on the GPU with React Native
+WebGPU), that you draw like any other image.
 
 ```tsx
-import { Canvas, Image, Skia } from 'react-native-skia';
+import { Canvas, Image } from 'react-native-skia';
 import { useVideoPlayer } from '@azzapp/react-native-skia-video';
 import { useDerivedValue } from 'react-native-reanimated';
 
@@ -25,11 +26,7 @@ const MyVideoPlayer = ({ uri, width, height }) => {
       console.log(`video is ${width}x${height}, rotated ${rotation}°`),
   });
 
-  const videoImage = useDerivedValue(() => {
-    const frame = currentFrame.value;
-    if (!frame) return null;
-    return Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
-  });
+  const videoImage = useDerivedValue(() => currentFrame.value?.image ?? null);
 
   return (
     <Canvas style={{ width, height }}>
@@ -78,11 +75,9 @@ player?.isPlaying;
 ```
 
 :::tip Frame lifecycle
-The frame buffers are owned and recycled by the player: a frame's pixels are
-overwritten a few frames later. The `SkImage` wrappers you create around them
-are cheap (no copy); create them per frame in a derived value (as above) or in
-a frame callback, and don't keep them around — use `makeNonTextureImage()` if
-you need a lasting copy.
+The frame images are owned by the player: an image is disposed when the next
+frame is decoded. Draw the current one (as above) and don't keep it around —
+use `makeNonTextureImage()` if you need a lasting copy.
 :::
 
 For playing **several** videos on a shared clock — cuts, transitions,

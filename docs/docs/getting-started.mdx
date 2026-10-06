@@ -9,7 +9,7 @@ slug: /getting-started
 
 **React Native Skia Video** adds video superpowers to
 [React Native Skia](https://wcandillon.github.io/react-native-skia/): it decodes
-videos straight into **GPU buffers** you can draw with the Skia canvas API,
+videos straight into **GPU textures** you can draw with the Skia canvas API,
 lets you **compose** multiple videos (and anything Skia can draw) frame by
 frame, and **exports** the result through the platform's hardware encoders —
 with audio mixed in.
@@ -37,7 +37,8 @@ The library relies on the following peer dependencies:
 
 | Package | Version |
 | --- | --- |
-| `react-native-skia` | `>= 3.0.0` |
+| `react-native-skia` | `>= 3.0.5` |
+| `react-native-webgpu` | `>= 0.11.1` (same Dawn release as React Native Skia) |
 | `react-native-reanimated` | `>= 4.0.0` |
 | `react-native-worklets` | `>= 0.10.0` |
 
@@ -52,22 +53,18 @@ modules.
 ### 1. Play a single video
 
 The [`useVideoPlayer`](/docs/video-player) hook decodes a video file and hands
-you its current frame as a Reanimated shared value, ready to be wrapped in an
-`SkImage`:
+you its current frame as a Reanimated shared value, with an `SkImage` ready to
+be drawn:
 
 ```tsx
-import { Canvas, Image, Skia } from 'react-native-skia';
+import { Canvas, Image } from 'react-native-skia';
 import { useVideoPlayer } from '@azzapp/react-native-skia-video';
 import { useDerivedValue } from 'react-native-reanimated';
 
 const MyVideoPlayer = ({ uri, width, height }) => {
   const { currentFrame } = useVideoPlayer({ uri, autoPlay: true });
 
-  const videoImage = useDerivedValue(() => {
-    const frame = currentFrame.value;
-    if (!frame) return null;
-    return Skia.Image.MakeImageFromNativeBuffer(frame.buffer);
-  });
+  const videoImage = useDerivedValue(() => currentFrame.value?.image ?? null);
 
   return (
     <Canvas style={{ width, height }}>
