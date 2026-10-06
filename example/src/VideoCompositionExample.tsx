@@ -606,7 +606,7 @@ const VideoCompositionPreview = ({
           }}
         >
           {exportedPath ? (
-            <Text style={{ color: 'black' }}>
+            <Text style={{ color: 'black' }} selectable>
               Video exported successfully! at {exportedPath}
             </Text>
           ) : (
