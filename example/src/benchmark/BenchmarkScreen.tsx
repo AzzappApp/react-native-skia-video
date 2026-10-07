@@ -40,6 +40,8 @@ type RunResult = {
   /** Memory before the run and once it is over (after a pause). */
   memoryBefore: number | null;
   memoryAfter: number | null;
+  /** Highest memory sampled during the run. */
+  memoryPeak: number | null;
 };
 
 type LiveRun = {
@@ -52,6 +54,9 @@ type LiveRun = {
 const SETTLE_MS = 1500;
 
 const RUN_COUNTS = [1, 3, 5, 10];
+
+// Reading the memory is slow on Android (Debug.getMemoryInfo).
+const MEMORY_SAMPLING_MS = Platform.OS === 'android' ? 500 : 250;
 
 const BenchmarkScreen = () => {
   const [label, setLabel] = useState('');
@@ -134,10 +139,19 @@ const BenchmarkScreen = () => {
           const startedAt = new Date().toISOString();
           let metrics: Metrics | null = null;
           let error: string | null = null;
+          let memoryPeak = memoryBefore;
+          const memorySampling = setInterval(() => {
+            const memory = readMemoryFootprint();
+            if (memory != null && (memoryPeak == null || memory > memoryPeak)) {
+              memoryPeak = memory;
+            }
+          }, MEMORY_SAMPLING_MS);
           try {
             metrics = await runScenario(scenario, signal);
           } catch (e) {
             error = e instanceof Error ? e.message : String(e);
+          } finally {
+            clearInterval(memorySampling);
           }
           if (signal.aborted) {
             return;
@@ -151,6 +165,7 @@ const BenchmarkScreen = () => {
             error,
             memoryBefore,
             memoryAfter: readMemoryFootprint(),
+            memoryPeak,
           };
           console.log('[benchmark]', JSON.stringify(result));
           setResults((previous) => [...previous, result]);
@@ -334,7 +349,7 @@ const ResultView = ({ result }: { result: RunResult }) => (
       {result.memoryBefore != null && result.memoryAfter != null
         ? formatBytes(result.memoryAfter - result.memoryBefore)
         : 'n/a'}
-      )
+      ), peak {formatBytes(result.memoryPeak)}
     </Text>
   </View>
 );

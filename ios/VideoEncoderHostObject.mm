@@ -198,12 +198,18 @@ CVPixelBufferRef VideoEncoderHostObject::createFrameBuffer() {
 
 void VideoEncoderHostObject::appendFrameBuffer(CVPixelBufferRef pixelBuffer,
                                                CMTime time) {
-  int attempt = 0;
+  // The encoder can fall behind for a while (large frames, a hot device):
+  // only give up if it fails or stays unavailable for long.
+  const CFAbsoluteTime deadline = CFAbsoluteTimeGetCurrent() + 10;
   while (!assetWriterInput.isReadyForMoreMediaData) {
-    if (attempt > 100) {
-      throw createErrorWithMessage(@"AVAssetWriter unavailable");
+    if (assetWriter.status == AVAssetWriterStatusFailed) {
+      throw assetWriter.error
+          ?: createErrorWithMessage(@"AVAssetWriter failed");
     }
-    attempt++;
+    if (CFAbsoluteTimeGetCurrent() > deadline) {
+      throw createErrorWithMessage(
+          @"AVAssetWriter unavailable for more than 10 seconds");
+    }
     usleep(5000);
   }
 
