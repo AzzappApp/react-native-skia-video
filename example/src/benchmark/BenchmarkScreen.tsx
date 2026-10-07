@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  AppState,
   Button,
   Platform,
   ScrollView,
@@ -87,17 +88,30 @@ const BenchmarkScreen = () => {
 
   const running = status != null;
 
+  /**
+   * Generates the missing clips. Returns why the clips that could not be
+   * generated are unavailable (e.g. unsupported by the device's encoders).
+   */
   const ensureClips = async (clipIds: string[], signal: AbortSignal) => {
+    const unavailable = new Map<string, string>();
     const ready = await refreshClips();
     for (const clipId of new Set(clipIds)) {
       if (ready.has(clipId) || signal.aborted) {
         continue;
       }
-      await generateClip(getClip(clipId), signal, (progress) =>
-        setStatus(`Generating clip ${clipId}… ${Math.round(progress * 100)}%`)
-      );
+      try {
+        await generateClip(getClip(clipId), signal, (progress) =>
+          setStatus(`Generating clip ${clipId}… ${Math.round(progress * 100)}%`)
+        );
+      } catch (e) {
+        if (signal.aborted) {
+          throw e;
+        }
+        unavailable.set(clipId, e instanceof Error ? e.message : String(e));
+      }
       await refreshClips();
     }
+    return unavailable;
   };
 
   const runLive = (scenario: PreviewScenario | PlayerScenario) =>
@@ -122,16 +136,41 @@ const BenchmarkScreen = () => {
     const scenarios = SCENARIOS.filter((scenario) => selected.has(scenario.id));
     try {
       setStatus('Preparing…');
-      await ensureClips(
+      const unavailableClips = await ensureClips(
         generateOnly
           ? CLIPS.map((clip) => clip.id)
           : scenarios.flatMap(getScenarioClips),
         signal
       );
       if (generateOnly) {
+        if (unavailableClips.size > 0) {
+          Alert.alert(
+            'Some clips are unavailable',
+            [...unavailableClips.values()].join('\n')
+          );
+        }
         return;
       }
       for (const scenario of scenarios) {
+        const missingClip = getScenarioClips(scenario).find((clipId) =>
+          unavailableClips.has(clipId)
+        );
+        if (missingClip != null) {
+          setResults((previous) => [
+            ...previous,
+            {
+              scenario: scenario.id,
+              run: 0,
+              startedAt: new Date().toISOString(),
+              metrics: null,
+              error: `Skipped: ${unavailableClips.get(missingClip)}`,
+              memoryBefore: null,
+              memoryAfter: null,
+              memoryPeak: null,
+            },
+          ]);
+          continue;
+        }
         for (let run = 1; run <= runCount && !signal.aborted; run++) {
           setStatus(`${scenario.label} (run ${run}/${runCount})`);
           await wait(SETTLE_MS);
@@ -146,12 +185,27 @@ const BenchmarkScreen = () => {
               memoryPeak = memory;
             }
           }, MEMORY_SAMPLING_MS);
+          // A run during which the app left the foreground is not
+          // representative (throttled or suspended).
+          let interrupted = false;
+          const appStateSubscription = AppState.addEventListener(
+            'change',
+            (state) => {
+              if (state !== 'active') {
+                interrupted = true;
+              }
+            }
+          );
           try {
             metrics = await runScenario(scenario, signal);
           } catch (e) {
             error = e instanceof Error ? e.message : String(e);
           } finally {
             clearInterval(memorySampling);
+            appStateSubscription.remove();
+          }
+          if (interrupted && error == null) {
+            error = 'Interrupted: the app left the foreground';
           }
           if (signal.aborted) {
             return;
