@@ -25,6 +25,23 @@ public class EGLResourcesHolder {
 
 
   /**
+   * Returns the default display, initialized: no other EGL user (React Native
+   * Skia renders with Vulkan or Dawn) may have initialized it before.
+   * Initializing an initialized display has no effect.
+   */
+  private static EGLDisplay getInitializedDisplay(EGL10 egl) {
+    EGLDisplay eglDisplay = egl.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY);
+    if (eglDisplay == EGL10.EGL_NO_DISPLAY) {
+      throw new RuntimeException("No EGL display found");
+    }
+    if (!egl.eglInitialize(eglDisplay, new int[2])) {
+      throw new RuntimeException(
+        "Could not initialize the EGL display: " + egl.eglGetError());
+    }
+    return eglDisplay;
+  }
+
+  /**
    * Create a new EGLResourcesHolder holder with a Windowed surface
    *
    * @param surface       the native android surface used to create the windowed surface
@@ -33,7 +50,7 @@ public class EGLResourcesHolder {
   public static EGLResourcesHolder createWithWindowedSurface(Surface surface) {
     EGLUtils.purgeOpenGLError();
     EGL10 egl = (EGL10) EGLContext.getEGL();
-    EGLDisplay eglDisplay = egl.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY);
+    EGLDisplay eglDisplay = getInitializedDisplay(egl);
 
     EGLConfig[] configs = new EGLConfig[1];
     int[] numConfigs = new int[1];
@@ -84,7 +101,7 @@ public class EGLResourcesHolder {
   public static EGLResourcesHolder createWithPBBufferSurface() {
     EGLUtils.purgeOpenGLError();
     EGL10 egl = (EGL10) EGLContext.getEGL();
-    EGLDisplay eglDisplay = egl.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY);
+    EGLDisplay eglDisplay = getInitializedDisplay(egl);
 
     EGLConfig[] configs = new EGLConfig[1];
     int[] numConfigs = new int[1];
