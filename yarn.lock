@@ -57,7 +57,7 @@ __metadata:
     react-native-safe-area-context: "npm:^5.10.1"
     react-native-screens: "npm:^4.28.0"
     react-native-skia: "npm:^3.0.8"
-    react-native-webgpu: "npm:^0.11.2"
+    react-native-webgpu: "npm:^0.12.1"
     react-native-worklets: "npm:^0.13.0"
   languageName: unknown
   linkType: soft
@@ -94,7 +94,7 @@ __metadata:
     react-native-builder-bob: "npm:^0.43.1"
     react-native-reanimated: "npm:^4.7.1"
     react-native-skia: "npm:^3.0.8"
-    react-native-webgpu: "npm:^0.11.2"
+    react-native-webgpu: "npm:^0.12.1"
     react-native-worklets: "npm:^0.13.0"
     react-test-renderer: "npm:19.3.0"
     release-it: "npm:^21.1.0"
@@ -11837,9 +11837,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-webgpu@npm:^0.11.2":
-  version: 0.11.2
-  resolution: "react-native-webgpu@npm:0.11.2"
+"react-native-webgpu@npm:^0.12.1":
+  version: 0.12.1
+  resolution: "react-native-webgpu@npm:0.12.1"
   peerDependencies:
     react: "*"
     react-native: ">=0.81.0"
@@ -11850,7 +11850,7 @@ __metadata:
       optional: true
     react-native-worklets:
       optional: true
-  checksum: 10/22d5edcf5229f0f159a3e0d3b25dabbd9db6974c6e6670bfb232404e2ae1bec13332d6bef53724f1abec4a1a4ad3f270bb67463f348fdbe10d3445ccb279c420
+  checksum: 10/e8fe04a2e51a3af9a8163033de4c78242f1a5f4f4baf297449ed2beb0b5c5b33f903915c4d6469cf7f4bb204d485a7505868205b0901e0d9beb9702f8a3970b0
   languageName: node
   linkType: hard
 
