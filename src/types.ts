@@ -528,6 +528,14 @@ export type RNSkiaVideoModule = {
    */
   runWithAutoreleasePool?: <T>(fn: () => T) => T;
   /**
+   * Returns the memory used by the process in bytes (iOS: physical footprint,
+   * Android: total PSS), or null if unavailable. Slow on Android: meant for
+   * benchmarks, not to be called per frame.
+   *
+   * Not part of the public API (exposed through `__RNSkiaVideoPrivateAPI`).
+   */
+  getMemoryFootprint?: () => number | null;
+  /**
    * Returns the decoding capabilities of the current platform for the specified mimetype.
    *
    * @platform android

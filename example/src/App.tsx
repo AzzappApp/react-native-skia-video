@@ -6,6 +6,7 @@ import {
 } from '@react-navigation/native-stack';
 import VideoPlayerExample from './VideoPlayerExample';
 import VideoCompositionExample from './VideoCompositionExample';
+import BenchmarkScreen from './benchmark/BenchmarkScreen';
 import { useEffect, useState } from 'react';
 import { getDecodingCapabilitiesFor } from '@azzapp/react-native-skia-video';
 
@@ -13,6 +14,7 @@ type RootStackParamList = {
   Home: undefined;
   VideoPlayer: undefined;
   VideoComposition: undefined;
+  Benchmark: undefined;
 };
 
 function HomeScreen({
@@ -47,6 +49,7 @@ function HomeScreen({
         title="Video Composition Example"
         onPress={() => navigation.push('VideoComposition')}
       />
+      <Button title="Benchmark" onPress={() => navigation.push('Benchmark')} />
       {supportedDecoder && <Text>Supported Decoder: {supportedDecoder}</Text>}
     </View>
   );
@@ -72,6 +75,11 @@ function App() {
           name="VideoComposition"
           component={VideoCompositionExample}
           options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="Benchmark"
+          options={{ title: 'Benchmark' }}
+          component={BenchmarkScreen}
         />
       </Stack.Navigator>
     </NavigationContainer>
