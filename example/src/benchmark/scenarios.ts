@@ -212,6 +212,8 @@ export const runExportScenario = async (
   const nbFrames = Math.round(scenario.duration * config.frameRate);
   return {
     output: `${config.width}x${config.height}@${config.frameRate}`,
+    // Android encoders may only support a smaller output than requested.
+    requestedOutput: `${scenario.output.width}x${scenario.output.height}@${scenario.output.frameRate}`,
     wallMs: Math.round(wallMs),
     exportFps: Math.round((nbFrames / wallMs) * 1000 * 10) / 10,
     realtimeFactor:

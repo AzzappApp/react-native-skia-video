@@ -50,7 +50,7 @@ export const CLIPS: ClipSpec[] = [
 ];
 
 // Bump to regenerate the clips when their content changes.
-const CLIPS_VERSION = 1;
+const CLIPS_VERSION = 2;
 
 const clipsDir = () =>
   `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/rnskv-benchmark`;
@@ -106,8 +106,20 @@ export const generateClip = async (
   onProgress: (progress: number) => void
 ) => {
   const config = resolveEncoderConfig(clip);
-  if (config == null) {
-    throw new Error(`No encoder supports ${clip.id} on this device`);
+  // A clip encoded at another size or rate (the closest configuration an
+  // Android encoder supports) would measure something else than its name.
+  if (
+    config == null ||
+    config.width !== clip.width ||
+    config.height !== clip.height ||
+    config.frameRate !== clip.frameRate
+  ) {
+    throw new Error(
+      `The encoders of this device do not support ${clip.id}` +
+        (config
+          ? ` (closest: ${config.width}x${config.height}@${config.frameRate})`
+          : '')
+    );
   }
   await ReactNativeBlobUtil.fs.mkdir(clipsDir()).catch(() => {});
   const path = getClipPath(clip);

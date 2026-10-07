@@ -3,7 +3,6 @@ import { useWindowDimensions } from 'react-native';
 import { Canvas, Image } from 'react-native-skia';
 import {
   runOnUI,
-  useAnimatedReaction,
   useDerivedValue,
   useFrameCallback,
 } from 'react-native-reanimated';
@@ -38,8 +37,22 @@ type Samples = {
   renderMs: number[];
   /** Intervals between two decoded frames (player). */
   decodedFrameMs: number[];
+  lastDecodedFrame: unknown;
+  /** Frames decoded during the whole run, warm-up included. */
+  decodedFrames: number;
   lastDecodedFrameTime: number | null;
+  /** Start and end of the measurement window. */
+  measureStart: number | null;
+  measureEnd: number | null;
+  /**
+   * A UI frame took more than a second: the app was in the background or the
+   * screen turned off, the run is not representative.
+   */
+  interrupted: boolean;
 };
+
+// A UI frame longer than this means the app stopped rendering.
+const INTERRUPTION_MS = 1000;
 
 let nextRunId = 0;
 
@@ -54,7 +67,12 @@ const getSamples = (runId: number): Samples => {
     uiFrameMs: [],
     renderMs: [],
     decodedFrameMs: [],
+    lastDecodedFrame: null,
+    decodedFrames: 0,
     lastDecodedFrameTime: null,
+    measureStart: null,
+    measureEnd: null,
+    interrupted: false,
   });
 };
 
@@ -70,7 +88,9 @@ const isMeasuring = (samples: Samples, now: number) => {
  */
 const useUIFrameSampling = (
   duration: number,
-  onDone: (samples: Samples, elapsedMs: number) => void
+  onError: (error: unknown) => void,
+  onDone: (samples: Samples, elapsedMs: number) => void,
+  onUIFrame?: (samples: Samples, now: number) => void
 ) => {
   const runId = useMemo(() => nextRunId++, []);
   useFrameCallback((frameInfo) => {
@@ -81,13 +101,38 @@ const useUIFrameSampling = (
       samples.startTime = now;
       return;
     }
-    if (isMeasuring(samples, now) && frameInfo.timeSincePreviousFrame != null) {
-      samples.uiFrameMs.push(frameInfo.timeSincePreviousFrame);
+    onUIFrame?.(samples, now);
+    if (!isMeasuring(samples, now)) {
+      return;
+    }
+    samples.measureStart ??= now;
+    samples.measureEnd = now;
+    const interval = frameInfo.timeSincePreviousFrame;
+    if (interval != null) {
+      samples.uiFrameMs.push(interval);
+      if (interval > INTERRUPTION_MS) {
+        samples.interrupted = true;
+      }
     }
   }, true);
 
   useEffect(() => {
-    const finish = (samples: Samples) => onDone(samples, duration * 1000);
+    const finish = (samples: Samples) => {
+      if (samples.interrupted) {
+        onError(
+          new Error(
+            'Interrupted: the app stopped rendering (background, screen off)'
+          )
+        );
+        return;
+      }
+      onDone(
+        samples,
+        samples.measureStart != null && samples.measureEnd != null
+          ? samples.measureEnd - samples.measureStart
+          : duration * 1000
+      );
+    };
     const timeout = setTimeout(
       () =>
         runOnUI(() => {
@@ -127,14 +172,17 @@ export const PreviewRun = ({
       buildComposition(scenario.clips, getClip(scenario.clips[0]!).duration),
     [scenario]
   );
-  const runId = useUIFrameSampling(scenario.duration, (samples, elapsedMs) =>
-    onDone({
-      uiFrameMs: summarize(samples.uiFrameMs),
-      droppedFrames: countDroppedFrames(samples.uiFrameMs),
-      uiFps:
-        Math.round((samples.uiFrameMs.length / elapsedMs) * 1000 * 10) / 10,
-      renderMs: summarize(samples.renderMs),
-    })
+  const runId = useUIFrameSampling(
+    scenario.duration,
+    onError,
+    (samples, elapsedMs) =>
+      onDone({
+        uiFrameMs: summarize(samples.uiFrameMs),
+        droppedFrames: countDroppedFrames(samples.uiFrameMs),
+        uiFps:
+          Math.round((samples.uiFrameMs.length / elapsedMs) * 1000 * 10) / 10,
+        renderMs: summarize(samples.renderMs),
+      })
   );
 
   const { currentFrame } = useVideoCompositionPlayer<number>({
@@ -183,18 +231,6 @@ export const PlayerRun = ({
 }: LiveRunProps<PlayerScenario>) => {
   const { width } = useWindowDimensions();
   const clip = getClip(scenario.clip);
-  const runId = useUIFrameSampling(scenario.duration, (samples, elapsedMs) =>
-    onDone({
-      uiFrameMs: summarize(samples.uiFrameMs),
-      droppedFrames: countDroppedFrames(samples.uiFrameMs),
-      decodedFps:
-        Math.round((samples.decodedFrameMs.length / elapsedMs) * 1000 * 10) /
-        10,
-      expectedFps: clip.frameRate,
-      decodedFrameIntervalMs: summarize(samples.decodedFrameMs),
-    })
-  );
-
   const { currentFrame } = useVideoPlayer({
     uri: `file://${getClipPath(clip)}`,
     autoPlay: true,
@@ -202,14 +238,29 @@ export const PlayerRun = ({
     onError,
   });
 
-  useAnimatedReaction(
-    () => currentFrame.value,
-    (frame, previousFrame) => {
-      if (frame == null || frame === previousFrame) {
+  useUIFrameSampling(
+    scenario.duration,
+    onError,
+    (samples, elapsedMs) =>
+      onDone({
+        uiFrameMs: summarize(samples.uiFrameMs),
+        droppedFrames: countDroppedFrames(samples.uiFrameMs),
+        decodedFps:
+          Math.round((samples.decodedFrameMs.length / elapsedMs) * 1000 * 10) /
+          10,
+        expectedFps: clip.frameRate,
+        decodedFrameIntervalMs: summarize(samples.decodedFrameMs),
+        decodedFramesTotal: samples.decodedFrames,
+      }),
+    // A new frame was decoded when the player's current frame changes.
+    (samples, now) => {
+      'worklet';
+      const frame = currentFrame.value;
+      if (frame == null || frame === samples.lastDecodedFrame) {
         return;
       }
-      const samples = getSamples(runId);
-      const now = performance.now();
+      samples.lastDecodedFrame = frame;
+      samples.decodedFrames++;
       if (isMeasuring(samples, now) && samples.lastDecodedFrameTime != null) {
         samples.decodedFrameMs.push(now - samples.lastDecodedFrameTime);
       }
