@@ -160,6 +160,9 @@ export const exportVideoComposition = async <T = undefined>({
       let frameExtractor: VideoCompositionFramesExtractorSync | null = null;
       let encoder: VideoEncoder | null = null;
       const { width, height } = options;
+      // Recycled across frames (outputImage) to avoid allocating a new JSI
+      // object per frame.
+      let snapshot: SkImage | undefined;
       try {
         try {
           encoder = RNSkiaVideoModule.createVideoEncoder(
@@ -230,9 +233,6 @@ export const exportVideoComposition = async <T = undefined>({
             ((fn: () => void) => fn());
           const currentSurface = surface;
           const currentExtractor = frameExtractor;
-          // Recycled across frames (outputImage) to avoid allocating a new
-          // JSI object per frame.
-          let snapshot: SkImage | undefined;
           const frameInfo: ImageInfo = {
             width,
             height,
@@ -320,10 +320,12 @@ export const exportVideoComposition = async <T = undefined>({
               }
             });
           }
-          snapshot?.dispose();
         } finally {
-          // Note: the offscreen surface is deliberately not disposed — it is
-          // the cached shared surface reused by the next export.
+          // Also on cancellation or failure: the snapshot holds GPU memory
+          // until the runtime collects it otherwise.
+          snapshot?.dispose();
+          // Note: the offscreen surface is deliberately not disposed — it is the
+          // cached shared surface reused by the next export.
           frameExtractor?.dispose();
           releaseFrameImages(framesKey);
         }
