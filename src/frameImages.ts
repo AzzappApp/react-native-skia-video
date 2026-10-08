@@ -205,7 +205,31 @@ const copySharedBuffer = (
         signaledValue: BigInt(1),
       });
     }
-    source.memory.beginAccess(source.texture, true, readyFences);
+    try {
+      source.memory.beginAccess(source.texture, true, readyFences);
+    } catch (error) {
+      // React Native WebGPU only reports that the access failed: Dawn's
+      // reason goes to the device's error scopes. Try again in one to report
+      // it.
+      device.pushErrorScope('validation');
+      let retried = false;
+      try {
+        source.memory.beginAccess(source.texture, true, readyFences);
+        retried = true;
+      } catch {
+        // Reported below.
+      }
+      device.popErrorScope().then((dawnError) => {
+        if (dawnError != null) {
+          console.error(
+            `[react-native-skia-video] beginAccess: ${dawnError.message}`
+          );
+        }
+      });
+      if (!retried) {
+        throw error;
+      }
+    }
     try {
       const encoder = device.createCommandEncoder();
       encoder.copyTextureToTexture({ texture: source.texture }, { texture }, [
