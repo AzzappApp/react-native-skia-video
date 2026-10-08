@@ -200,7 +200,9 @@ const copySharedBuffer = (
           type: 'sync-fd',
           handle: frame.readyFence,
         }),
-        signaledValue: BigInt(0),
+        // Dawn's Vulkan backend backs sync fds with binary semaphores, and
+        // rejects any other signaled value than 1.
+        signaledValue: BigInt(1),
       });
     }
     source.memory.beginAccess(source.texture, true, readyFences);
