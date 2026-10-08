@@ -222,7 +222,9 @@ const copySharedBuffer = (
       device.popErrorScope().then((dawnError) => {
         if (dawnError != null) {
           console.error(
-            `[react-native-skia-video] beginAccess: ${dawnError.message}`
+            `[react-native-skia-video] beginAccess: ${dawnError.message} ` +
+              `(ready fences: ${readyFences.length}, sync-fd fences: ` +
+              `${device.features.has('shared-fence-sync-fd')})`
           );
         }
       });
