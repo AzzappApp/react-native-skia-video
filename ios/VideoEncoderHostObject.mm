@@ -168,6 +168,7 @@ void VideoEncoderHostObject::prepare() {
     (NSString*)kCVPixelBufferIOSurfacePropertiesKey : @{},
     (NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
   };
+  frameBufferAttributes = attributes;
   // Allocate a fresh buffer per frame from this pool instead of reusing a
   // single CVPixelBuffer. AVAssetWriter encodes appended buffers
   // asynchronously, so a reused buffer could be overwritten by the next frame
@@ -283,9 +284,57 @@ void VideoEncoderHostObject::encodeFrame(const uint8_t* pixels, size_t size,
   CVPixelBufferRelease(pixelBuffer);
 }
 
+// The buffers handed out by beginFrame(): AVAssetWriter only keeps a few
+// frames while encoding them. Past that count, a new buffer is only allocated
+// if none is released within kFrameBufferWaitTime (seconds).
+static const size_t kMaxFrameBuffers = 8;
+static const CFTimeInterval kFrameBufferWaitTime = 0.1;
+
+CVPixelBufferRef VideoEncoderHostObject::acquireFrameBuffer() {
+  // The buffers handed out by beginFrame() are reused, rather than taken
+  // from the pool: JS imports each one into Skia's device once, and an
+  // imported IOSurface stays in use (Dawn keeps a Metal texture over it)
+  // until the JS object is garbage collected, so that the pool could not
+  // recycle it and would allocate a new buffer for (almost) every frame.
+  const CFAbsoluteTime deadline =
+      CFAbsoluteTimeGetCurrent() + kFrameBufferWaitTime;
+  while (true) {
+    for (CVPixelBufferRef buffer : frameBuffers) {
+      // Only referenced by this encoder: AVAssetWriter is done with it.
+      if (CFGetRetainCount(buffer) == 1) {
+        return CVPixelBufferRetain(buffer);
+      }
+    }
+    if (frameBuffers.size() < kMaxFrameBuffers ||
+        CFAbsoluteTimeGetCurrent() > deadline) {
+      CVPixelBufferRef buffer = NULL;
+      CVReturn status = CVPixelBufferCreate(
+          kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
+          (__bridge CFDictionaryRef)frameBufferAttributes, &buffer);
+      if (status != kCVReturnSuccess || buffer == NULL) {
+        throw createErrorWithMessage(@"Could not allocate a frame buffer");
+      }
+      frameBuffers.push_back(buffer);
+      return CVPixelBufferRetain(buffer);
+    }
+    if (assetWriter.status == AVAssetWriterStatusFailed) {
+      throw assetWriter.error
+          ?: createErrorWithMessage(@"AVAssetWriter failed");
+    }
+    usleep(1000);
+  }
+}
+
+void VideoEncoderHostObject::releaseFrameBuffers() {
+  for (CVPixelBufferRef buffer : frameBuffers) {
+    CVPixelBufferRelease(buffer);
+  }
+  frameBuffers.clear();
+}
+
 IOSurfaceRef VideoEncoderHostObject::beginFrame() {
   releasePendingFrameBuffer();
-  pendingFrameBuffer = createFrameBuffer();
+  pendingFrameBuffer = acquireFrameBuffer();
   IOSurfaceRef surface = CVPixelBufferGetIOSurface(pendingFrameBuffer);
   if (surface == NULL) {
     releasePendingFrameBuffer();
@@ -490,6 +539,7 @@ void VideoEncoderHostObject::release() {
   assetWriter = nil;
   assetWriterInput = nil;
   releasePendingFrameBuffer();
+  releaseFrameBuffers();
   if (pixelBufferPool) {
     CVPixelBufferPoolRelease(pixelBufferPool);
     pixelBufferPool = NULL;

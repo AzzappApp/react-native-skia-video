@@ -406,9 +406,10 @@ export type VideoEncoder = {
   encodeFrame(pixels: Uint8Array, time: number): void;
   /**
    * Hands out a buffer of the encoder for the next frame, to render into
-   * without copy: the `IOSurfaceRef` backing a buffer of the encoder's pool on
-   * iOS (a different one from frame to frame), the `AHardwareBuffer*` the
-   * encoder reads every frame from on Android, as a `BigInt` pointer.
+   * without copy: the `IOSurfaceRef` of one of the few buffers the encoder
+   * hands out in turn on iOS (once AVAssetWriter is done with them), the
+   * `AHardwareBuffer*` the encoder reads every frame from on Android, as a
+   * `BigInt` pointer. The buffers can be imported once and reused.
    * The frame is encoded by `endFrame`.
    */
   beginFrame?: () => bigint;

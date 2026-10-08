@@ -44,9 +44,10 @@ const DEFAULT_AUDIO_CHANNEL_COUNT = 2;
 const FRAME_COLOR_TYPE =
   Platform.OS === 'ios' ? ColorType.BGRA_8888 : ColorType.RGBA_8888;
 
-// On Android the encoder hands out the same buffer for every frame (see
-// `VideoEncoder.beginFrame`): it is imported once, and the encoder waits for
-// the sync fences of each frame on the GPU.
+// The encoders hand out their frame buffers again (the same buffer for every
+// frame on Android, a few buffers in turn on iOS): each buffer is imported
+// once. On Android the encoder waits for the sync fences of each frame on the
+// GPU.
 const IS_ANDROID = Platform.OS === 'android';
 
 // An encoder's frame buffer imported into Skia's device.
@@ -180,8 +181,8 @@ export const exportVideoComposition = async <T = undefined>({
       // Without zero-copy: the image sharing the texture of the offscreen
       // surface (surface.asImage()), read back for every frame.
       let surfaceImage: SkImage | undefined;
-      // Android: the encoder's buffer, imported once (see IS_ANDROID).
-      const targets: { reused: ExportTarget | null } = { reused: null };
+      // The encoder's buffers, imported once (see IS_ANDROID).
+      const targets: ExportTarget[] = [];
       try {
         try {
           encoder = RNSkiaVideoModule.createVideoEncoder(
@@ -288,13 +289,10 @@ export const exportVideoComposition = async <T = undefined>({
               };
               if (zeroCopy) {
                 const handle = currentEncoder.beginFrame!();
-                let target =
-                  targets.reused?.handle === handle ? targets.reused : null;
+                let target = targets.find(
+                  (candidate) => candidate.handle === handle
+                );
                 if (target == null) {
-                  // iOS: the buffer is imported for this frame only: a
-                  // texture kept over its IOSurface would keep it in use, so
-                  // that the encoder's pool could never recycle it and would
-                  // allocate a new buffer for every frame.
                   const memory =
                     frameImageContext.device.importSharedTextureMemory({
                       handle,
@@ -306,9 +304,7 @@ export const exportVideoComposition = async <T = undefined>({
                     texture,
                     surface: Skia.Surface.MakeFromGPUTexture(texture),
                   };
-                  if (IS_ANDROID) {
-                    targets.reused = target;
-                  }
+                  targets.push(target);
                 }
                 target.memory.beginAccess(target.texture, false);
                 let accessState: GPUSharedTextureMemoryEndAccessState;
@@ -319,12 +315,6 @@ export const exportVideoComposition = async <T = undefined>({
                   target.surface.flush(true);
                 } finally {
                   accessState = target.memory.endAccess(target.texture);
-                  if (target !== targets.reused) {
-                    target.surface.dispose();
-                    // Releases the Metal texture over the IOSurface now
-                    // rather than when the JS wrappers are garbage collected.
-                    target.texture.destroy();
-                  }
                 }
                 // Android: Vulkan hands the buffer back to the encoder's GL
                 // context through sync fences (sync_file descriptors), that
@@ -366,11 +356,11 @@ export const exportVideoComposition = async <T = undefined>({
         } finally {
           // Also on cancellation or failure.
           surfaceImage?.dispose();
-          if (targets.reused != null) {
-            targets.reused.surface.dispose();
-            targets.reused.texture.destroy();
-            targets.reused = null;
+          for (const target of targets) {
+            target.surface.dispose();
+            target.texture.destroy();
           }
+          targets.length = 0;
           // Note: the offscreen surface is deliberately not disposed — it is the
           // cached shared surface reused by the next export.
           frameExtractor?.dispose();
