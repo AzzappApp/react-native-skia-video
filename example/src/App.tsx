@@ -1,5 +1,6 @@
 import { View, Button, Platform, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import {
   createNativeStackNavigator,
   type NativeStackScreenProps,
@@ -59,30 +60,32 @@ const Stack = createNativeStackNavigator();
 
 function App() {
   return (
-    <NavigationContainer>
-      <Stack.Navigator>
-        <Stack.Screen
-          name="Home"
-          options={{ title: '@azzapp/react-native-skia-video' }}
-          component={HomeScreen}
-        />
-        <Stack.Screen
-          name="VideoPlayer"
-          options={{ title: 'Video Player Example' }}
-          component={VideoPlayerExample}
-        />
-        <Stack.Screen
-          name="VideoComposition"
-          component={VideoCompositionExample}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="Benchmark"
-          options={{ title: 'Benchmark' }}
-          component={BenchmarkScreen}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <SafeAreaProvider>
+      <NavigationContainer>
+        <Stack.Navigator>
+          <Stack.Screen
+            name="Home"
+            options={{ title: '@azzapp/react-native-skia-video' }}
+            component={HomeScreen}
+          />
+          <Stack.Screen
+            name="VideoPlayer"
+            options={{ title: 'Video Player Example' }}
+            component={VideoPlayerExample}
+          />
+          <Stack.Screen
+            name="VideoComposition"
+            component={VideoCompositionExample}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Benchmark"
+            options={{ title: 'Benchmark' }}
+            component={BenchmarkScreen}
+          />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }
 

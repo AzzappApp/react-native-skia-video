@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import ReactNativeBlobUtil from 'react-native-blob-util';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Skia } from 'react-native-skia';
 import { importDevice } from 'react-native-webgpu';
 import { CLIPS, generateClip, getClip, isClipReady } from './clips';
@@ -78,6 +79,8 @@ const getSharedFenceFeatures = () => {
 };
 
 const BenchmarkScreen = () => {
+  // The screen is drawn edge to edge: the system bars overlap it.
+  const insets = useSafeAreaInsets();
   const [label, setLabel] = useState('');
   const [runCount, setRunCount] = useState(3);
   const [selected, setSelected] = useState<Set<string>>(
@@ -289,7 +292,16 @@ const BenchmarkScreen = () => {
     });
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView
+      contentContainerStyle={[
+        styles.container,
+        {
+          paddingLeft: 16 + insets.left,
+          paddingRight: 16 + insets.right,
+          paddingBottom: 16 + insets.bottom,
+        },
+      ]}
+    >
       {liveRun?.scenario.kind === 'preview' && (
         <PreviewRun
           scenario={liveRun.scenario}
