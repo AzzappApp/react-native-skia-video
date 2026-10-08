@@ -11,6 +11,7 @@ import androidx.media3.common.util.UnstableApi;
 
 import java.io.IOException;
 import java.util.Map;
+import javax.microedition.khronos.egl.EGL10;
 import javax.microedition.khronos.egl.EGLContext;
 
 /**
@@ -72,7 +73,9 @@ public class VideoCompositionFramesExtractor {
     if (prepared) {
       return;
     }
-    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
+    // Frames are exchanged through hardware buffers: the EGL context does not
+    // need to share resources with any other context.
+    EGLContext sharedContext = EGL10.EGL_NO_CONTEXT;
     decoder.prepare(sharedContext);
     handler.sendEmptyMessage(PLAYBACK_PREPARE);
   }

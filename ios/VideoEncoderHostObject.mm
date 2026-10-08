@@ -1,7 +1,6 @@
 #import "VideoEncoderHostObject.h"
 #import "AudioCompositionUtils.h"
 #import "RNSVJSIUtils.h"
-#import <Metal/Metal.h>
 #import <future>
 
 NS_INLINE NSError* createErrorWithMessage(NSString* message) {
@@ -31,6 +30,7 @@ std::vector<jsi::PropNameID>
 VideoEncoderHostObject::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> result;
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("prepare")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("renderTarget")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("encodeFrame")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("finishWriting")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("dispose")));
@@ -48,20 +48,31 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
           return runPooled([&] { prepare(); });
         });
   }
+  if (propName == "renderTarget") {
+    if (!renderTarget) {
+      return jsi::Value::null();
+    }
+    auto target = jsi::Object(runtime);
+    target.setProperty(
+        runtime, "handle",
+        jsi::BigInt::fromUint64(runtime,
+                                reinterpret_cast<uintptr_t>(
+                                    CVPixelBufferGetIOSurface(renderTarget))));
+    target.setProperty(runtime, "width", width);
+    target.setProperty(runtime, "height", height);
+    return target;
+  }
   if (propName == "encodeFrame") {
     return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "encodeFrame"), 2,
+        runtime, jsi::PropNameID::forAscii(runtime, "encodeFrame"), 1,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          auto serializedTexture =
-              arguments[0].asObject(runtime).getProperty(runtime, "mtlTexture");
-          void* texturePointer = reinterpret_cast<void*>(
-              serializedTexture.asBigInt(runtime).asUint64(runtime));
-          auto texture = (__bridge id<MTLTexture>)texturePointer;
+          if (count < 1 || !arguments[0].isNumber()) {
+            throw jsi::JSError(runtime, "encodeFrame expects a time");
+          }
           auto time =
-              CMTimeMakeWithSeconds(arguments[1].asNumber(), NSEC_PER_SEC);
-
-          return runPooled([&] { encodeFrame(texture, time); });
+              CMTimeMakeWithSeconds(arguments[0].asNumber(), NSEC_PER_SEC);
+          return runPooled([&] { encodeFrame(time); });
         });
   }
   if (propName == "finishWriting") {
@@ -131,21 +142,19 @@ void VideoEncoderHostObject::prepare() {
     startWritingAudio();
   }
 
-  device = MTLCreateSystemDefaultDevice();
-  commandQueue = [device newCommandQueue];
-
   NSDictionary* attributes = @{
     (NSString*)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
     (NSString*)kCVPixelBufferWidthKey : @(width),
     (NSString*)kCVPixelBufferHeightKey : @(height),
+    (NSString*)kCVPixelBufferIOSurfacePropertiesKey : @{},
     (NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
   };
-  // Allocate a fresh buffer per frame from this pool instead of reusing a
-  // single CVPixelBuffer. AVAssetWriter encodes appended buffers
-  // asynchronously, so a reused buffer could be overwritten by the next frame
-  // while the encoder is still reading it, producing torn frames on fast
-  // motion. The pool only recycles a buffer once every reference to it (the
-  // encoder's included) is gone.
+  // Allocate a fresh buffer per frame from this pool instead of handing the
+  // render target itself to the writer. AVAssetWriter encodes appended
+  // buffers asynchronously, so a reused buffer could be overwritten by the
+  // next frame while the encoder is still reading it, producing torn frames
+  // on fast motion. The pool only recycles a buffer once every reference to
+  // it (the encoder's included) is gone.
   if (pixelBufferPool) {
     CVPixelBufferPoolRelease(pixelBufferPool);
     pixelBufferPool = NULL;
@@ -159,35 +168,23 @@ void VideoEncoderHostObject::prepare() {
     return;
   }
 
-  MTLTextureDescriptor* descriptor = [MTLTextureDescriptor
-      texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-                                   width:width
-                                  height:height
-                               mipmapped:NO];
-  descriptor.storageMode = MTLStorageModeShared;
-  descriptor.pixelFormat = MTLPixelFormatBGRA8Unorm;
-  cpuAccessibleTexture = [device newTextureWithDescriptor:descriptor];
+  if (renderTarget) {
+    CVPixelBufferRelease(renderTarget);
+    renderTarget = NULL;
+  }
+  status = CVPixelBufferCreate(
+      kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
+      (__bridge CFDictionaryRef)attributes, &renderTarget);
+  if (status != kCVReturnSuccess || !renderTarget ||
+      !CVPixelBufferGetIOSurface(renderTarget)) {
+    throw createErrorWithMessage(@"Could not create render target");
+  }
 }
 
-void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
-                                         CMTime time) {
-  id<MTLCommandBuffer> commandBuffer =
-      [commandQueue commandBufferWithUnretainedReferences];
-  id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
-  [blitEncoder copyFromTexture:mlTexture
-                   sourceSlice:0
-                   sourceLevel:0
-                  sourceOrigin:MTLOriginMake(0, 0, 0)
-                    sourceSize:MTLSizeMake(mlTexture.width, mlTexture.height, 1)
-                     toTexture:cpuAccessibleTexture
-              destinationSlice:0
-              destinationLevel:0
-             destinationOrigin:MTLOriginMake(0, 0, 0)];
-
-  [blitEncoder endEncoding];
-  [commandBuffer commit];
-  [commandBuffer waitUntilCompleted];
-
+void VideoEncoderHostObject::encodeFrame(CMTime time) {
+  if (!renderTarget) {
+    throw createErrorWithMessage(@"Encoder not prepared");
+  }
   // Vend a fresh buffer from the pool for every frame so the bytes we write
   // below can never be overwritten while a previous frame is still being
   // encoded.
@@ -198,22 +195,31 @@ void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
     throw createErrorWithMessage(@"Could not allocate pixel buffer from pool");
   }
 
+  // The JS side flushed the Skia surface synchronously, so the GPU is done
+  // writing the render target. Locking the buffer makes its content visible
+  // to the CPU.
+  CVPixelBufferLockBaseAddress(renderTarget, kCVPixelBufferLock_ReadOnly);
   CVPixelBufferLockBaseAddress(pixelBuffer, 0);
-  void* pixelBufferBytes = CVPixelBufferGetBaseAddress(pixelBuffer);
-  if (pixelBufferBytes == NULL) {
+  uint8_t* src = (uint8_t*)CVPixelBufferGetBaseAddress(renderTarget);
+  uint8_t* dst = (uint8_t*)CVPixelBufferGetBaseAddress(pixelBuffer);
+  if (src == NULL || dst == NULL) {
     CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+    CVPixelBufferUnlockBaseAddress(renderTarget, kCVPixelBufferLock_ReadOnly);
     CVPixelBufferRelease(pixelBuffer);
     throw createErrorWithMessage(@"Could not extract pixels from frame");
   }
-  size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
-
-  MTLRegion region = MTLRegionMake2D(0, 0, width, height);
-
-  [cpuAccessibleTexture getBytes:pixelBufferBytes
-                     bytesPerRow:bytesPerRow
-                      fromRegion:region
-                     mipmapLevel:0];
+  size_t srcBytesPerRow = CVPixelBufferGetBytesPerRow(renderTarget);
+  size_t dstBytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
+  size_t rowSize = MIN(srcBytesPerRow, dstBytesPerRow);
+  if (srcBytesPerRow == dstBytesPerRow) {
+    memcpy(dst, src, srcBytesPerRow * height);
+  } else {
+    for (int row = 0; row < height; row++) {
+      memcpy(dst + row * dstBytesPerRow, src + row * srcBytesPerRow, rowSize);
+    }
+  }
   CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+  CVPixelBufferUnlockBaseAddress(renderTarget, kCVPixelBufferLock_ReadOnly);
 
   int attempt = 0;
   while (!assetWriterInput.isReadyForMoreMediaData) {
@@ -438,12 +444,10 @@ void VideoEncoderHostObject::release() {
     CVPixelBufferPoolRelease(pixelBufferPool);
     pixelBufferPool = NULL;
   }
-  if (cpuAccessibleTexture) {
-    [cpuAccessibleTexture setPurgeableState:MTLPurgeableStateEmpty];
+  if (renderTarget) {
+    CVPixelBufferRelease(renderTarget);
+    renderTarget = NULL;
   }
-  cpuAccessibleTexture = nil;
-  commandQueue = nil;
-  device = nil;
 }
 
 } // namespace RNSkiaVideo

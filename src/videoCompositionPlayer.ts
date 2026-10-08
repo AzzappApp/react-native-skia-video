@@ -1,5 +1,5 @@
-import type { SkImage, SkSurface } from '@shopify/react-native-skia';
-import { Skia } from '@shopify/react-native-skia';
+import type { SkImage, SkSurface } from 'react-native-skia';
+import { Skia } from 'react-native-skia';
 import {
   useSharedValue,
   useFrameCallback,
@@ -14,6 +14,12 @@ import type {
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
 import useEventListener from './utils/useEventListener';
+import {
+  disposeFrameImporter,
+  getFrameImporter,
+  getSharedDevice,
+  nextFrameImporterId,
+} from './gpu';
 import { PixelRatio } from 'react-native';
 
 type UseVideoCompositionPlayerOptions<T = undefined> = {
@@ -118,12 +124,20 @@ export const useVideoCompositionPlayer = ({
   }, [framesExtractor]);
 
   const currentFrame = useSharedValue<SkImage | null>(null);
+  const device = useMemo(() => getSharedDevice(), []);
+  const importerId = useMemo(
+    () => nextFrameImporterId(),
+    // a new importer per frames extractor
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [framesExtractor]
+  );
   useEffect(
     () => () => {
       currentFrame.value = null;
       framesExtractor?.dispose();
+      runOnUI(disposeFrameImporter)(importerId);
     },
-    [currentFrame, framesExtractor]
+    [currentFrame, framesExtractor, importerId]
   );
 
   const retry = useCallback(() => {
@@ -177,39 +191,31 @@ export const useVideoCompositionPlayer = ({
     }
 
     const canvas = surface.getCanvas();
+    let frames;
+    try {
+      frames = getFrameImporter(importerId, device).importFrames(
+        framesExtractor.decodeCompositionFrames()
+      );
+    } catch (error) {
+      console.warn('Failed to import video frames', error);
+      return;
+    }
     const context = beforeDrawFrame?.();
     drawFrame({
       canvas,
       context,
       videoComposition: composition!,
       currentTime: framesExtractor.currentTime,
-      frames: framesExtractor.decodeCompositionFrames(),
+      frames,
       width: width * pixelRatio,
       height: height * pixelRatio,
     });
     surface.flush();
+    // asImage() shares the surface texture, without any copy. A new image
+    // object is what makes the canvas redraw.
     const previousFrame = currentFrame.value;
-    try {
-      // Recycle the previous SkImage (outputImage) to avoid allocating a new
-      // JSI object on every frame.
-      const nextFrame = Skia.Image.MakeImageFromNativeTextureUnstable(
-        surface.getNativeTextureUnstable(),
-        width * pixelRatio,
-        height * pixelRatio,
-        false,
-        previousFrame ?? undefined
-      );
-      if (nextFrame === previousFrame) {
-        // The recycled image keeps the same identity, so listeners (the Skia
-        // canvas) must be forced to re-run.
-        currentFrame.modify(undefined, true);
-      } else {
-        currentFrame.value = nextFrame;
-      }
-    } catch (error) {
-      console.warn('Failed to create image from texture', error);
-      return;
-    }
+    currentFrame.value = surface.asImage();
+    previousFrame?.dispose();
     afterDrawFrame?.(context);
   }, true);
 

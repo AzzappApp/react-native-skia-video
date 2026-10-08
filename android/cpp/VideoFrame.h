@@ -13,7 +13,6 @@ struct VideoFrame : JavaClass<VideoFrame> {
 public:
   static constexpr auto kJavaDescriptor = "Lcom/azzapp/rnskv/VideoFrame;";
   AHardwareBuffer* getHardwareBuffer();
-  jint getTexture();
   jint getWidth();
   jint getHeight();
   jint getRotation();

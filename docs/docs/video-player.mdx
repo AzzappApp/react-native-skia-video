@@ -8,12 +8,11 @@ slug: /video-player
 # Video Player
 
 `useVideoPlayer` plays a single video file and exposes its current frame as a
-Reanimated shared value. Each frame is a **GPU texture** — wrap it with
-`Skia.Image.MakeImageFromNativeTextureUnstable` and draw it like any other
-`SkImage`.
+Reanimated shared value. Each frame carries a GPU-backed **`SkImage`**
+(`frame.image`) that you draw like any other image.
 
 ```tsx
-import { Canvas, Image, Skia } from '@shopify/react-native-skia';
+import { Canvas, Image } from 'react-native-skia';
 import { useVideoPlayer } from '@azzapp/react-native-skia-video';
 import { useDerivedValue } from 'react-native-reanimated';
 
@@ -26,15 +25,7 @@ const MyVideoPlayer = ({ uri, width, height }) => {
       console.log(`video is ${width}x${height}, rotated ${rotation}°`),
   });
 
-  const videoImage = useDerivedValue(() => {
-    const frame = currentFrame.value;
-    if (!frame) return null;
-    return Skia.Image.MakeImageFromNativeTextureUnstable(
-      frame.texture,
-      frame.width,
-      frame.height
-    );
-  });
+  const videoImage = useDerivedValue(() => currentFrame.value?.image ?? null);
 
   return (
     <Canvas style={{ width, height }}>
@@ -83,9 +74,10 @@ player?.isPlaying;
 ```
 
 :::tip Frame lifecycle
-The frame textures are owned and recycled by the player. The `SkImage`
-wrappers you create around them are cheap; create them per frame in a derived
-value (as above) or in a frame callback.
+The frame images wrap textures owned and recycled by the player: each new
+frame comes with a new `SkImage` object, and the previous one is disposed.
+Read `frame.image` from the current frame (in a derived value, as above, or
+in a frame callback) instead of keeping it around.
 :::
 
 For playing **several** videos on a shared clock — cuts, transitions,

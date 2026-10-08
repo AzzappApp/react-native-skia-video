@@ -1,5 +1,4 @@
 #include "VideoCompositionItemDecoder.h"
-#include "MTLTextureUtils.h"
 
 #import "AVAssetTrackUtils.h"
 #import <AVFoundation/AVFoundation.h>
@@ -35,16 +34,6 @@ VideoCompositionItemDecoder::VideoCompositionItemDecoder(
   rotation = AVAssetTrackUtils::GetTrackRotationInDegree(videoTrack);
   currentFrame = nullptr;
   this->setupReader(kCMTimeZero);
-
-  CGSize resolution = item->resolution;
-  if (resolution.width <= 0 || resolution.height <= 0) {
-    resolution.width = width;
-    resolution.height = height;
-  }
-  mtlTexture = [MTLTextureUtils createMTLTextureForVideoOutput:resolution];
-  if (!mtlTexture) {
-    throw std::runtime_error("Failed to create persistent Metal texture!");
-  }
 }
 
 void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
@@ -227,10 +216,11 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
     }
   }
   if (nextFrame) {
+    // The frame retains the pixel buffer, which outlives the sample buffer.
     CVPixelBufferRef buffer = CMSampleBufferGetImageBuffer(nextFrame);
-    [MTLTextureUtils updateTexture:mtlTexture with:buffer];
+    auto frame = std::make_shared<VideoFrame>(buffer, rotation);
     CFRelease(nextFrame);
-    return std::make_shared<VideoFrame>(mtlTexture, width, height, rotation);
+    return frame;
   }
   return nullptr;
 }
@@ -260,14 +250,8 @@ void VideoCompositionItemDecoder::release() {
     lastRequestedTime = kCMTimeInvalid;
     currentFrame = nullptr;
   }
-  [MTLTextureUtils flushTextureCache];
 }
 
-VideoCompositionItemDecoder::~VideoCompositionItemDecoder() {
-  @synchronized(lock) {
-    [mtlTexture setPurgeableState:MTLPurgeableStateEmpty];
-    mtlTexture = nil;
-  }
-}
+VideoCompositionItemDecoder::~VideoCompositionItemDecoder() {}
 
 } // namespace RNSkiaVideo

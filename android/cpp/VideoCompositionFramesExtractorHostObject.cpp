@@ -45,8 +45,8 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           auto result = jsi::Object(runtime);
           if (!released.test() && !prepared.test_and_set()) {
-            skiaContextHolder = std::make_shared<SkiaContextHolder>();
             player->prepare();
+            releaseCurrentEGLContext();
           }
           return jsi::Value::undefined();
         });
@@ -67,7 +67,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
             auto jsFrame = frame->toJS(runtime);
             result.setProperty(runtime, id.c_str(), std::move(jsFrame));
           }
-          skiaContextHolder->makeCurrent();
+          releaseCurrentEGLContext();
           return result;
         });
   } else if (propName == "play") {

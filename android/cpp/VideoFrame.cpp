@@ -1,18 +1,24 @@
 #include "VideoFrame.h"
 #include "JNIHelpers.h"
-#include <EGL/egl.h>
-#include <GLES/gl.h>
 
 namespace RNSkiaVideo {
-#define GR_GL_RGBA8 0x8058
-AHardwareBuffer* VideoFrame::getHardwareBuffer() {
-  return nullptr;
-}
 
-jint VideoFrame::getTexture() {
-  static const auto getTextureMethod =
-      getClass()->getMethod<jint()>("getTexture");
-  return getTextureMethod(self());
+struct JHardwareBuffer : JavaClass<JHardwareBuffer> {
+  static constexpr auto kJavaDescriptor = "Landroid/hardware/HardwareBuffer;";
+};
+
+AHardwareBuffer* VideoFrame::getHardwareBuffer() {
+  static const auto getBufferMethod =
+      getClass()->getMethod<JHardwareBuffer()>("getBuffer");
+  auto buffer = getBufferMethod(self());
+  if (!buffer) {
+    return nullptr;
+  }
+  // The AHardwareBuffer stays valid as long as the Java HardwareBuffer is
+  // open: the frame extractor keeps it open until the next frames have been
+  // decoded.
+  return AHardwareBuffer_fromHardwareBuffer(Environment::current(),
+                                            buffer.get());
 }
 
 jint VideoFrame::getWidth() {
@@ -33,7 +39,7 @@ jint VideoFrame::getRotation() {
 }
 
 jsi::Value VideoFrame::toJS(jsi::Runtime& runtime) {
-  auto texture = getTexture();
+  auto buffer = getHardwareBuffer();
   auto width = getWidth();
   auto height = getHeight();
   auto rotation = getRotation();
@@ -43,13 +49,11 @@ jsi::Value VideoFrame::toJS(jsi::Runtime& runtime) {
   jsObject.setProperty(runtime, "height", height);
   jsObject.setProperty(runtime, "rotation", rotation);
 
-  jsi::Object jsiTextureInfo = jsi::Object(runtime);
-  jsiTextureInfo.setProperty(runtime, "glTarget", (int)GL_TEXTURE_2D);
-  jsiTextureInfo.setProperty(runtime, "glFormat", (int)GR_GL_RGBA8);
-  jsiTextureInfo.setProperty(runtime, "glID", (int)texture);
-  jsiTextureInfo.setProperty(runtime, "glProtected", 0);
-
-  jsObject.setProperty(runtime, "texture", jsiTextureInfo);
+  if (buffer) {
+    jsObject.setProperty(
+        runtime, "handle",
+        jsi::BigInt::fromUint64(runtime, reinterpret_cast<uintptr_t>(buffer)));
+  }
 
   return jsObject;
 }

@@ -32,12 +32,7 @@ import ReactNativeBlobUtil, {
   type FetchBlobResponse,
   type StatefulPromise,
 } from 'react-native-blob-util';
-import {
-  Canvas,
-  Image as ImageSkia,
-  Skia,
-  type SkImage,
-} from '@shopify/react-native-skia';
+import { Canvas, Image as ImageSkia, Skia } from 'react-native-skia';
 import { createId } from '@paralleldrive/cuid2';
 import Slider from '@react-native-community/slider';
 import Animated, {
@@ -190,10 +185,6 @@ const drawFrame: FrameDrawer = ({
 
   const durationMS = videoComposition.duration;
 
-  // A single SkImage recycled (outputImage) for every item of the tick:
-  // drawImageRect captures the underlying Skia image synchronously, so the
-  // wrapper can be safely rebound to the next item's texture.
-  let reusableImage: SkImage | undefined;
   for (const item of items) {
     const frame = frames[item.id];
     if (!frame) {
@@ -210,20 +201,7 @@ const drawFrame: FrameDrawer = ({
           : 1 - (currentTime - itemEndTime)
         : currentTime - itemStartTime
     );
-    let image: SkImage;
-    try {
-      image = Skia.Image.MakeImageFromNativeTextureUnstable(
-        frame.texture,
-        frame.width,
-        frame.height,
-        false,
-        reusableImage
-      );
-      reusableImage = image;
-    } catch (error) {
-      console.log('error', error);
-      continue;
-    }
+    const { image } = frame;
     const frameAspectRatio = frame.width / frame.height;
     const aspectRatio = width / height;
 

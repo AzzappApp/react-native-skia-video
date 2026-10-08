@@ -13,6 +13,7 @@ import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 
+import javax.microedition.khronos.egl.EGL10;
 import javax.microedition.khronos.egl.EGLContext;
 
 /**
@@ -193,7 +194,9 @@ public class VideoPlayer {
     if (Looper.myLooper() != Looper.getMainLooper()) {
       throw new RuntimeException("setupGL should be called on UI Thread");
     }
-    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
+    // Frames are exchanged through hardware buffers: the EGL context does not
+    // need to share resources with any other context.
+    EGLContext sharedContext = EGL10.EGL_NO_CONTEXT;
     eglResourcesHolder = EGLResourcesHolder.createWithPBBufferSurface(sharedContext);
     eglResourcesHolder.makeCurrent();
     glFrameExtractor = new GLFrameExtractor();
@@ -296,7 +299,7 @@ public class VideoPlayer {
     int height = downscale ? outputHeight : videoHeight;
     if (width > 0 && height > 0 && glFrameExtractor.decodeNextFrame(width, height)) {
       return new VideoFrame(
-        glFrameExtractor.getOutputTexId(),
+        glFrameExtractor.getOutputBuffer(),
         width,
         height,
         0,
@@ -312,6 +315,10 @@ public class VideoPlayer {
   public void release() {
     released = true;
     if (glFrameExtractor != null) {
+      // The GL deletes require the player context to be current.
+      if (eglResourcesHolder != null) {
+        eglResourcesHolder.makeCurrent();
+      }
       glFrameExtractor.release();
       glFrameExtractor = null;
     }

@@ -4,8 +4,7 @@ import {
   scheduleOnRN,
   type WorkletRuntime,
 } from 'react-native-worklets';
-import { Skia, BlendMode } from '@shopify/react-native-skia';
-import type { SkSurface } from '@shopify/react-native-skia';
+import { Skia, BlendMode } from 'react-native-skia';
 import type {
   ExportOptions,
   FrameDrawer,
@@ -15,6 +14,11 @@ import type {
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
 import { createSynchronizable } from 'react-native-worklets';
+import {
+  createFrameImporter,
+  exportsSyncFdFences,
+  getSharedDevice,
+} from './gpu';
 
 const Promise = global.Promise;
 
@@ -117,42 +121,18 @@ export const exportVideoComposition = async <T = undefined>({
       reject(error);
     };
 
+    const device = getSharedDevice();
     runOnRuntime(getExportRuntime(), () => {
       'worklet';
 
       let frameExtractor: VideoCompositionFramesExtractorSync | null = null;
       let encoder: VideoEncoder | null = null;
-      const { width, height } = options;
+      const importer = createFrameImporter(device);
       try {
+        let renderTexture: GPUTexture | null = null;
+        let surface: ReturnType<typeof Skia.Surface.MakeFromGPUTexture> | null =
+          null;
         try {
-          // Reuse a single offscreen surface across exports (per
-          // dimensions). Disposing the surface is not enough to free its
-          // GPU texture: the canvas wrapper returned by getCanvas() keeps
-          // the surface alive until the runtime GC collects it, so creating
-          // a fresh surface per export leaks its backing texture
-          // (width × height × 4 bytes) on every run.
-          const cache = globalThis as unknown as {
-            __rnskvExportSurface?: SkSurface | null;
-            __rnskvExportSurfaceWidth?: number;
-            __rnskvExportSurfaceHeight?: number;
-          };
-          let surface = cache.__rnskvExportSurface ?? null;
-          if (
-            surface == null ||
-            cache.__rnskvExportSurfaceWidth !== width ||
-            cache.__rnskvExportSurfaceHeight !== height
-          ) {
-            surface?.dispose();
-            cache.__rnskvExportSurface = null;
-            surface = Skia.Surface.MakeOffscreen(width, height);
-            if (!surface) {
-              throw new Error('Failed to create Skia surface');
-            }
-            cache.__rnskvExportSurface = surface;
-            cache.__rnskvExportSurfaceWidth = width;
-            cache.__rnskvExportSurfaceHeight = height;
-          }
-
           encoder = RNSkiaVideoModule.createVideoEncoder(
             {
               ...options,
@@ -165,6 +145,24 @@ export const exportVideoComposition = async <T = undefined>({
             videoComposition
           );
           encoder.prepare();
+
+          // Skia renders the frames straight into the native buffer the
+          // encoder reads from (an IOSurface on iOS, an AHardwareBuffer on
+          // Android), imported in the GPU device Skia renders with.
+          const renderTarget = encoder.renderTarget;
+          if (!renderTarget) {
+            throw new Error('Failed to get the encoder render target');
+          }
+          const memory = device.importSharedTextureMemory({
+            handle: renderTarget.handle,
+            label: 'RNSkiaVideoExportTarget',
+          });
+          const texture = memory.createTexture();
+          renderTexture = texture;
+          surface = Skia.Surface.MakeFromGPUTexture(texture);
+          if (!surface) {
+            throw new Error('Failed to create Skia surface');
+          }
 
           frameExtractor =
             RNSkiaVideoModule.createVideoCompositionFramesExtractorSync(
@@ -191,26 +189,39 @@ export const exportVideoComposition = async <T = undefined>({
             }
             const currentTime = i / options.frameRate;
             runPooled(() => {
-              const frames =
-                currentExtractor.decodeCompositionFrames(currentTime);
-              canvas.drawColor(clearColor, BlendMode.Clear);
-              const context = beforeDrawFrame?.() as any;
-              drawFrame({
-                context,
-                canvas,
-                videoComposition,
-                currentTime,
-                frames,
-                width: options.width,
-                height: options.height,
-              });
-              // Synchronous flush: block until the GPU is done rendering the
-              // frame, since the encoder reads the surface's texture from its
-              // own command queue / GL context.
-              currentSurface.flush(true);
-              const texture = currentSurface.getNativeTextureUnstable();
-              currentEncoder.encodeFrame(texture, currentTime);
-              afterDrawFrame?.(context);
+              const frames = importer.importFrames(
+                currentExtractor.decodeCompositionFrames(currentTime)
+              );
+              // The whole frame is cleared below: the previous content of
+              // the render target does not matter.
+              memory.beginAccess(texture, false);
+              let fences: number[] = [];
+              try {
+                canvas.drawColor(clearColor, BlendMode.Clear);
+                const context = beforeDrawFrame?.() as any;
+                drawFrame({
+                  context,
+                  canvas,
+                  videoComposition,
+                  currentTime,
+                  frames,
+                  width: options.width,
+                  height: options.height,
+                });
+                // Synchronous flush: block until the GPU is done rendering
+                // the frame, since the encoder reads the render target with
+                // another API (CPU on iOS, OpenGL on Android).
+                currentSurface.flush(true);
+                afterDrawFrame?.(context);
+              } finally {
+                const state = memory.endAccess(texture);
+                if (exportsSyncFdFences) {
+                  fences = state.fences.map((fence) =>
+                    Number(fence.fence.export().handle)
+                  );
+                }
+              }
+              currentEncoder.encodeFrame(currentTime, fences);
               if (onProgress) {
                 scheduleOnRN(onProgress, {
                   framesCompleted: i + 1,
@@ -220,9 +231,10 @@ export const exportVideoComposition = async <T = undefined>({
             });
           }
         } finally {
-          // Note: the surface is deliberately not disposed — it is the
-          // cached shared surface reused by the next export.
           frameExtractor?.dispose();
+          // Dispose the surface before destroying the texture it draws into.
+          surface?.dispose();
+          renderTexture?.destroy();
         }
 
         encoder!.finishWriting();
@@ -230,6 +242,7 @@ export const exportVideoComposition = async <T = undefined>({
         scheduleOnRN(settleReject, e);
         return;
       } finally {
+        importer.dispose();
         encoder?.dispose();
       }
       scheduleOnRN(settleResolve);

@@ -32,12 +32,21 @@ public class EGLUtils {
     Matrix.setIdentityM(IDENTITY_MATRIX, 0);
   }
 
-  static public EGLContext getCurrentContextOrThrows() {
-    EGLContext context = ((EGL10) EGLContext.getEGL()).eglGetCurrentContext();
-    if (context == EGL10.EGL_NO_CONTEXT) {
-      throw new RuntimeException("Skia context is not initialized");
+  /**
+   * Unbinds the EGL context current on the calling thread, if any, so that it
+   * can be made current on another thread.
+   */
+  static public void releaseCurrentContext() {
+    EGL10 egl = (EGL10) EGLContext.getEGL();
+    if (egl.eglGetCurrentContext() == EGL10.EGL_NO_CONTEXT) {
+      return;
     }
-    return context;
+    egl.eglMakeCurrent(
+      egl.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY),
+      EGL10.EGL_NO_SURFACE,
+      EGL10.EGL_NO_SURFACE,
+      EGL10.EGL_NO_CONTEXT
+    );
   }
 
   /**

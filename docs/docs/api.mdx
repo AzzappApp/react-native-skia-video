@@ -79,7 +79,7 @@ type FrameDrawer<T = undefined> = (args: {
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `texture` | `unknown` | Native GPU texture — wrap with `Skia.Image.MakeImageFromNativeTextureUnstable(texture, width, height)`. |
+| `image` | `SkImage` | The frame as a GPU-backed Skia image, owned and recycled by the player. |
 | `width` / `height` | `number` | Frame size in pixels, as stored. |
 | `rotation` | `number` | Display rotation in degrees (0, 90, 180, 270). |
 
@@ -92,7 +92,7 @@ playback subset).
 | --- | --- |
 | `play()` / `pause()` | Control playback. |
 | `seekTo(seconds)` | Seek; emits `seekComplete`. |
-| `decodeNextFrame()` | UI-thread only: decode and return the next `VideoFrame`. |
+| `decodeNextFrame()` | UI-thread only: decode the next frame, returned as a `NativeVideoFrame` (`{ handle, width, height, rotation }`, a native buffer to import with `GPUDevice.importSharedTextureMemory`). |
 | `currentTime` / `duration` | Seconds, read-only. |
 | `isPlaying` / `isLooping` | Playback state. |
 | `volume` / `playbackSpeed` | Audio volume (0–1) and speed (1 = normal). |

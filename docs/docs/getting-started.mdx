@@ -25,19 +25,32 @@ between minor versions.
 ## Installation
 
 ```sh
-npm install @azzapp/react-native-skia-video
+npm install @azzapp/react-native-skia-video react-native-skia react-native-webgpu
 ```
 
 The library relies on the following peer dependencies:
 
 | Package | Version |
 | --- | --- |
-| `@shopify/react-native-skia` | `>= 2.0.0` |
+| `react-native-skia` | `>= 3.2.0` |
+| `react-native-webgpu` | `>= 0.13.0` |
 | `react-native-reanimated` | `>= 4.0.0` |
 | `react-native-worklets` | `>= 0.10.0` |
 
-It ships native code for **iOS** (Metal, AVFoundation) and **Android**
-(OpenGL, MediaCodec). With Expo, use a
+React Native Skia v3 renders with Graphite on WebGPU (Dawn): video frames are
+exchanged with Skia as WebGPU textures on the GPU device that Skia and
+[React Native WebGPU](https://wcandillon.github.io/react-native-webgpu/)
+share. Pick versions of the two packages built against the same Dawn release
+(see their
+[compatibility table](https://wcandillon.github.io/react-native-webgpu/docs/integrations/react-native-skia)).
+Android requires API level 28 or above, iOS 15.1 or above.
+
+:::info React Native Skia v2
+For `@shopify/react-native-skia` v2, use the 0.x releases of this library.
+:::
+
+It ships native code for **iOS** (AVFoundation, IOSurface) and **Android**
+(MediaCodec, OpenGL ES and AHardwareBuffer). With Expo, use a
 [development build](https://docs.expo.dev/develop/development-builds/introduction/)
 (`npx expo prebuild && npx expo run:ios`) — Expo Go can't load custom native
 modules.
@@ -47,26 +60,18 @@ modules.
 ### 1. Play a single video
 
 The [`useVideoPlayer`](/docs/video-player) hook decodes a video file and hands
-you its current frame as a Reanimated shared value, ready to be wrapped in an
+you its current frame as a Reanimated shared value, with a ready-to-draw
 `SkImage`:
 
 ```tsx
-import { Canvas, Image, Skia } from '@shopify/react-native-skia';
+import { Canvas, Image } from 'react-native-skia';
 import { useVideoPlayer } from '@azzapp/react-native-skia-video';
 import { useDerivedValue } from 'react-native-reanimated';
 
 const MyVideoPlayer = ({ uri, width, height }) => {
   const { currentFrame } = useVideoPlayer({ uri, autoPlay: true });
 
-  const videoImage = useDerivedValue(() => {
-    const frame = currentFrame.value;
-    if (!frame) return null;
-    return Skia.Image.MakeImageFromNativeTextureUnstable(
-      frame.texture,
-      frame.width,
-      frame.height
-    );
-  });
+  const videoImage = useDerivedValue(() => currentFrame.value?.image ?? null);
 
   return (
     <Canvas style={{ width, height }}>

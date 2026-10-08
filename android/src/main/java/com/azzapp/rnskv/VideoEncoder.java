@@ -1,6 +1,7 @@
 package com.azzapp.rnskv;
 
 import android.graphics.Bitmap;
+import android.hardware.HardwareBuffer;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
@@ -59,6 +60,13 @@ public class VideoEncoder {
   private EGLResourcesHolder eglResourcesHolder;
 
   private TextureRenderer textureRenderer;
+
+  /**
+   * The buffer Skia renders the frames into (through the GPU device shared
+   * with React Native WebGPU), drawn into the encoder input surface by
+   * {@link #encodeFrame}.
+   */
+  private HardwareBufferTexture renderTarget;
 
   private MediaMuxer muxer;
 
@@ -125,7 +133,9 @@ public class VideoEncoder {
    * Configures encoder and muxer state, and prepares the input Surface.
    */
   public void prepare() throws IOException {
-    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
+    // Frames are exchanged through hardware buffers: the EGL context does not
+    // need to share resources with any other context.
+    EGLContext sharedContext = EGL10.EGL_NO_CONTEXT;
     encoder = encoderName != null
       ? MediaCodec.createByCodecName(encoderName)
       : MediaCodec.createEncoderByType(MIME_TYPE);
@@ -143,6 +153,7 @@ public class VideoEncoder {
     eglResourcesHolder = EGLResourcesHolder.createWithWindowedSurface(sharedContext, inputSurface);
     eglResourcesHolder.makeCurrent();
     textureRenderer = new TextureRenderer();
+    renderTarget = new HardwareBufferTexture(width, height);
     encoder.start();
 
     try {
@@ -192,7 +203,15 @@ public class VideoEncoder {
     eglResourcesHolder.makeCurrent();
   }
 
-  public void encodeFrame(int texture, double time) {
+  /**
+   * The hardware buffer the frames must be rendered into before calling
+   * {@link #encodeFrame}.
+   */
+  public HardwareBuffer getRenderTarget() {
+    return renderTarget != null ? renderTarget.getBuffer() : null;
+  }
+
+  public void encodeFrame(double time) {
     // Fail fast if the audio pipeline died: the muxer cannot start without
     // the audio track and every video sample would pile up in
     // pendingVideoSamples until the end of the export.
@@ -203,11 +222,14 @@ public class VideoEncoder {
     GLES20.glClearColor(0, 0, 0, 0);
     GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
     GLES20.glViewport(0, 0, width, height);
-    textureRenderer.draw(texture, EGLUtils.IDENTITY_MATRIX);
+    textureRenderer.draw(renderTarget.getTextureId(), EGLUtils.IDENTITY_MATRIX);
     eglResourcesHolder.setPresentationTime(timeUS * 1000);
     if (!eglResourcesHolder.swapBuffers()) {
       throw new RuntimeException("eglSwapBuffer failed");
     }
+    // The next frame is rendered into the render target by another API
+    // (Vulkan, through Dawn): GL must be done reading it.
+    GLES20.glFinish();
     drainEncoder(false);
   }
 
@@ -359,7 +381,19 @@ public class VideoEncoder {
       audioThread = null;
     }
     if (eglResourcesHolder != null) {
+      if (renderTarget != null || textureRenderer != null) {
+        eglResourcesHolder.makeCurrent();
+        if (renderTarget != null) {
+          renderTarget.release();
+          renderTarget = null;
+        }
+        if (textureRenderer != null) {
+          textureRenderer.release();
+          textureRenderer = null;
+        }
+      }
       eglResourcesHolder.release();
+      eglResourcesHolder = null;
     }
     if (encoder != null) {
       try {

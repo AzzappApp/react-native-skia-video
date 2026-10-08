@@ -8,9 +8,10 @@ sidebar_position: 4
 
 `exportVideoComposition` renders a composition to an H.264 file. It runs on a
 dedicated worklet thread: a synchronous extractor decodes the exact frame for
-each timestamp, your `drawFrame` renders it into an offscreen Skia surface,
-and the surface's texture is handed straight to the hardware encoder
-(MediaCodec on Android, AVAssetWriter on iOS) — no pixel readback. Audio
+each timestamp, and your `drawFrame` renders it with Skia straight into the
+native buffer the encoder reads from (an IOSurface handed to AVAssetWriter on
+iOS, an AHardwareBuffer drawn into MediaCodec's input surface on Android) —
+no GPU-to-CPU pixel readback on Android, a single memory copy on iOS. Audio
 items are mixed and encoded alongside.
 
 ```ts

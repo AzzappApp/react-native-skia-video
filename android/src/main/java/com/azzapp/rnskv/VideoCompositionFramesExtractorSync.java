@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
+import javax.microedition.khronos.egl.EGL10;
 import javax.microedition.khronos.egl.EGLContext;
 
 public class VideoCompositionFramesExtractorSync {
@@ -41,7 +42,9 @@ public class VideoCompositionFramesExtractorSync {
     exportThread.start();
     handler = new Handler(exportThread.getLooper());
     CompletableFuture<Void> future = new CompletableFuture<>();
-    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
+    // Frames are exchanged through hardware buffers: the EGL context does not
+    // need to share resources with any other context.
+    EGLContext sharedContext = EGL10.EGL_NO_CONTEXT;
     handler.post(() -> {
       try {
         decoder.prepare(sharedContext);

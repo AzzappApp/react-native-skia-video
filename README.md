@@ -1,6 +1,6 @@
 # React Native Skia Video
 
-Video encoding/decoding support for [React Native Skia](https://github.com/Shopify/react-native-skia)
+Video encoding/decoding support for [React Native Skia](https://github.com/wcandillon/react-native-skia) (v3, Graphite)
 
 > 📖 **[Documentation](https://azzappapp.github.io/react-native-skia-video/)** — getting started, guides (video player, compositions, audio, exporting), full API reference and a [complete example app](https://azzappapp.github.io/react-native-skia-video/docs/example).
 
@@ -9,8 +9,19 @@ Video encoding/decoding support for [React Native Skia](https://github.com/Shopi
 ## Installation
 
 ```sh
-npm install @azzapp/react-native-skia-video
+npm install @azzapp/react-native-skia-video react-native-skia react-native-webgpu
 ```
+
+This library requires `react-native-skia` v3 (Graphite) and
+[`react-native-webgpu`](https://wcandillon.github.io/react-native-webgpu/):
+video frames are exchanged with Skia as WebGPU textures on the GPU device
+both libraries share. Install versions of the two packages that use the same
+Dawn release (see the
+[compatibility table](https://wcandillon.github.io/react-native-webgpu/docs/integrations/react-native-skia)).
+Android requires API level 28 or above, iOS 15.1 or above.
+
+For `react-native-skia` v2 (`@shopify/react-native-skia`), use version 0.x of
+this library.
 
 ## Usage
 
@@ -19,24 +30,14 @@ npm install @azzapp/react-native-skia-video
 The `useVideoPlayer` is a custom React hook used in the context of a video player component. This hook encapsulates the logic for playing, pausing, and controlling video playback. It returns a [Reanimated](https://docs.swmansion.com/react-native-reanimated/) shared value that holds the current frame of the playing video.
 
 ```js
-import { Canvas, Image, Skia } from '@shopify/react-native-skia';
+import { Canvas, Image } from 'react-native-skia';
 import { useVideoPlayer } from '@azzapp/react-native-skia-video';
 
 const MyVideoPlayer = ({ uri, width, height }) =>{
 
   const { currentFrame } = useVideoPlayer({ uri })
 
-  const videoImage = useDerivedValue(() => {
-    const frame = currentFrame.value;
-    if (!frame) {
-      return null;
-    }
-    return Skia.Image.MakeImageFromNativeTextureUnstable(
-      frame.texture,
-      frame.width,
-      frame.height
-    );
-  });
+  const videoImage = useDerivedValue(() => currentFrame.value?.image ?? null);
 
   return (
     <Canvas style={{ width, height }}>
@@ -54,7 +55,7 @@ This library offers a mechanism for previewing and exporting videos created by c
 To preview a composition, use the `useVideoCompositionPlayer` hook:
 
 ```js
-import { Canvas, Picture, Skia } from '@shopify/react-native-skia';
+import { Canvas, Picture, Skia } from 'react-native-skia';
 import { useVideoCompositionPlayer } from '@azzapp/react-native-skia-video'
 
 const videoComposition = {
@@ -84,13 +85,16 @@ const drawFrame: FrameDrawer = ({
 }) => {
   'worklet';
   const frame = frames[currentTime < 5 ? 'video1' : 'video2'];
-  const image = Skia.Image.MakeImageFromNativeTextureUnstable(
-    frame.texture,
-    width,
-    height,
-  );
+  if (!frame) {
+    return;
+  }
   const paint = Skia.Paint();
-  canvas.drawImage(image, 0, 0, paint)
+  canvas.drawImageRect(
+    frame.image,
+    { x: 0, y: 0, width: frame.width, height: frame.height },
+    { x: 0, y: 0, width, height },
+    paint
+  );
 }
 
 

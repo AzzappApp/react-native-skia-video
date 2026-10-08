@@ -27,9 +27,9 @@ private:
   int audioSampleRate;
   int audioChannelCount;
   std::shared_ptr<VideoComposition> composition;
-  id<MTLDevice> device;
-  id<MTLCommandQueue> commandQueue;
-  id<MTLTexture> cpuAccessibleTexture;
+  // IOSurface-backed buffer Skia renders the frames into (through the GPU
+  // device shared with React Native WebGPU).
+  CVPixelBufferRef renderTarget = NULL;
   AVAssetWriter* assetWriter;
   AVAssetWriterInput* assetWriterInput;
   CVPixelBufferPoolRef pixelBufferPool = NULL;
@@ -42,7 +42,7 @@ private:
   NSMutableArray<NSError*>* audioErrorHolder;
 
   void prepare();
-  void encodeFrame(id<MTLTexture> mlTexture, CMTime time);
+  void encodeFrame(CMTime time);
   void setupAudio();
   void startWritingAudio();
   void finish();

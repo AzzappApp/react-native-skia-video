@@ -1,6 +1,7 @@
 import {
   useSharedValue,
   useFrameCallback,
+  runOnUI,
   type SharedValue,
 } from 'react-native-reanimated';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -12,6 +13,12 @@ import type {
   VideoPlayer,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
+import {
+  disposeFrameImporter,
+  getFrameImporter,
+  getSharedDevice,
+  nextFrameImporterId,
+} from './gpu';
 
 type UseVideoPlayerOptions = {
   /**
@@ -130,12 +137,20 @@ export const useVideoPlayer = ({
   }, [isErrored, resolution?.width, resolution?.height, uri]);
 
   const currentFrame = useSharedValue<null | VideoFrame>(null);
+  const device = useMemo(() => getSharedDevice(), []);
+  const importerId = useMemo(
+    () => nextFrameImporterId(),
+    // a new importer per player
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [player]
+  );
   useEffect(
     () => () => {
       currentFrame.value = null;
       player?.dispose();
+      runOnUI(disposeFrameImporter)(importerId);
     },
-    [player, currentFrame]
+    [player, currentFrame, importerId]
   );
 
   const retry = useCallback(() => {
@@ -187,9 +202,22 @@ export const useVideoPlayer = ({
     if (!player || (!player.isPlaying && currentFrame.value)) {
       return;
     }
-    const nextFrame = player.decodeNextFrame();
-    if (nextFrame) {
-      currentFrame.value = nextFrame;
+    const nativeFrame = player.decodeNextFrame();
+    if (!nativeFrame) {
+      return;
+    }
+    try {
+      // A new image object per frame is what makes the canvas redraw.
+      const nextFrame = getFrameImporter(importerId, device).importFrame(
+        'frame',
+        nativeFrame,
+        true
+      );
+      if (nextFrame) {
+        currentFrame.value = nextFrame;
+      }
+    } catch (error) {
+      console.warn('Failed to import video frame', error);
     }
   }, true);
 

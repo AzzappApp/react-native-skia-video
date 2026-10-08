@@ -176,7 +176,7 @@ public class VideoCompositionDecoder {
         continue;
       }
       VideoFrame nextFrame = new VideoFrame(
-        glFrameExtractor.getOutputTexId(),
+        glFrameExtractor.getOutputBuffer(),
         frameWidth, frameHeight, 0,
         glFrameExtractor.getLatestTimeStampNs()
       );

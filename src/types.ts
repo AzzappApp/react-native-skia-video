@@ -1,15 +1,45 @@
-// @ts-expect-error unused
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import type { SkCanvas, SkSurface, Skia } from '@shopify/react-native-skia';
+import type { SkCanvas, SkImage } from 'react-native-skia';
 
 /**
  * Represents a video frame.
  */
 export type VideoFrame = {
   /**
-   * The native texture of the frame.
+   * The frame as a GPU-backed Skia image.
+   *
+   * The image wraps a texture owned (and recycled) by the player that
+   * produced the frame: draw it while the frame is current, don't hold on to
+   * it.
    */
-  texture: unknown;
+  image: SkImage;
+  /**
+   * The width in pixels of the frame.
+   */
+  width: number;
+  /**
+   * The height in pixels of the frame.
+   */
+  height: number;
+  /**
+   * The rotation in degrees of the frame.
+   */
+  rotation: number;
+};
+
+/**
+ * A frame as produced by the native decoders: a native buffer (an IOSurface
+ * on iOS, an AHardwareBuffer on Android) that can be imported in the GPU
+ * device shared by Skia and React Native WebGPU with
+ * `GPUDevice.importSharedTextureMemory`.
+ *
+ * The buffer is owned by the decoder and is only guaranteed to be valid
+ * until the next frame is decoded.
+ */
+export type NativeVideoFrame = {
+  /**
+   * The native buffer pointer (IOSurfaceRef or AHardwareBuffer*).
+   */
+  handle: bigint;
   /**
    * The width in pixels of the frame.
    */
@@ -70,9 +100,9 @@ export type VideoPlayer = {
    * Decodes the next frame of the video.
    * This method should only be called from the ui thread.
    *
-   * @returns The next frame of the video.
+   * @returns The next frame of the video, or null if no new frame is available.
    */
-  decodeNextFrame(): VideoFrame;
+  decodeNextFrame(): NativeVideoFrame | null;
   /**
    * The current time in seconds of the playback.
    */
@@ -287,7 +317,7 @@ export type VideoCompositionFramesExtractor = {
    *
    * @returns The decoded video frames of the composition items.
    */
-  decodeCompositionFrames(): Record<string, VideoFrame>;
+  decodeCompositionFrames(): Record<string, NativeVideoFrame>;
   /**
    * Disposes of the video composition frames extractor.
    */
@@ -332,7 +362,9 @@ export type VideoCompositionFramesExtractorSync = {
    *
    * @returns The decoded video frames of the composition items.
    */
-  decodeCompositionFrames(currentTime: number): Record<string, VideoFrame>;
+  decodeCompositionFrames(
+    currentTime: number
+  ): Record<string, NativeVideoFrame>;
   /**
    * Disposes of the video composition frames extractor.
    */
@@ -348,9 +380,24 @@ export type VideoEncoder = {
    */
   prepare(): void;
   /**
-   * Encodes the video frame to the video composition.
+   * The native buffer (an IOSurface on iOS, an AHardwareBuffer on Android)
+   * the frames must be rendered into before calling `encodeFrame`.
+   * Available once the encoder is prepared.
    */
-  encodeFrame(texture: unknown, time: number): void;
+  readonly renderTarget: {
+    handle: bigint;
+    width: number;
+    height: number;
+  } | null;
+  /**
+   * Encodes the content of the render target as the frame at the given time.
+   *
+   * @param time The presentation time in seconds of the frame.
+   * @param fences Sync file descriptors that are signaled once the GPU is
+   * done rendering into the render target (the encoder takes ownership of
+   * them). Android only.
+   */
+  encodeFrame(time: number, fences?: number[]): void;
   /*
    * Finish writing the video to the output file.
    */

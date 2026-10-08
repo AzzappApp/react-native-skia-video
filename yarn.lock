@@ -48,7 +48,6 @@ __metadata:
     "@react-native/typescript-config": "npm:0.86.2"
     "@react-navigation/native": "npm:^7.3.14"
     "@react-navigation/native-stack": "npm:^7.18.6"
-    "@shopify/react-native-skia": "npm:^2.10.1"
     pexels: "npm:^1.4.0"
     react: "npm:19.2.3"
     react-native: "npm:0.86.2"
@@ -57,6 +56,8 @@ __metadata:
     react-native-reanimated: "npm:^4.5.3"
     react-native-safe-area-context: "npm:^5.8.0"
     react-native-screens: "npm:^4.26.2"
+    react-native-skia: "npm:^3.2.0"
+    react-native-webgpu: "npm:^0.13.0"
     react-native-worklets: "npm:^0.11.3"
   languageName: unknown
   linkType: soft
@@ -73,7 +74,6 @@ __metadata:
     "@react-native/babel-preset": "npm:0.86.2"
     "@react-native/jest-preset": "npm:0.86.2"
     "@release-it/conventional-changelog": "npm:^12.0.0"
-    "@shopify/react-native-skia": "npm:^2.10.1"
     "@types/jest": "npm:^29.5.14"
     "@types/node": "npm:^22.19.11"
     "@types/react": "npm:^19.2.18"
@@ -92,6 +92,8 @@ __metadata:
     react-native: "npm:0.86.2"
     react-native-builder-bob: "npm:^0.43.0"
     react-native-reanimated: "npm:^4.5.3"
+    react-native-skia: "npm:^3.2.0"
+    react-native-webgpu: "npm:^0.13.0"
     react-native-worklets: "npm:^0.11.3"
     react-test-renderer: "npm:19.2.3"
     release-it: "npm:^21.0.0"
@@ -99,10 +101,11 @@ __metadata:
     typescript: "npm:^6.0.3"
     typescript-eslint: "npm:^8.65.0"
   peerDependencies:
-    "@shopify/react-native-skia": ">= 2.0.0"
     react: "*"
     react-native: "*"
     react-native-reanimated: ">= 4.0.0"
+    react-native-skia: ">= 3.2.0"
+    react-native-webgpu: ">= 0.13.0"
     react-native-worklets: ">= 0.10.0"
   languageName: unknown
   linkType: soft
@@ -4197,34 +4200,6 @@ __metadata:
   peerDependencies:
     release-it: ^18.0.0 || ^19.0.0 || ^20.0.0 || ^21.0.0
   checksum: 10/7abb08a5bad17d40414f768a9bb01a78936ece48e0f6000688ef27fe6e0c33fc2bb3210825663255105c7ac4949878a673727653d8bdccffd01584149cc7862f
-  languageName: node
-  linkType: hard
-
-"@shopify/react-native-skia@npm:^2.10.1":
-  version: 2.10.1
-  resolution: "@shopify/react-native-skia@npm:2.10.1"
-  dependencies:
-    canvaskit-wasm: "npm:0.41.0"
-    react-native-skia-android: "npm:150.0.0"
-    react-native-skia-apple-ios: "npm:150.0.0"
-    react-native-skia-apple-macos: "npm:150.0.0"
-    react-native-skia-apple-tvos: "npm:150.0.0"
-    react-reconciler: "npm:0.31.0"
-  peerDependencies:
-    react: ">=19.0"
-    react-native: ">=0.78"
-    react-native-reanimated: ">=4.0.0"
-    react-native-worklets: ">=0.7.0"
-  peerDependenciesMeta:
-    react-native:
-      optional: true
-    react-native-reanimated:
-      optional: true
-    react-native-worklets:
-      optional: true
-  bin:
-    setup-skia-web: scripts/setup-canvaskit.js
-  checksum: 10/b894901e316b00ab58bd2f62895b2d7c6bee68d3379165857767d4204e2b8cf8800155079fe850c8b1080fe9fd217e6161383e8ad715d6c00a3f5836f1fd85ec
   languageName: node
   linkType: hard
 
@@ -11750,31 +11725,78 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-skia-android@npm:150.0.0":
-  version: 150.0.0
-  resolution: "react-native-skia-android@npm:150.0.0"
-  checksum: 10/5649a76858ba4beb476f169dc67302ef249ea93e53e64bd330e23a64e68b79b074acd0d451eb81d85d84a79f59deeaebde2d73fbf611748442ad06e88ba77895
+"react-native-skia-graphite-android@npm:154.2.0":
+  version: 154.2.0
+  resolution: "react-native-skia-graphite-android@npm:154.2.0"
+  checksum: 10/9fda988b85bcb03c20ba6302731015f3ac64ebd7c044f808f29ee0895b3a362845320cc5f33279e9a4a61339620e99450b82f533fcbfe9833b0be7cd0351bbdc
   languageName: node
   linkType: hard
 
-"react-native-skia-apple-ios@npm:150.0.0":
-  version: 150.0.0
-  resolution: "react-native-skia-apple-ios@npm:150.0.0"
-  checksum: 10/4171eefc5ddda80dbe41962b87bf3bba5c847f92311bcf8fd953b9cece37a48126a621e89e5a05b00ddb2e787dc2541530ddf994b33d0b835e35579f5ae8a20b
+"react-native-skia-graphite-apple-ios@npm:154.2.0":
+  version: 154.2.0
+  resolution: "react-native-skia-graphite-apple-ios@npm:154.2.0"
+  checksum: 10/d2c52db0adbe4c19404511104f28ca166e9f07d1cefd788df4a62c55d2af1b5e6d21464069e7e14e782657aab5047d2480a5da57e05834491ae7622af4ea5b84
   languageName: node
   linkType: hard
 
-"react-native-skia-apple-macos@npm:150.0.0":
-  version: 150.0.0
-  resolution: "react-native-skia-apple-macos@npm:150.0.0"
-  checksum: 10/6aa2c02abbc08e0a6808e6a1359ec3eee027d9290fb303e33f605341bbda7b6d7c2234340a5e6ded9581b6b0c0edb7cce1fa7e6eb70f9414d0e037ca25e7be91
+"react-native-skia-graphite-apple-macos@npm:154.2.0":
+  version: 154.2.0
+  resolution: "react-native-skia-graphite-apple-macos@npm:154.2.0"
+  checksum: 10/d17028c50f1be818b37e0ac6b8d06bfc1cf402911c773abd9bcf9144b5d29d4ccd8e4590177c2db8a703834ffe7e65415a399b0cfa1eb3646deac5cf7adf4a29
   languageName: node
   linkType: hard
 
-"react-native-skia-apple-tvos@npm:150.0.0":
-  version: 150.0.0
-  resolution: "react-native-skia-apple-tvos@npm:150.0.0"
-  checksum: 10/abfecd5a8b0cc8eeb923560d2ad9f1c5536f8077453aaaedb98a9549b17c71d16b0ed1b601511b1e5fab89b411cd52aba73f9205299e00747db9bb08d8ae62af
+"react-native-skia@npm:^3.2.0":
+  version: 3.2.0
+  resolution: "react-native-skia@npm:3.2.0"
+  dependencies:
+    canvaskit-wasm: "npm:0.41.0"
+    react-native-skia-graphite-android: "npm:154.2.0"
+    react-native-skia-graphite-apple-ios: "npm:154.2.0"
+    react-native-skia-graphite-apple-macos: "npm:154.2.0"
+    react-native-webgpu-dawn: "npm:154.2.0"
+    react-reconciler: "npm:0.31.0"
+  peerDependencies:
+    react: ">=19.0"
+    react-native: ">=0.78"
+    react-native-reanimated: ">=4.0.0"
+    react-native-worklets: ">=0.7.0"
+  peerDependenciesMeta:
+    react-native:
+      optional: true
+    react-native-reanimated:
+      optional: true
+    react-native-worklets:
+      optional: true
+  bin:
+    setup-skia-web: scripts/setup-canvaskit.js
+  checksum: 10/de76feccaf636270472960ad1af5b2107d48d3bc75bfdaf61fa9d90d1e3d9f96b8ad2b5993fdea398bcf10c80532dbd41fc7b28a6a4b9ec20de6087fd27a0fba
+  languageName: node
+  linkType: hard
+
+"react-native-webgpu-dawn@npm:154.2.0":
+  version: 154.2.0
+  resolution: "react-native-webgpu-dawn@npm:154.2.0"
+  checksum: 10/25a7567b5087dac9278ff0f2aa7b9e3c3980f1b82c60028f32e57dd6d87ba6bf3f3d9d2bb94d8e96ef998a51a0b86dc645150f4067995255f717ee44368a8671
+  languageName: node
+  linkType: hard
+
+"react-native-webgpu@npm:^0.13.0":
+  version: 0.13.0
+  resolution: "react-native-webgpu@npm:0.13.0"
+  dependencies:
+    react-native-webgpu-dawn: "npm:154.2.0"
+  peerDependencies:
+    react: "*"
+    react-native: ">=0.81.0"
+    react-native-reanimated: ">=4.2.1"
+    react-native-worklets: ">=0.7.2"
+  peerDependenciesMeta:
+    react-native-reanimated:
+      optional: true
+    react-native-worklets:
+      optional: true
+  checksum: 10/f1d13019a0a4307f8c81adc8c60ea9a5a0c5b4e4c2f68e827ca6ba4c267b24da993b3c53f08b89b16e7df14e1a752eccb25edb9cd862205046150bd35308113e
   languageName: node
   linkType: hard
 
