@@ -1,4 +1,5 @@
 import {
+  runOnUI,
   useSharedValue,
   useFrameCallback,
   type SharedValue,
@@ -12,6 +13,12 @@ import type {
   VideoPlayer,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
+import {
+  createFrameImagesKey,
+  getFrameImageContext,
+  makeVideoFrame,
+  releaseFrameImages,
+} from './frameImages';
 
 type UseVideoPlayerOptions = {
   /**
@@ -129,13 +136,17 @@ export const useVideoPlayer = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isErrored, resolution?.width, resolution?.height, uri]);
 
+  const frameImageContext = useMemo(() => getFrameImageContext(), []);
+  const framesKey = useMemo(() => createFrameImagesKey(), []);
+
   const currentFrame = useSharedValue<null | VideoFrame>(null);
   useEffect(
     () => () => {
       currentFrame.value = null;
       player?.dispose();
+      runOnUI(releaseFrameImages)(framesKey);
     },
-    [player, currentFrame]
+    [player, currentFrame, framesKey]
   );
 
   const retry = useCallback(() => {
@@ -187,9 +198,13 @@ export const useVideoPlayer = ({
     if (!player || (!player.isPlaying && currentFrame.value)) {
       return;
     }
-    const nextFrame = player.decodeNextFrame();
-    if (nextFrame) {
-      currentFrame.value = nextFrame;
+    const decodedFrame = player.decodeNextFrame();
+    if (decodedFrame) {
+      currentFrame.value = makeVideoFrame(
+        frameImageContext,
+        framesKey,
+        decodedFrame
+      );
     }
   }, true);
 

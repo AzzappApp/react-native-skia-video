@@ -32,7 +32,6 @@ private:
   AVAssetTrack* videoTrack;
   NSArray<AVAssetTrackSegment*>* segments;
   AVAssetReader* assetReader;
-  id<MTLTexture> mtlTexture;
   std::list<std::pair<double, CMSampleBufferRef>> decodedFrames;
   std::list<std::pair<double, CMSampleBufferRef>> nextLoopFrames;
   CMTime lastRequestedTime = kCMTimeInvalid;

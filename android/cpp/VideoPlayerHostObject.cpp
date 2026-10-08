@@ -1,4 +1,5 @@
 #include "VideoPlayerHostObject.h"
+#include "EGLContextGuard.h"
 #include "JNIHelpers.h"
 
 namespace RNSkiaVideo {
@@ -46,13 +47,14 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
             return jsi::Value::null();
           }
 
-          if (skiaContextHolder == nullptr) {
-            skiaContextHolder = std::make_shared<SkiaContextHolder>();
+          // The player renders the frames with its own EGL context.
+          EGLContextGuard contextGuard;
+          if (!glSetup) {
+            glSetup = true;
             player->setupGL();
           }
 
           auto frame = player->decodeNextFrame();
-          skiaContextHolder->makeCurrent();
           if (!frame) {
             return jsi::Value::null();
           }

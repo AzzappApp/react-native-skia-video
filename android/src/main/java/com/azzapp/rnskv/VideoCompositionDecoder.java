@@ -3,8 +3,6 @@ package com.azzapp.rnskv;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.microedition.khronos.egl.EGLContext;
-
 /**
  * A class to decode a video composition and extract frames from the video items.
  */
@@ -66,8 +64,8 @@ public class VideoCompositionDecoder {
   /**
    * Prepares the items decoders and the image readers.
    */
-  public void prepare(EGLContext sharedContext) {
-    eglResourcesHolder = EGLResourcesHolder.createWithPBBufferSurface(sharedContext);
+  public void prepare() {
+    eglResourcesHolder = EGLResourcesHolder.createWithPBBufferSurface();
     eglResourcesHolder.makeCurrent();
     decoders.values().forEach(decoder -> {
       try {
@@ -151,7 +149,7 @@ public class VideoCompositionDecoder {
    *
    * @return A map with the updated video frames.
    */
-  public Map<String, VideoFrame> updateVideosFrames() {
+  public synchronized Map<String, VideoFrame> updateVideosFrames() {
     for (VideoComposition.Item item : composition.getItems()) {
       if (!item.isVideo()) {
         continue;
@@ -176,7 +174,7 @@ public class VideoCompositionDecoder {
         continue;
       }
       VideoFrame nextFrame = new VideoFrame(
-        glFrameExtractor.getOutputTexId(),
+        glFrameExtractor.getOutputBuffer(),
         frameWidth, frameHeight, 0,
         glFrameExtractor.getLatestTimeStampNs()
       );
@@ -211,6 +209,7 @@ public class VideoCompositionDecoder {
     glFrameExtractors.clear();
     if (eglResourcesHolder != null) {
       eglResourcesHolder.release();
+      eglResourcesHolder = null;
     }
   }
 

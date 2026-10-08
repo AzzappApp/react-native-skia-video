@@ -9,9 +9,9 @@ sidebar_position: 4
 `exportVideoComposition` renders a composition to an H.264 file. It runs on a
 dedicated worklet thread: a synchronous extractor decodes the exact frame for
 each timestamp, your `drawFrame` renders it into an offscreen Skia surface,
-and the surface's texture is handed straight to the hardware encoder
-(MediaCodec on Android, AVAssetWriter on iOS) — no pixel readback. Audio
-items are mixed and encoded alongside.
+and the rendered frame is read back and copied into the video buffers of the
+hardware encoder (MediaCodec on Android, AVAssetWriter on iOS). Audio items
+are mixed and encoded alongside.
 
 ```ts
 import { exportVideoComposition } from '@azzapp/react-native-skia-video';

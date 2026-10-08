@@ -11,7 +11,6 @@ import androidx.media3.common.util.UnstableApi;
 
 import java.io.IOException;
 import java.util.Map;
-import javax.microedition.khronos.egl.EGLContext;
 
 /**
  * A class that previews a video composition.
@@ -72,8 +71,7 @@ public class VideoCompositionFramesExtractor {
     if (prepared) {
       return;
     }
-    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
-    decoder.prepare(sharedContext);
+    decoder.prepare();
     handler.sendEmptyMessage(PLAYBACK_PREPARE);
   }
 

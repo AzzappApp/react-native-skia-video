@@ -5,7 +5,6 @@
 
 #import "RNSVVideoPlayer.h"
 #import "AVAssetTrackUtils.h"
-#import "MTLTextureUtils.h"
 
 static void* timeRangeContext = &timeRangeContext;
 static void* statusContext = &statusContext;
@@ -17,7 +16,6 @@ static void* rateContext = &rateContext;
 @implementation RNSVVideoPlayer {
   AVPlayer* _player;
   AVPlayerItemVideoOutput* _videoOutput;
-  id<MTLTexture> _mtlTexture;
   CADisplayLink* _displayLink;
   id<RNSVVideoPlayerDelegate> _delegate;
   Boolean _complete;
@@ -36,8 +34,14 @@ static void* rateContext = &rateContext;
 
   AVAsset* asset = [AVAsset assetWithURL:url];
   self.resolution = resolution;
+  // NV12 is the decoder's native output: requesting BGRA would make
+  // VideoToolbox convert every frame. The YUV to RGB conversion happens on the
+  // GPU when the frame is copied into a texture (React Native WebGPU's
+  // copyExternalImageToTexture), which needs IOSurface-backed buffers.
   NSDictionary* pixBuffAttributes = @{
-    (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
+    (id)kCVPixelBufferPixelFormatTypeKey :
+        @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+    (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
     (id)kCVPixelBufferMetalCompatibilityKey : @YES
   };
   if (!CGSizeEqualToSize(CGSizeZero, resolution)) {
@@ -115,25 +119,11 @@ static void* rateContext = &rateContext;
   }
 }
 
-- (nullable id<MTLTexture>)getNextTextureForTime:(CMTime)time {
-  id<MTLTexture> texture = NULL;
-  if ([_videoOutput hasNewPixelBufferForItemTime:time]) {
-    auto buffer = [_videoOutput copyPixelBufferForItemTime:time
-                                        itemTimeForDisplay:nil];
-    if (buffer) {
-      size_t width = CVPixelBufferGetWidth(buffer);
-      size_t height = CVPixelBufferGetHeight(buffer);
-      if (!_mtlTexture || width != _mtlTexture.width ||
-          height != _mtlTexture.height) {
-        _mtlTexture = [MTLTextureUtils
-            createMTLTextureForVideoOutput:CGSizeMake(width, height)];
-      }
-      [MTLTextureUtils updateTexture:_mtlTexture with:buffer];
-      CVPixelBufferRelease(buffer);
-      texture = _mtlTexture;
-    }
+- (nullable CVPixelBufferRef)copyPixelBufferForTime:(CMTime)time {
+  if (![_videoOutput hasNewPixelBufferForItemTime:time]) {
+    return NULL;
   }
-  return texture;
+  return [_videoOutput copyPixelBufferForItemTime:time itemTimeForDisplay:nil];
 }
 
 - (void)seekTo:(CMTime)time

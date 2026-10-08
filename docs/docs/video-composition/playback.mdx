@@ -11,7 +11,7 @@ decoders, calls your `drawFrame` into an offscreen GPU surface every vsync,
 and returns the resulting `SkImage` as a Reanimated derived value.
 
 ```tsx
-import { Canvas, Image } from '@shopify/react-native-skia';
+import { Canvas, Image } from 'react-native-skia';
 import { useVideoCompositionPlayer } from '@azzapp/react-native-skia-video';
 
 const CompositionPlayer = ({ composition, width, height }) => {
@@ -53,7 +53,9 @@ const CompositionPlayer = ({ composition, width, height }) => {
 ## Returns
 
 - **`currentFrame`** — `DerivedValue<SkImage | null>`: the freshly rendered
-  frame. Pass it straight to a Skia `<Image>` component.
+  frame. Pass it straight to a Skia `<Image>` component. It is the same image
+  for every frame, a live view of the player's surface: draw it, don't keep it
+  around or dispose it (use `makeNonTextureImage()` for a lasting copy).
 - **`player`** — a controller with `play()`, `pause()`, `seekTo(seconds)`,
   `currentTime` and `isPlaying`.
 
@@ -63,8 +65,8 @@ const CompositionPlayer = ({ composition, width, height }) => {
   1080p to show a 300pt preview wastes decoder bandwidth and memory.
 - `drawFrame` runs on the UI thread — keep per-frame allocations low and
   cache expensive Skia objects (paragraphs, runtime effects) between frames.
-- The player owns the frame textures; don't hold on to `VideoFrame`s across
-  frames. Dispose any `SkImage` wrappers you create once drawn.
+- The player owns the frame images; don't hold on to `VideoFrame`s across
+  frames.
 - Re-creating the player (new `composition` object identity) is not free:
   memoize the composition and only rebuild it when playback inputs actually
   change.

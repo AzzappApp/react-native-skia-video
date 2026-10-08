@@ -1,8 +1,8 @@
 #pragma once
 
-#include "SkiaContextHolder.h"
 #include "VideoComposition.h"
 #include <EGL/egl.h>
+#include <android/hardware_buffer.h>
 #include <fbjni/fbjni.h>
 #include <jsi/jsi.h>
 
@@ -27,7 +27,11 @@ public:
 
   void makeGLContextCurrent() const;
 
-  void encodeFrame(jint texture, jdouble time) const;
+  void encodePixels(uint8_t* pixels, size_t size, jdouble time) const;
+
+  AHardwareBuffer* beginFrame() const;
+
+  void endFrame(jdouble time) const;
 
   void finishWriting() const;
 
@@ -49,7 +53,6 @@ public:
 private:
   global_ref<VideoEncoder> framesExtractor;
   std::atomic_flag released = ATOMIC_FLAG_INIT;
-  std::shared_ptr<SkiaContextHolder> skiaContextHolder;
   void release();
 };
 

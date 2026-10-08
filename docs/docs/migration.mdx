@@ -1,0 +1,68 @@
+---
+id: migration
+title: Migrating to 1.0
+sidebar_position: 6
+slug: /migration
+---
+
+# Migrating to 1.0
+
+Version 1.0 targets [React Native Skia v3](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/),
+which renders with Skia Graphite (Metal on iOS, Vulkan on Android). Graphite no
+longer accepts native textures: video frames reach Skia through textures of its
+GPU device, created with [React Native WebGPU](https://wcandillon.github.io/react-native-webgpu/).
+The library copies each decoded frame into such a texture on the GPU and hands
+you an `SkImage`.
+
+## 1. Upgrade React Native Skia and install React Native WebGPU
+
+Follow the [React Native Skia v3 migration guide](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/):
+the package is now `react-native-skia` (instead of `@shopify/react-native-skia`)
+and Android requires API level 26 or above (this library requires 28).
+
+```sh
+yarn remove @shopify/react-native-skia
+yarn add react-native-skia react-native-webgpu @azzapp/react-native-skia-video@^1.0.0
+```
+
+React Native Skia and React Native WebGPU must be built against the same Dawn
+release: the native build fails with a `Dawn version mismatch` error otherwise.
+Upgrade them together (see the [compatibility table](https://wcandillon.github.io/react-native-webgpu/docs/integrations/react-native-skia#compatibility)).
+
+## 2. Draw `frame.image`
+
+`VideoFrame.texture` is replaced by `VideoFrame.image`, an `SkImage` ready to be
+drawn:
+
+```diff
+- const image = Skia.Image.MakeImageFromNativeTextureUnstable(
+-   frame.texture,
+-   frame.width,
+-   frame.height
+- );
+- canvas.drawImageRect(image, src, dst, paint);
++ canvas.drawImageRect(frame.image, src, dst, paint);
+```
+
+With `useVideoPlayer`:
+
+```diff
+  const videoImage = useDerivedValue(() => {
+    const frame = currentFrame.value;
+-   if (!frame) return null;
+-   return Skia.Image.MakeImageFromNativeTextureUnstable(frame.texture, frame.width, frame.height);
++   return frame?.image ?? null;
+  });
+```
+
+## 3. Don't keep frames around
+
+The images are owned by the player (or composition player): an image is
+disposed when the next frame is produced. Don't dispose them yourself, and use
+`image.makeNonTextureImage()` if you need a lasting copy (a thumbnail for
+instance).
+
+## What doesn't change
+
+`useVideoPlayer`, `useVideoCompositionPlayer`, `exportVideoComposition`, the
+composition model and the audio support keep the same API.

@@ -1,8 +1,8 @@
 #include "VideoEncoderHostObject.h"
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
-#include <GLES/gl.h>
-#include <GLES/glext.h>
+#include "EGLContextGuard.h"
+#include "HardwareBufferGL.h"
+#include "RNSVPixelData.h"
+#include "VideoFrame.h"
 #include <android/hardware_buffer_jni.h>
 
 namespace RNSkiaVideo {
@@ -31,10 +31,30 @@ void VideoEncoder::makeGLContextCurrent() const {
   makeGLContextCurrentMethod(self());
 }
 
-void VideoEncoder::encodeFrame(jint texture, jdouble time) const {
-  static const auto encodeFrameMethod =
-      getClass()->getMethod<void(jint, jdouble)>("encodeFrame");
-  encodeFrameMethod(self(), texture, time);
+void VideoEncoder::encodePixels(uint8_t* pixels, size_t size,
+                                jdouble time) const {
+  static const auto encodePixelsMethod =
+      getClass()->getMethod<void(alias_ref<JByteBuffer>, jdouble)>(
+          "encodePixels");
+  // A direct ByteBuffer on the JS array memory: no copy, valid during the
+  // call only (the encoder uploads the pixels before returning).
+  auto buffer = JByteBuffer::wrapBytes(pixels, size);
+  encodePixelsMethod(self(), buffer, time);
+}
+
+AHardwareBuffer* VideoEncoder::beginFrame() const {
+  static const auto beginFrameMethod =
+      getClass()->getMethod<JHardwareBuffer::javaobject()>("beginFrame");
+  auto hardwareBuffer = beginFrameMethod(self());
+  // The encoder keeps the buffer (and its reference on it) until released.
+  return AHardwareBuffer_fromHardwareBuffer(Environment::current(),
+                                            hardwareBuffer.get());
+}
+
+void VideoEncoder::endFrame(jdouble time) const {
+  static const auto endFrameMethod =
+      getClass()->getMethod<void(jdouble)>("endFrame");
+  endFrameMethod(self(), time);
 }
 
 void VideoEncoder::release() const {
@@ -67,6 +87,8 @@ VideoEncoderHostObject::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> result;
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("prepare")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("encodeFrame")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("beginFrame")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("endFrame")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("finishWriting")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("dispose")));
   return result;
@@ -80,14 +102,71 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "encodeFrame"), 2,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
+          if (count < 2 || !arguments[1].isNumber()) {
+            throw jsi::JSError(runtime,
+                               "VideoEncoder.encodeFrame(..) expects pixels "
+                               "(Uint8Array) and a time (number)!");
+          }
+          auto pixels = getPixelData(runtime, arguments[0],
+                                     "VideoEncoder.encodeFrame(..)");
+          if (released.test()) {
+            return jsi::Value::undefined();
+          }
+          EGLContextGuard contextGuard;
           framesExtractor->makeGLContextCurrent();
-          auto texId = arguments[0]
-                           .asObject(runtime)
-                           .getProperty(runtime, "glID")
-                           .asNumber();
-
-          framesExtractor->encodeFrame((int)texId, arguments[1].asNumber());
-          skiaContextHolder->makeCurrent();
+          framesExtractor->encodePixels(const_cast<uint8_t*>(pixels.data),
+                                        pixels.size, arguments[1].asNumber());
+          return jsi::Value::undefined();
+        });
+  } else if (propName == "beginFrame") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "beginFrame"), 0,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          if (released.test()) {
+            throw jsi::JSError(runtime, "VideoEncoder.beginFrame(): the "
+                                        "encoder was released");
+          }
+          EGLContextGuard contextGuard;
+          framesExtractor->makeGLContextCurrent();
+          auto buffer = framesExtractor->beginFrame();
+          return jsi::BigInt::fromUint64(runtime,
+                                         reinterpret_cast<uintptr_t>(buffer));
+        });
+  } else if (propName == "endFrame") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "endFrame"), 2,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          if (count < 1 || !arguments[0].isNumber()) {
+            throw jsi::JSError(runtime, "VideoEncoder.endFrame(..) expects a "
+                                        "time (number)!");
+          }
+          // The sync fences (sync_file fds, owned by this call) signaled
+          // when React Native Skia is done drawing into the buffer.
+          std::vector<int> fences;
+          if (count >= 2 && arguments[1].isObject()) {
+            auto array = arguments[1].asObject(runtime).asArray(runtime);
+            for (size_t i = 0; i < array.size(runtime); i++) {
+              auto value = array.getValueAtIndex(runtime, i);
+              if (value.isBigInt()) {
+                fences.push_back(
+                    static_cast<int>(value.asBigInt(runtime).asInt64(runtime)));
+              }
+            }
+          }
+          EGLContextGuard contextGuard;
+          if (!released.test()) {
+            framesExtractor->makeGLContextCurrent();
+          }
+          for (int fence : fences) {
+            // Without a current context, waits on the CPU (and closes).
+            waitForSyncFence(fence);
+          }
+          if (released.test()) {
+            return jsi::Value::undefined();
+          }
+          framesExtractor->endFrame(arguments[0].asNumber());
           return jsi::Value::undefined();
         });
   } else if (propName == "prepare") {
@@ -96,9 +175,9 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (!released.test()) {
-            skiaContextHolder = std::make_shared<SkiaContextHolder>();
+            // The encoder renders the frames with its own EGL context.
+            EGLContextGuard contextGuard;
             framesExtractor->prepare();
-            skiaContextHolder->makeCurrent();
           }
           return jsi::Value::undefined();
         });
@@ -127,6 +206,8 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
 
 void VideoEncoderHostObject::release() {
   if (!released.test_and_set()) {
+    // The encoder releases its GL resources with its own context current.
+    EGLContextGuard contextGuard;
     framesExtractor->release();
     framesExtractor = nullptr;
   }

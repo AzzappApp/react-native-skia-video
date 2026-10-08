@@ -1,6 +1,7 @@
 package com.azzapp.rnskv;
 
 import android.graphics.Bitmap;
+import android.hardware.HardwareBuffer;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
@@ -13,10 +14,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
-
-import javax.microedition.khronos.egl.EGL10;
-import javax.microedition.khronos.egl.EGLContext;
-
 
 /**
  * Helper class for encoding video (and the audio of the composition items,
@@ -59,6 +56,11 @@ public class VideoEncoder {
   private EGLResourcesHolder eglResourcesHolder;
 
   private TextureRenderer textureRenderer;
+
+  private int pixelsTexture = 0;
+
+  // The buffer React Native Skia draws the frames into (beginFrame/endFrame).
+  private HardwareBufferTexture frameTexture;
 
   private MediaMuxer muxer;
 
@@ -125,7 +127,6 @@ public class VideoEncoder {
    * Configures encoder and muxer state, and prepares the input Surface.
    */
   public void prepare() throws IOException {
-    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
     encoder = encoderName != null
       ? MediaCodec.createByCodecName(encoderName)
       : MediaCodec.createEncoderByType(MIME_TYPE);
@@ -140,7 +141,7 @@ public class VideoEncoder {
     encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
 
     inputSurface = encoder.createInputSurface();
-    eglResourcesHolder = EGLResourcesHolder.createWithWindowedSurface(sharedContext, inputSurface);
+    eglResourcesHolder = EGLResourcesHolder.createWithWindowedSurface(inputSurface);
     eglResourcesHolder.makeCurrent();
     textureRenderer = new TextureRenderer();
     encoder.start();
@@ -190,6 +191,68 @@ public class VideoEncoder {
 
   public void makeGLContextCurrent() {
     eglResourcesHolder.makeCurrent();
+  }
+
+  /**
+   * Encodes a frame given as pixels.
+   *
+   * @param pixels the RGBA premultiplied pixels of the frame, width × height without row padding
+   * @param time   the presentation time of the frame in seconds
+   */
+  public void encodePixels(ByteBuffer pixels, double time) {
+    if (pixelsTexture == 0) {
+      int[] texIds = new int[1];
+      GLES20.glGenTextures(1, texIds, 0);
+      pixelsTexture = texIds[0];
+      EGLUtils.configureTexture(GLES20.GL_TEXTURE_2D, pixelsTexture);
+      GLES20.glTexImage2D(
+        GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0,
+        GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null
+      );
+    }
+    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, pixelsTexture);
+    GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 4);
+    // glTexSubImage2D copies the pixels before returning: the caller can
+    // reuse its buffer afterwards.
+    GLES20.glTexSubImage2D(
+      GLES20.GL_TEXTURE_2D, 0, 0, 0, width, height,
+      GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels
+    );
+    EGLUtils.checkGlError("VideoEncoder.encodePixels()");
+    encodeFrame(pixelsTexture, time);
+  }
+
+  /**
+   * Returns the buffer to draw the next frame into, without copy (React
+   * Native Skia imports it with React Native WebGPU). The frame is encoded by
+   * {@link #endFrame}. Every frame is drawn into the same GPU-only buffer.
+   * <p>
+   * Must be called with the encoder's GL context current.
+   */
+  public HardwareBuffer beginFrame() {
+    if (frameTexture == null) {
+      frameTexture = new HardwareBufferTexture(width, height);
+    }
+    return frameTexture.getHardwareBuffer();
+  }
+
+  /**
+   * Encodes the frame drawn into the buffer returned by {@link #beginFrame}.
+   * The caller must have made the GL context wait for the drawing to be
+   * complete.
+   * <p>
+   * Must be called with the encoder's GL context current.
+   *
+   * @param time the presentation time of the frame in seconds
+   */
+  public void endFrame(double time) {
+    if (frameTexture == null) {
+      throw new IllegalStateException("endFrame called without beginFrame");
+    }
+    encodeFrame(frameTexture.getTextureId(), time);
+    // The next frame is drawn into the same buffer, from Vulkan: the encoder
+    // must be done reading it (a single quad, about a millisecond).
+    GLES20.glFinish();
   }
 
   public void encodeFrame(int texture, double time) {
@@ -359,6 +422,11 @@ public class VideoEncoder {
       audioThread = null;
     }
     if (eglResourcesHolder != null) {
+      if (frameTexture != null) {
+        eglResourcesHolder.makeCurrent();
+        frameTexture.release();
+        frameTexture = null;
+      }
       eglResourcesHolder.release();
     }
     if (encoder != null) {

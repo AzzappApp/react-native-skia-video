@@ -1,15 +1,68 @@
-// @ts-expect-error unused
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import type { SkCanvas, SkSurface, Skia } from '@shopify/react-native-skia';
+import type { SkCanvas, SkImage } from 'react-native-skia';
 
 /**
  * Represents a video frame.
  */
 export type VideoFrame = {
   /**
-   * The native texture of the frame.
+   * The image of the frame, ready to be drawn with React Native Skia.
+   *
+   * The image is owned by the player (or composition player) that produced the
+   * frame and is disposed when the next frame is produced: draw it, don't keep
+   * it around (use `image.makeNonTextureImage()` to keep a copy).
    */
-  texture: unknown;
+  image: SkImage;
+  /**
+   * The width in pixels of the frame.
+   */
+  width: number;
+  /**
+   * The height in pixels of the frame.
+   */
+  height: number;
+  /**
+   * The rotation in degrees of the frame.
+   */
+  rotation: number;
+};
+
+/**
+ * A frame as decoded by the native module: its pixels are in a native buffer,
+ * turned into a `VideoFrame` by the library.
+ */
+export type DecodedFrame = {
+  /**
+   * The native buffer holding the pixels of the frame: a `CVPixelBufferRef`
+   * on iOS and an `AHardwareBuffer*` on Android, as a `BigInt` pointer.
+   * Undefined once the frame has been released: its pixels were already
+   * copied by the library when the frame was first handed out.
+   */
+  buffer: bigint | undefined;
+  /**
+   * Identifies the frame among the frames of its producer (Android only): a
+   * producer hands out its current frame again, with the same id, until a new
+   * one is decoded, and the library copies a frame once. On iOS a frame
+   * handed out again has no `buffer` anymore, released after its copy.
+   */
+  id?: number;
+  /**
+   * Android only: the sync fence (a sync_file descriptor, as a `BigInt`)
+   * signaled once the decoder is done rendering the frame into `buffer`. The
+   * buffer must not be read before. Owned by the frame.
+   */
+  readyFence?: bigint;
+  /**
+   * Android only: waits on the CPU for `readyFence`, for a device that cannot
+   * wait for it on the GPU.
+   */
+  waitForReady?: () => void;
+  /**
+   * Hands the native buffer back to the decoder, once its pixels were copied.
+   * On Android, `fences` are the sync fences (sync_file descriptors, as
+   * `BigInt`s, whose ownership is transferred) signaled once the buffer is
+   * read: the decoder waits for them before rendering into the buffer again.
+   */
+  release?: (fences?: bigint[]) => void;
   /**
    * The width in pixels of the frame.
    */
@@ -72,7 +125,7 @@ export type VideoPlayer = {
    *
    * @returns The next frame of the video.
    */
-  decodeNextFrame(): VideoFrame;
+  decodeNextFrame(): DecodedFrame | null;
   /**
    * The current time in seconds of the playback.
    */
@@ -287,7 +340,7 @@ export type VideoCompositionFramesExtractor = {
    *
    * @returns The decoded video frames of the composition items.
    */
-  decodeCompositionFrames(): Record<string, VideoFrame>;
+  decodeCompositionFrames(): Record<string, DecodedFrame>;
   /**
    * Disposes of the video composition frames extractor.
    */
@@ -332,7 +385,7 @@ export type VideoCompositionFramesExtractorSync = {
    *
    * @returns The decoded video frames of the composition items.
    */
-  decodeCompositionFrames(currentTime: number): Record<string, VideoFrame>;
+  decodeCompositionFrames(currentTime: number): Record<string, DecodedFrame>;
   /**
    * Disposes of the video composition frames extractor.
    */
@@ -348,9 +401,34 @@ export type VideoEncoder = {
    */
   prepare(): void;
   /**
-   * Encodes the video frame to the video composition.
+   * Encodes a frame to the video.
+   *
+   * @param pixels The pixels of the frame, `width × height` premultiplied
+   * 32 bits pixels without row padding, in BGRA order on iOS and RGBA order on
+   * Android. The encoder copies them before returning.
+   * @param time The presentation time of the frame in seconds.
    */
-  encodeFrame(texture: unknown, time: number): void;
+  encodeFrame(pixels: Uint8Array, time: number): void;
+  /**
+   * Hands out a buffer of the encoder for the next frame, to render into
+   * without copy: the `IOSurfaceRef` of one of the few buffers the encoder
+   * hands out in turn on iOS (once AVAssetWriter is done with them), the
+   * `AHardwareBuffer*` the encoder reads every frame from on Android, as a
+   * `BigInt` pointer. The buffers can be imported once and reused.
+   * The frame is encoded by `endFrame`.
+   */
+  beginFrame?: () => bigint;
+  /**
+   * Encodes the frame rendered into the buffer handed out by `beginFrame`.
+   * The rendering must be complete (flushed synchronously).
+   *
+   * @param time The presentation time of the frame in seconds.
+   * @param fences Android: the sync fences (`sync_file` descriptors, as
+   * `BigInt`s) to wait for before reading the buffer, e.g. the ones React
+   * Native WebGPU exports at the end of its access to the buffer. The encoder
+   * takes ownership of them.
+   */
+  endFrame?: (time: number, fences?: bigint[]) => void;
   /*
    * Finish writing the video to the output file.
    */
@@ -473,6 +551,14 @@ export type RNSkiaVideoModule = {
    * @platform ios
    */
   runWithAutoreleasePool?: <T>(fn: () => T) => T;
+  /**
+   * Returns the memory used by the process in bytes (iOS: physical footprint,
+   * Android: total PSS), or null if unavailable. Slow on Android: meant for
+   * benchmarks, not to be called per frame.
+   *
+   * Not part of the public API (exposed through `__RNSkiaVideoPrivateAPI`).
+   */
+  getMemoryFootprint?: () => number | null;
   /**
    * Returns the decoding capabilities of the current platform for the specified mimetype.
    *

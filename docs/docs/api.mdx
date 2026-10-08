@@ -79,7 +79,7 @@ type FrameDrawer<T = undefined> = (args: {
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `texture` | `unknown` | Native GPU texture — wrap with `Skia.Image.MakeImageFromNativeTextureUnstable(texture, width, height)`. |
+| `image` | `SkImage` | The frame, backed by a GPU texture of Skia's device. Owned by the player and disposed when the next frame is produced. |
 | `width` / `height` | `number` | Frame size in pixels, as stored. |
 | `rotation` | `number` | Display rotation in degrees (0, 90, 180, 270). |
 

@@ -2,8 +2,10 @@
 
 #import "VideoComposition.h"
 #import <AVFoundation/AVFoundation.h>
+#import <IOSurface/IOSurfaceRef.h>
 #import <jsi/jsi.h>
 #import <map>
+#import <vector>
 
 namespace RNSkiaVideo {
 using namespace facebook;
@@ -27,12 +29,14 @@ private:
   int audioSampleRate;
   int audioChannelCount;
   std::shared_ptr<VideoComposition> composition;
-  id<MTLDevice> device;
-  id<MTLCommandQueue> commandQueue;
-  id<MTLTexture> cpuAccessibleTexture;
   AVAssetWriter* assetWriter;
   AVAssetWriterInput* assetWriterInput;
   CVPixelBufferPoolRef pixelBufferPool = NULL;
+  // The buffers handed out by beginFrame() (see acquireFrameBuffer()).
+  std::vector<CVPixelBufferRef> frameBuffers;
+  NSDictionary* frameBufferAttributes;
+  // The buffer handed out by beginFrame(), appended by endFrame().
+  CVPixelBufferRef pendingFrameBuffer = NULL;
 
   AVAssetWriterInput* audioWriterInput;
   AVAssetReader* audioReader;
@@ -42,7 +46,14 @@ private:
   NSMutableArray<NSError*>* audioErrorHolder;
 
   void prepare();
-  void encodeFrame(id<MTLTexture> mlTexture, CMTime time);
+  CVPixelBufferRef createFrameBuffer();
+  CVPixelBufferRef acquireFrameBuffer();
+  void releaseFrameBuffers();
+  void appendFrameBuffer(CVPixelBufferRef pixelBuffer, CMTime time);
+  void encodeFrame(const uint8_t* pixels, size_t size, CMTime time);
+  IOSurfaceRef beginFrame();
+  void endFrame(CMTime time);
+  void releasePendingFrameBuffer();
   void setupAudio();
   void startWritingAudio();
   void finish();

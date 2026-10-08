@@ -13,8 +13,6 @@ import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 
-import javax.microedition.khronos.egl.EGLContext;
-
 /**
  * A class that wraps ExoPlayer to play video, and extract frames from it using OpenGL
  */
@@ -51,7 +49,7 @@ public class VideoPlayer {
   private final int outputWidth;
   private final int outputHeight;
 
-  private boolean released = false;
+  private volatile boolean released = false;
 
   private final NativeEventDispatcher eventDispatcher;
 
@@ -189,12 +187,11 @@ public class VideoPlayer {
     mainHandler.post(() -> player.seekTo(location));
   }
 
-  public void setupGL() {
+  public synchronized void setupGL() {
     if (Looper.myLooper() != Looper.getMainLooper()) {
       throw new RuntimeException("setupGL should be called on UI Thread");
     }
-    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
-    eglResourcesHolder = EGLResourcesHolder.createWithPBBufferSurface(sharedContext);
+    eglResourcesHolder = EGLResourcesHolder.createWithPBBufferSurface();
     eglResourcesHolder.makeCurrent();
     glFrameExtractor = new GLFrameExtractor();
     if (player != null) {
@@ -283,11 +280,11 @@ public class VideoPlayer {
    *
    * @return whether the frame was decoded successfully
    */
-  public VideoFrame decodeNextFrame() {
+  public synchronized VideoFrame decodeNextFrame() {
     if (Looper.myLooper() != Looper.getMainLooper()) {
       throw new RuntimeException("decodeNextFrame should be called on UI Thread");
     }
-    if (eglResourcesHolder == null && glFrameExtractor != null) {
+    if (released || eglResourcesHolder == null || glFrameExtractor == null) {
       return null;
     }
     eglResourcesHolder.makeCurrent();
@@ -296,7 +293,7 @@ public class VideoPlayer {
     int height = downscale ? outputHeight : videoHeight;
     if (width > 0 && height > 0 && glFrameExtractor.decodeNextFrame(width, height)) {
       return new VideoFrame(
-        glFrameExtractor.getOutputTexId(),
+        glFrameExtractor.getOutputBuffer(),
         width,
         height,
         0,
@@ -309,15 +306,20 @@ public class VideoPlayer {
   /**
    * Release the video player and its resources
    */
-  public void release() {
+  public synchronized void release() {
     released = true;
+    // The GL deletes below require the player's context to be current on the
+    // calling thread.
+    if (eglResourcesHolder != null) {
+      eglResourcesHolder.makeCurrent();
+    }
     if (glFrameExtractor != null) {
       glFrameExtractor.release();
       glFrameExtractor = null;
     }
     if (eglResourcesHolder != null) {
       eglResourcesHolder.release();
-      glFrameExtractor = null;
+      eglResourcesHolder = null;
     }
     mainHandler.post(() -> {
       if (player != null) {
