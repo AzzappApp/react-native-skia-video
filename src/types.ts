@@ -39,6 +39,13 @@ export type DecodedFrame = {
    */
   buffer: bigint | undefined;
   /**
+   * Identifies the frame among the frames of its producer (Android only): a
+   * producer hands out its current frame again, with the same id, until a new
+   * one is decoded, and the library copies a frame once. On iOS a frame
+   * handed out again has no `buffer` anymore, released after its copy.
+   */
+  id?: number;
+  /**
    * Android only: the sync fence (a sync_file descriptor, as a `BigInt`)
    * signaled once the decoder is done rendering the frame into `buffer`. The
    * buffer must not be read before. Owned by the frame.
