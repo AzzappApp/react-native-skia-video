@@ -13,6 +13,8 @@ import {
   View,
 } from 'react-native';
 import ReactNativeBlobUtil from 'react-native-blob-util';
+import { Skia } from 'react-native-skia';
+import { importDevice } from 'react-native-webgpu';
 import { CLIPS, generateClip, getClip, isClipReady } from './clips';
 import { PlayerRun, PreviewRun } from './LiveRuns';
 import {
@@ -58,6 +60,22 @@ const RUN_COUNTS = [1, 3, 5, 10];
 
 // Reading the memory is slow on Android (Debug.getMemoryInfo).
 const MEMORY_SAMPLING_MS = Platform.OS === 'android' ? 500 : 250;
+
+/**
+ * The shared fence types Skia's GPU device supports: how the library
+ * synchronizes the decoded frames with the GPU on Android (sync-fd: on the
+ * GPU, otherwise on the CPU).
+ */
+const getSharedFenceFeatures = () => {
+  try {
+    const device = importDevice(Skia.getNativeDevice());
+    return [...device.features].filter((feature) =>
+      feature.startsWith('shared-fence-')
+    );
+  } catch (error) {
+    return [`unknown: ${error}`];
+  }
+};
 
 const BenchmarkScreen = () => {
   const [label, setLabel] = useState('');
@@ -244,6 +262,7 @@ const BenchmarkScreen = () => {
     label,
     platform: Platform.OS,
     osVersion: Platform.Version,
+    sharedFenceFeatures: getSharedFenceFeatures(),
     date: new Date().toISOString(),
     runsPerScenario: runCount,
     results,
@@ -295,6 +314,9 @@ const BenchmarkScreen = () => {
           <Text style={styles.hint}>
             Measure in a Release build, device plugged in and cool, and keep the
             app in the foreground.
+          </Text>
+          <Text style={styles.hint}>
+            GPU shared fences: {getSharedFenceFeatures().join(', ') || 'none'}
           </Text>
           <View style={styles.section}>
             <Text style={styles.title}>Label</Text>
