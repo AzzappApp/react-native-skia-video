@@ -37,15 +37,17 @@ The library relies on the following peer dependencies:
 
 | Package | Version |
 | --- | --- |
-| `react-native-skia` | `>= 3.0.5` |
-| `react-native-webgpu` | `>= 0.11.1` (same Dawn release as React Native Skia) |
+| `react-native-skia` | `>= 3.2.0` |
+| `react-native-webgpu` | `>= 0.13.0` (same Dawn release as React Native Skia) |
 | `react-native-reanimated` | `>= 4.0.0` |
 | `react-native-worklets` | `>= 0.10.0` |
 
 React Native Skia and React Native WebGPU must link the same Dawn release
-(the Android build fails with a `Dawn version mismatch` error otherwise): for
-instance `react-native-skia` 3.0.5 with `react-native-webgpu` 0.11.x, and
-`react-native-skia` 3.0.6 or above with `react-native-webgpu` 0.12.1 or above.
+(the Android build fails with a `Dawn version mismatch` error otherwise). Both
+take it from the `react-native-webgpu-dawn` package: check that a single
+version of it is installed (`yarn why react-native-webgpu-dawn`), and upgrade
+the two packages together (see the
+[compatibility table](https://wcandillon.github.io/react-native-webgpu/docs/integrations/react-native-skia#compatibility)).
 
 It ships native code for **iOS** (Metal, AVFoundation) and **Android**
 (OpenGL, MediaCodec, API level 28 or above). With Expo, use a

@@ -56,7 +56,7 @@ __metadata:
     react-native-reanimated: "npm:^4.7.1"
     react-native-safe-area-context: "npm:^5.10.1"
     react-native-screens: "npm:^4.28.0"
-    react-native-skia: "npm:^3.1.0"
+    react-native-skia: "npm:^3.2.0"
     react-native-webgpu: "npm:^0.13.0"
     react-native-worklets: "npm:^0.13.0"
   languageName: unknown
@@ -93,7 +93,7 @@ __metadata:
     react-native: "npm:0.87.1"
     react-native-builder-bob: "npm:^0.43.1"
     react-native-reanimated: "npm:^4.7.1"
-    react-native-skia: "npm:^3.1.0"
+    react-native-skia: "npm:^3.2.0"
     react-native-webgpu: "npm:^0.13.0"
     react-native-worklets: "npm:^0.13.0"
     react-test-renderer: "npm:19.3.0"
@@ -11810,9 +11810,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-skia@npm:^3.1.0":
-  version: 3.1.0
-  resolution: "react-native-skia@npm:3.1.0"
+"react-native-skia@npm:^3.2.0":
+  version: 3.2.0
+  resolution: "react-native-skia@npm:3.2.0"
   dependencies:
     canvaskit-wasm: "npm:0.41.0"
     react-native-skia-graphite-android: "npm:154.2.0"
@@ -11834,7 +11834,7 @@ __metadata:
       optional: true
   bin:
     setup-skia-web: scripts/setup-canvaskit.js
-  checksum: 10/42c33a29c7a22d3384f00c6aa74c03967bf8f7d94502fd796f18fc0ade27cd39b7e0289b19748f39a60c24d4a490331459a0d3e8d451bab6e0d58ba444d151be
+  checksum: 10/de76feccaf636270472960ad1af5b2107d48d3bc75bfdaf61fa9d90d1e3d9f96b8ad2b5993fdea398bcf10c80532dbd41fc7b28a6a4b9ec20de6087fd27a0fba
   languageName: node
   linkType: hard
 

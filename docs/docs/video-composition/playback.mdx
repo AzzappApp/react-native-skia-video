@@ -53,7 +53,9 @@ const CompositionPlayer = ({ composition, width, height }) => {
 ## Returns
 
 - **`currentFrame`** — `DerivedValue<SkImage | null>`: the freshly rendered
-  frame. Pass it straight to a Skia `<Image>` component.
+  frame. Pass it straight to a Skia `<Image>` component. It is the same image
+  for every frame, a live view of the player's surface: draw it, don't keep it
+  around or dispose it (use `makeNonTextureImage()` for a lasting copy).
 - **`player`** — a controller with `play()`, `pause()`, `seekTo(seconds)`,
   `currentTime` and `isPlaying`.
 

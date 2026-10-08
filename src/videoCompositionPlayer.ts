@@ -126,14 +126,29 @@ export const useVideoCompositionPlayer = <T = undefined>({
   const frameImageContext = useMemo(() => getFrameImageContext(), []);
   const framesKey = useMemo(() => createFrameImagesKey(), []);
 
+  // The offscreen surface the frames are drawn into. `currentFrame` is its
+  // image (surface.asImage()): the same image for every frame, sharing the
+  // texture of the surface.
+  const surfaceSharedValue = useSharedValue<SkSurface | null>(null);
   const currentFrame = useSharedValue<SkImage | null>(null);
   useEffect(
     () => () => {
-      currentFrame.value = null;
       framesExtractor?.dispose();
-      runOnUI(releaseFrameImages)(framesKey);
+      runOnUI(() => {
+        'worklet';
+        releaseFrameImages(framesKey);
+        // Released now rather than when the UI runtime collects them: a
+        // collected surface is only destroyed once the UI thread creates
+        // another Skia surface or image.
+        const frame = currentFrame.value;
+        currentFrame.value = null;
+        frame?.dispose();
+        const surface = surfaceSharedValue.value;
+        surfaceSharedValue.value = null;
+        surface?.dispose();
+      })();
     },
-    [currentFrame, framesExtractor, framesKey]
+    [currentFrame, framesExtractor, framesKey, surfaceSharedValue]
   );
 
   const retry = useCallback(() => {
@@ -164,7 +179,6 @@ export const useVideoCompositionPlayer = <T = undefined>({
     }
   }, [framesExtractor, autoPlay]);
 
-  const surfaceSharedValue = useSharedValue<SkSurface | null>(null);
   const pixelRatio = PixelRatio.get();
   useFrameCallback(() => {
     'worklet';
@@ -201,24 +215,20 @@ export const useVideoCompositionPlayer = <T = undefined>({
       width: width * pixelRatio,
       height: height * pixelRatio,
     });
-    const previousFrame = currentFrame.value;
     try {
-      // The snapshot submits the frame's recording; Graphite images can then
-      // be drawn by any canvas, from any thread. Recycle the previous SkImage
-      // (outputImage) to avoid allocating a new JSI object on every frame.
-      const nextFrame = surface.makeImageSnapshot(
-        undefined,
-        previousFrame ?? undefined
-      );
-      if (nextFrame === previousFrame) {
-        // The recycled image keeps the same identity, so listeners (the Skia
-        // canvas) must be forced to re-run.
-        currentFrame.modify(undefined, true);
+      // Submits the frame's recording: the image shares the texture of the
+      // surface (no copy), so a canvas drawing it shows this frame once the
+      // drawing reaches the GPU.
+      surface.flush();
+      if (currentFrame.value == null) {
+        currentFrame.value = surface.asImage();
       } else {
-        currentFrame.value = nextFrame;
+        // The image keeps the same identity from frame to frame, so the
+        // listeners (the Skia canvas) must be forced to re-run.
+        currentFrame.modify(undefined, true);
       }
     } catch (error) {
-      console.warn('Failed to snapshot the composition frame', error);
+      console.warn('Failed to flush the composition frame', error);
       return;
     }
     afterDrawFrame?.(context);

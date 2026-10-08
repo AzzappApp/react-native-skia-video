@@ -177,9 +177,9 @@ export const exportVideoComposition = async <T = undefined>({
       let frameExtractor: VideoCompositionFramesExtractorSync | null = null;
       let encoder: VideoEncoder | null = null;
       const { width, height } = options;
-      // Recycled across frames (outputImage) to avoid allocating a new JSI
-      // object per frame.
-      let snapshot: SkImage | undefined;
+      // Without zero-copy: the image sharing the texture of the offscreen
+      // surface (surface.asImage()), read back for every frame.
+      let surfaceImage: SkImage | undefined;
       // Android: the encoder's buffer, imported once (see IS_ANDROID).
       const targets: { reused: ExportTarget | null } = { reused: null };
       try {
@@ -341,15 +341,13 @@ export const exportVideoComposition = async <T = undefined>({
                 currentEncoder.endFrame!(currentTime, fences);
               } else {
                 draw(currentSurface!.getCanvas());
-                // The snapshot submits the frame's recording, then the frame
-                // is read back to the CPU and handed to the encoder, which
-                // copies it into its own video buffers.
-                snapshot = currentSurface!.makeImageSnapshot(
-                  undefined,
-                  snapshot
-                );
+                // Submits the frame's recording, then the frame is read back
+                // from the texture of the surface (no copy) and handed to the
+                // encoder, which copies it into its own video buffers.
+                currentSurface!.flush();
+                surfaceImage ??= currentSurface!.asImage();
                 const pixels = (
-                  snapshot as unknown as { readPixels: ReadPixelsInto }
+                  surfaceImage as unknown as { readPixels: ReadPixelsInto }
                 ).readPixels(0, 0, frameInfo, framePixels!);
                 if (!(pixels instanceof Uint8Array)) {
                   throw new Error('Failed to read the pixels of the frame');
@@ -366,9 +364,8 @@ export const exportVideoComposition = async <T = undefined>({
             });
           }
         } finally {
-          // Also on cancellation or failure: the snapshot holds GPU memory
-          // until the runtime collects it otherwise.
-          snapshot?.dispose();
+          // Also on cancellation or failure.
+          surfaceImage?.dispose();
           if (targets.reused != null) {
             targets.reused.surface.dispose();
             targets.reused.texture.destroy();
