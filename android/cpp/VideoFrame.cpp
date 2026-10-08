@@ -1,6 +1,7 @@
 #include "VideoFrame.h"
 #include "HardwareBufferGL.h"
 #include <android/hardware_buffer_jni.h>
+#include <poll.h>
 #include <unistd.h>
 
 namespace RNSkiaVideo {
@@ -87,6 +88,24 @@ void VideoFrameHostObject::release(std::vector<int> releaseFences) {
   }
 }
 
+void VideoFrameHostObject::waitForReady() {
+  int fd;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (readyFence < 0) {
+      return;
+    }
+    // The frame can be released meanwhile.
+    fd = dup(readyFence);
+  }
+  if (fd < 0) {
+    return;
+  }
+  struct pollfd pollFd = {fd, POLLIN, 0};
+  poll(&pollFd, 1, 1000);
+  close(fd);
+}
+
 std::vector<jsi::PropNameID>
 VideoFrameHostObject::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> result;
@@ -97,6 +116,7 @@ VideoFrameHostObject::getPropertyNames(jsi::Runtime& rt) {
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("id")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("readyFence")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("release")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("waitForReady")));
   return result;
 }
 
@@ -119,6 +139,18 @@ jsi::Value VideoFrameHostObject::get(jsi::Runtime& runtime,
     if (readyFence >= 0) {
       return jsi::BigInt::fromInt64(runtime, readyFence);
     }
+  } else if (propName == "waitForReady") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "waitForReady"), 0,
+        [weakFrame = weak_from_this()](jsi::Runtime& runtime,
+                                       const jsi::Value& thisValue,
+                                       const jsi::Value* arguments,
+                                       size_t count) -> jsi::Value {
+          if (auto frame = weakFrame.lock()) {
+            frame->waitForReady();
+          }
+          return jsi::Value::undefined();
+        });
   } else if (propName == "release") {
     return jsi::Function::createFromHostFunction(
         runtime, jsi::PropNameID::forAscii(runtime, "release"), 1,

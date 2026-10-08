@@ -70,6 +70,11 @@ type FrameTexture = {
   frameId: number | undefined;
   /** Android: the imported buffers, most recently used first. */
   sharedBuffers: SharedBuffer[];
+  /**
+   * Android: whether Skia's device waits for the frames on the GPU (see
+   * `copySharedBuffer`).
+   */
+  gpuReadyWait?: boolean;
 };
 
 type FrameTextures = Record<string, FrameTexture>;
@@ -152,6 +157,37 @@ const copyNativeFrame = (
 };
 
 /**
+ * Begins the access to an imported buffer in a validation error scope, and
+ * logs Dawn's error if it fails. Returns whether the access began.
+ */
+const beginAccessReporting = (
+  device: GPUDevice,
+  source: SharedBuffer,
+  fences: GPUSharedFenceState[],
+  label: string
+): boolean => {
+  'worklet';
+  device.pushErrorScope('validation');
+  let begun = false;
+  try {
+    source.memory.beginAccess(source.texture, true, fences);
+    begun = true;
+  } catch {
+    // Reported below.
+  }
+  device.popErrorScope().then((dawnError) => {
+    if (dawnError != null) {
+      console.error(
+        `[react-native-skia-video] ${label}: ${dawnError.message} ` +
+          `(ready fences: ${fences.length}, sync-fd fences: ` +
+          `${device.features.has('shared-fence-sync-fd')})`
+      );
+    }
+  });
+  return begun;
+};
+
+/**
  * Android: copies the frame (an RGBA `AHardwareBuffer` of a decoder's ring)
  * into the texture of `state`, on Skia's queue. The decoder renders into the
  * buffer with OpenGL, so both sides are synchronized on the GPU with sync
@@ -190,48 +226,49 @@ const copySharedBuffer = (
     }
     sharedBuffers.unshift(source);
 
-    const { width, height } = source.texture;
-    const texture = getTexture(device, state, width, height);
+    // Skia's device waits for the frame's ready fence on the GPU if it can
+    // import sync fds, and the CPU waits for it otherwise.
+    state.gpuReadyWait ??= device.features.has('shared-fence-sync-fd');
     const readyFences: GPUSharedFenceState[] = [];
     if (frame.readyFence != null) {
-      readyFences.push({
-        // Imports a duplicate of the fence: the frame keeps its own.
-        fence: device.importSharedFence({
-          type: 'sync-fd',
-          handle: frame.readyFence,
-        }),
-        // Dawn's Vulkan backend backs sync fds with binary semaphores, and
-        // rejects any other signaled value than 1.
-        signaledValue: BigInt(1),
-      });
+      if (state.gpuReadyWait) {
+        readyFences.push({
+          // Imports a duplicate of the fence: the frame keeps its own.
+          fence: device.importSharedFence({
+            type: 'sync-fd',
+            handle: frame.readyFence,
+          }),
+          // Dawn's Vulkan backend backs sync fds with binary semaphores, and
+          // rejects any other signaled value than 1.
+          signaledValue: BigInt(1),
+        });
+      } else {
+        frame.waitForReady?.();
+      }
     }
     try {
       source.memory.beginAccess(source.texture, true, readyFences);
     } catch (error) {
-      // React Native WebGPU only reports that the access failed: Dawn's
-      // reason goes to the device's error scopes. Try again in one to report
-      // it.
-      device.pushErrorScope('validation');
-      let retried = false;
-      try {
-        source.memory.beginAccess(source.texture, true, readyFences);
-        retried = true;
-      } catch {
-        // Reported below.
-      }
-      device.popErrorScope().then((dawnError) => {
-        if (dawnError != null) {
-          console.error(
-            `[react-native-skia-video] beginAccess: ${dawnError.message} ` +
-              `(ready fences: ${readyFences.length}, sync-fd fences: ` +
-              `${device.features.has('shared-fence-sync-fd')})`
-          );
+      // React Native WebGPU only reports that the access failed, Dawn's
+      // reason goes to the device's error scopes: the access is tried again
+      // in one, to report it. If it fails again, the frame is waited for on
+      // the CPU and its buffer imported again, and the frames of the key are
+      // waited for on the CPU from now on.
+      if (!beginAccessReporting(device, source, readyFences, 'beginAccess')) {
+        frame.waitForReady?.();
+        sharedBuffers.shift();
+        source.texture.destroy();
+        const memory = device.importSharedTextureMemory({ handle });
+        source = { handle, memory, texture: memory.createTexture() };
+        sharedBuffers.unshift(source);
+        if (!beginAccessReporting(device, source, [], 'fallback')) {
+          throw error;
         }
-      });
-      if (!retried) {
-        throw error;
+        state.gpuReadyWait = false;
       }
     }
+    const { width, height } = source.texture;
+    const texture = getTexture(device, state, width, height);
     try {
       const encoder = device.createCommandEncoder();
       encoder.copyTextureToTexture({ texture: source.texture }, { texture }, [

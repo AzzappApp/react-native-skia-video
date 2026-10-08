@@ -51,6 +51,12 @@ public:
   /** Closes the ready fence (once read, imported or not needed). */
   void release(std::vector<int> releaseFences);
 
+  /**
+   * Waits on the CPU for the ready fence: for a device that cannot wait for
+   * it on the GPU.
+   */
+  void waitForReady();
+
   std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime& rt) override;
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
 

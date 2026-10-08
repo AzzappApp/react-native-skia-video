@@ -52,6 +52,11 @@ export type DecodedFrame = {
    */
   readyFence?: bigint;
   /**
+   * Android only: waits on the CPU for `readyFence`, for a device that cannot
+   * wait for it on the GPU.
+   */
+  waitForReady?: () => void;
+  /**
    * Hands the native buffer back to the decoder, once its pixels were copied.
    * On Android, `fences` are the sync fences (sync_file descriptors, as
    * `BigInt`s, whose ownership is transferred) signaled once the buffer is
