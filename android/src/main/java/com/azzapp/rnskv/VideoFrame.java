@@ -2,10 +2,15 @@ package com.azzapp.rnskv;
 
 import android.hardware.HardwareBuffer;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 /**
  * A class to represent a video frame.
  */
 public class VideoFrame {
+  private static final AtomicLong NEXT_ID = new AtomicLong(1);
+
+  private final long id = NEXT_ID.getAndIncrement();
   private final HardwareBuffer hardwareBuffer;
   private final int width;
   private final int height;
@@ -24,6 +29,15 @@ public class VideoFrame {
     this.height = height;
     this.rotation = rotation;
     this.timestampNs = timestampNs;
+  }
+
+  /**
+   * @return an id unique to the frame. The composition decoders hand out
+   * their current frame again until a new one is decoded: JS copies a frame
+   * to the GPU once, and recognizes it by its id.
+   */
+  public long getId() {
+    return id;
   }
 
   /**

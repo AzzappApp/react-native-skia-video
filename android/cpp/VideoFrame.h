@@ -1,6 +1,7 @@
 #pragma once
 
 #include <android/hardware_buffer.h>
+#include <cstdint>
 #include <fbjni/fbjni.h>
 #include <jsi/jsi.h>
 #include <memory>
@@ -20,6 +21,7 @@ struct VideoFrame : JavaClass<VideoFrame> {
 public:
   static constexpr auto kJavaDescriptor = "Lcom/azzapp/rnskv/VideoFrame;";
   AHardwareBuffer* getHardwareBuffer() const;
+  jlong getId() const;
   jint getWidth() const;
   jint getHeight() const;
   jint getRotation() const;
@@ -42,8 +44,8 @@ class JSI_EXPORT VideoFrameHostObject
     : public jsi::HostObject,
       public std::enable_shared_from_this<VideoFrameHostObject> {
 public:
-  VideoFrameHostObject(AHardwareBuffer* buffer, int width, int height,
-                       int rotation);
+  VideoFrameHostObject(AHardwareBuffer* buffer, int64_t id, int width,
+                       int height, int rotation);
   ~VideoFrameHostObject() override;
 
   /** Closes the ready fence (once read, imported or not needed). */
@@ -54,6 +56,9 @@ public:
 
 private:
   AHardwareBuffer* buffer;
+  // See DecodedFrame.id: the same frame is handed out to JS again until a
+  // new one is decoded, and JS copies it to the GPU once.
+  int64_t id;
   std::mutex mutex;
   int readyFence = -1;
   bool released = false;

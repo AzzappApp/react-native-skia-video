@@ -66,6 +66,8 @@ type SharedBuffer = {
 type FrameTexture = {
   texture: GPUTexture | null;
   image: SkImage | null;
+  /** The id of the frame copied into the texture (see DecodedFrame.id). */
+  frameId: number | undefined;
   /** Android: the imported buffers, most recently used first. */
   sharedBuffers: SharedBuffer[];
 };
@@ -246,17 +248,26 @@ export const makeVideoFrame = (
   const textures = getFrameTextures();
   let state = textures[key];
   if (state == null) {
-    state = { texture: null, image: null, sharedBuffers: [] };
+    state = {
+      texture: null,
+      image: null,
+      frameId: undefined,
+      sharedBuffers: [],
+    };
     textures[key] = state;
   }
   const { device, webgpu } = context;
   const buffer = frame.buffer;
-  if (buffer == null) {
-    // The frame was already copied into the texture (a producer hands out its
-    // current frame again until a new one is decoded).
-    if (state.image == null) {
-      throw new Error('The video frame was released before being drawn');
-    }
+  const frameId = frame.id;
+  // A producer hands out its current frame again until a new one is decoded:
+  // without its buffer once released (iOS), or with the same id (Android).
+  // The frame was already copied into the texture.
+  if (
+    state.image != null &&
+    (buffer == null || (frameId != null && frameId === state.frameId))
+  ) {
+    // Android: a frame handed out again carries a ready fence of its own.
+    frame.release?.();
     return {
       image: state.image,
       width: frame.width,
@@ -264,12 +275,16 @@ export const makeVideoFrame = (
       rotation: frame.rotation,
     };
   }
+  if (buffer == null) {
+    throw new Error('The video frame was released before being drawn');
+  }
   const texture = IS_ANDROID
     ? copySharedBuffer(device, state, buffer, frame)
     : copyNativeFrame(device, webgpu, state, buffer, frame);
   const previousImage = state.image;
   const image = Skia.Image.MakeImageFromGPUTexture(texture);
   state.image = image;
+  state.frameId = frameId;
   previousImage?.dispose();
   return {
     image,

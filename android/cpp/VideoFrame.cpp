@@ -16,6 +16,11 @@ AHardwareBuffer* VideoFrame::getHardwareBuffer() const {
                                             hardwareBuffer.get());
 }
 
+jlong VideoFrame::getId() const {
+  static const auto getIdMethod = getClass()->getMethod<jlong()>("getId");
+  return getIdMethod(self());
+}
+
 jint VideoFrame::getWidth() const {
   static const auto getWidthMethod = getClass()->getMethod<jint()>("getWidth");
   return getWidthMethod(self());
@@ -39,13 +44,13 @@ jsi::Value VideoFrame::toJS(jsi::Runtime& runtime) const {
     return jsi::Value::null();
   }
   auto hostObject = std::make_shared<VideoFrameHostObject>(
-      buffer, getWidth(), getHeight(), getRotation());
+      buffer, getId(), getWidth(), getHeight(), getRotation());
   return jsi::Object::createFromHostObject(runtime, hostObject);
 }
 
-VideoFrameHostObject::VideoFrameHostObject(AHardwareBuffer* buffer, int width,
-                                           int height, int rotation)
-    : buffer(buffer), width(width), height(height), rotation(rotation) {
+VideoFrameHostObject::VideoFrameHostObject(AHardwareBuffer* buffer, int64_t id,
+                                           int width, int height, int rotation)
+    : buffer(buffer), id(id), width(width), height(height), rotation(rotation) {
   AHardwareBuffer_acquire(buffer);
   // A frame can be handed out several times (the composition decoders hand
   // out the last frame of an item until a new one is decoded): each one
@@ -89,6 +94,7 @@ VideoFrameHostObject::getPropertyNames(jsi::Runtime& rt) {
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("height")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("rotation")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("buffer")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("id")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("readyFence")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("release")));
   return result;
@@ -106,6 +112,8 @@ jsi::Value VideoFrameHostObject::get(jsi::Runtime& runtime,
   } else if (propName == "buffer") {
     return jsi::BigInt::fromUint64(runtime,
                                    reinterpret_cast<uintptr_t>(buffer));
+  } else if (propName == "id") {
+    return jsi::Value(static_cast<double>(id));
   } else if (propName == "readyFence") {
     std::lock_guard<std::mutex> lock(mutex);
     if (readyFence >= 0) {
