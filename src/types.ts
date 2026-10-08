@@ -391,10 +391,10 @@ export type VideoEncoder = {
   encodeFrame(pixels: Uint8Array, time: number): void;
   /**
    * Hands out a buffer of the encoder for the next frame, to render into
-   * without copy, as the `IOSurfaceRef` backing it (a `BigInt` pointer).
+   * without copy: the `IOSurfaceRef` backing a buffer of the encoder's pool on
+   * iOS (a different one from frame to frame), the `AHardwareBuffer*` the
+   * encoder reads every frame from on Android, as a `BigInt` pointer.
    * The frame is encoded by `endFrame`.
-   *
-   * @platform ios
    */
   beginFrame?: () => bigint;
   /**
@@ -402,9 +402,12 @@ export type VideoEncoder = {
    * The rendering must be complete (flushed synchronously).
    *
    * @param time The presentation time of the frame in seconds.
-   * @platform ios
+   * @param fences Android: the sync fences (`sync_file` descriptors, as
+   * `BigInt`s) to wait for before reading the buffer, e.g. the ones React
+   * Native WebGPU exports at the end of its access to the buffer. The encoder
+   * takes ownership of them.
    */
-  endFrame?: (time: number) => void;
+  endFrame?: (time: number, fences?: bigint[]) => void;
   /*
    * Finish writing the video to the output file.
    */

@@ -6,9 +6,10 @@ import android.opengl.GLES20;
 /**
  * An OpenGL texture whose storage is a {@link HardwareBuffer}.
  * <p>
- * Frames are rendered into such textures so that React Native Skia can read
- * them without copy, by importing the hardware buffer
- * (`Skia.Image.MakeImageFromNativeBuffer`).
+ * The hardware buffer is GPU-only memory shared between OpenGL and React
+ * Native Skia's device (Vulkan), without copy: decoded frames are rendered
+ * into such textures for Skia to read them, and Skia draws exported frames
+ * into one that the encoder reads.
  * <p>
  * Must be created and released with the same GL context current.
  */

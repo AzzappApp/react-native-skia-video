@@ -2,6 +2,7 @@
 
 #include "VideoComposition.h"
 #include <EGL/egl.h>
+#include <android/hardware_buffer.h>
 #include <fbjni/fbjni.h>
 #include <jsi/jsi.h>
 
@@ -27,6 +28,10 @@ public:
   void makeGLContextCurrent() const;
 
   void encodePixels(uint8_t* pixels, size_t size, jdouble time) const;
+
+  AHardwareBuffer* beginFrame() const;
+
+  void endFrame(jdouble time) const;
 
   void finishWriting() const;
 

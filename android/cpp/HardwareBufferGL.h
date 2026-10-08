@@ -23,4 +23,14 @@ EGLImageKHR bindHardwareBufferToTexture(AHardwareBuffer* buffer,
  */
 void destroyHardwareBufferImage(EGLImageKHR image);
 
+/**
+ * Makes the current GL context wait, on the GPU, for the sync fence `fd` (a
+ * sync_file, e.g. exported by Vulkan when it is done writing a hardware
+ * buffer) before running the commands issued after this call. Falls back to
+ * waiting on the CPU without EGL_ANDROID_native_fence_sync.
+ *
+ * Takes ownership of `fd`. A negative `fd` is an already signaled fence.
+ */
+void waitForSyncFence(int fd);
+
 } // namespace RNSkiaVideo

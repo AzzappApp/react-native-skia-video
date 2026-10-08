@@ -13,6 +13,10 @@ import type {
 } from 'react-native-skia';
 import { Platform } from 'react-native';
 import type {
+  GPUSharedTextureMemory,
+  GPUSharedTextureMemoryEndAccessState,
+} from 'react-native-webgpu';
+import type {
   ExportOptions,
   FrameDrawer,
   VideoComposition,
@@ -39,6 +43,19 @@ const DEFAULT_AUDIO_CHANNEL_COUNT = 2;
 // on Android).
 const FRAME_COLOR_TYPE =
   Platform.OS === 'ios' ? ColorType.BGRA_8888 : ColorType.RGBA_8888;
+
+// On Android the encoder hands out the same buffer for every frame (see
+// `VideoEncoder.beginFrame`): it is imported once, and the encoder waits for
+// the sync fences of each frame on the GPU.
+const IS_ANDROID = Platform.OS === 'android';
+
+// An encoder's frame buffer imported into Skia's device.
+type ExportTarget = {
+  handle: bigint;
+  memory: GPUSharedTextureMemory;
+  texture: GPUTexture;
+  surface: SkSurface;
+};
 
 // `SkImage.readPixels` also accepts a destination array (4th argument), which
 // is not part of its TypeScript signature: reading every frame into the same
@@ -163,6 +180,8 @@ export const exportVideoComposition = async <T = undefined>({
       // Recycled across frames (outputImage) to avoid allocating a new JSI
       // object per frame.
       let snapshot: SkImage | undefined;
+      // Android: the encoder's buffer, imported once (see IS_ANDROID).
+      const targets: { reused: ExportTarget | null } = { reused: null };
       try {
         try {
           encoder = RNSkiaVideoModule.createVideoEncoder(
@@ -178,9 +197,10 @@ export const exportVideoComposition = async <T = undefined>({
           );
           encoder.prepare();
           const currentEncoder = encoder;
-          // iOS: Skia draws each frame directly into a buffer of the encoder.
-          // Otherwise each frame is read back to the CPU and handed to the
-          // encoder, which copies it into its own buffers.
+          // Skia draws each frame directly into a buffer of the encoder.
+          // Otherwise (an encoder without beginFrame) each frame is read back
+          // to the CPU and handed to the encoder, which copies it into its own
+          // buffers.
           const zeroCopy =
             currentEncoder.beginFrame != null &&
             currentEncoder.endFrame != null;
@@ -267,33 +287,58 @@ export const exportVideoComposition = async <T = undefined>({
                 });
               };
               if (zeroCopy) {
-                // The buffer is imported for this frame only: a texture kept
-                // over its IOSurface would keep it in use, so that the
-                // encoder's pool could never recycle it and would allocate a
-                // new buffer for every frame.
-                const memory =
-                  frameImageContext.device.importSharedTextureMemory({
-                    handle: currentEncoder.beginFrame!(),
-                  });
-                const texture = memory.createTexture();
-                memory.beginAccess(texture, false);
-                try {
-                  const frameSurface = Skia.Surface.MakeFromGPUTexture(texture);
-                  try {
-                    draw(frameSurface.getCanvas());
-                    // The encoder reads the buffer as soon as it is handed
-                    // back: wait for the GPU to finish drawing into it.
-                    frameSurface.flush(true);
-                  } finally {
-                    frameSurface.dispose();
+                const handle = currentEncoder.beginFrame!();
+                let target =
+                  targets.reused?.handle === handle ? targets.reused : null;
+                if (target == null) {
+                  // iOS: the buffer is imported for this frame only: a
+                  // texture kept over its IOSurface would keep it in use, so
+                  // that the encoder's pool could never recycle it and would
+                  // allocate a new buffer for every frame.
+                  const memory =
+                    frameImageContext.device.importSharedTextureMemory({
+                      handle,
+                    });
+                  const texture = memory.createTexture();
+                  target = {
+                    handle,
+                    memory,
+                    texture,
+                    surface: Skia.Surface.MakeFromGPUTexture(texture),
+                  };
+                  if (IS_ANDROID) {
+                    targets.reused = target;
                   }
-                } finally {
-                  memory.endAccess(texture);
-                  // Releases the Metal texture over the IOSurface now rather
-                  // than when the JS wrappers are garbage collected.
-                  texture.destroy();
                 }
-                currentEncoder.endFrame!(currentTime);
+                target.memory.beginAccess(target.texture, false);
+                let accessState: GPUSharedTextureMemoryEndAccessState;
+                try {
+                  draw(target.surface.getCanvas());
+                  // The encoder reads the buffer as soon as it is handed
+                  // back: wait for the GPU to finish drawing into it.
+                  target.surface.flush(true);
+                } finally {
+                  accessState = target.memory.endAccess(target.texture);
+                  if (target !== targets.reused) {
+                    target.surface.dispose();
+                    // Releases the Metal texture over the IOSurface now
+                    // rather than when the JS wrappers are garbage collected.
+                    target.texture.destroy();
+                  }
+                }
+                // Android: Vulkan hands the buffer back to the encoder's GL
+                // context through sync fences (sync_file descriptors), that
+                // the encoder waits for on the GPU.
+                const fences: bigint[] = [];
+                if (IS_ANDROID) {
+                  for (const { fence } of accessState.fences) {
+                    const exported = fence.export();
+                    if (exported.type === 'sync-fd') {
+                      fences.push(exported.handle);
+                    }
+                  }
+                }
+                currentEncoder.endFrame!(currentTime, fences);
               } else {
                 draw(currentSurface!.getCanvas());
                 // The snapshot submits the frame's recording, then the frame
@@ -324,6 +369,11 @@ export const exportVideoComposition = async <T = undefined>({
           // Also on cancellation or failure: the snapshot holds GPU memory
           // until the runtime collects it otherwise.
           snapshot?.dispose();
+          if (targets.reused != null) {
+            targets.reused.surface.dispose();
+            targets.reused.texture.destroy();
+            targets.reused = null;
+          }
           // Note: the offscreen surface is deliberately not disposed — it is the
           // cached shared surface reused by the next export.
           frameExtractor?.dispose();

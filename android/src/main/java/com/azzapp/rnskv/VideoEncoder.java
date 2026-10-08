@@ -1,6 +1,7 @@
 package com.azzapp.rnskv;
 
 import android.graphics.Bitmap;
+import android.hardware.HardwareBuffer;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
@@ -57,6 +58,9 @@ public class VideoEncoder {
   private TextureRenderer textureRenderer;
 
   private int pixelsTexture = 0;
+
+  // The buffer React Native Skia draws the frames into (beginFrame/endFrame).
+  private HardwareBufferTexture frameTexture;
 
   private MediaMuxer muxer;
 
@@ -216,6 +220,39 @@ public class VideoEncoder {
     );
     EGLUtils.checkGlError("VideoEncoder.encodePixels()");
     encodeFrame(pixelsTexture, time);
+  }
+
+  /**
+   * Returns the buffer to draw the next frame into, without copy (React
+   * Native Skia imports it with React Native WebGPU). The frame is encoded by
+   * {@link #endFrame}. Every frame is drawn into the same GPU-only buffer.
+   * <p>
+   * Must be called with the encoder's GL context current.
+   */
+  public HardwareBuffer beginFrame() {
+    if (frameTexture == null) {
+      frameTexture = new HardwareBufferTexture(width, height);
+    }
+    return frameTexture.getHardwareBuffer();
+  }
+
+  /**
+   * Encodes the frame drawn into the buffer returned by {@link #beginFrame}.
+   * The caller must have made the GL context wait for the drawing to be
+   * complete.
+   * <p>
+   * Must be called with the encoder's GL context current.
+   *
+   * @param time the presentation time of the frame in seconds
+   */
+  public void endFrame(double time) {
+    if (frameTexture == null) {
+      throw new IllegalStateException("endFrame called without beginFrame");
+    }
+    encodeFrame(frameTexture.getTextureId(), time);
+    // The next frame is drawn into the same buffer, from Vulkan: the encoder
+    // must be done reading it (a single quad, about a millisecond).
+    GLES20.glFinish();
   }
 
   public void encodeFrame(int texture, double time) {
@@ -385,6 +422,11 @@ public class VideoEncoder {
       audioThread = null;
     }
     if (eglResourcesHolder != null) {
+      if (frameTexture != null) {
+        eglResourcesHolder.makeCurrent();
+        frameTexture.release();
+        frameTexture = null;
+      }
       eglResourcesHolder.release();
     }
     if (encoder != null) {

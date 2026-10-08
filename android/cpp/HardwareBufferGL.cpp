@@ -3,6 +3,8 @@
 #include <GLES2/gl2ext.h>
 #include <android/hardware_buffer_jni.h>
 #include <jni.h>
+#include <poll.h>
+#include <unistd.h>
 
 namespace RNSkiaVideo {
 
@@ -83,6 +85,36 @@ void destroyHardwareBufferImage(EGLImageKHR image) {
   if (image != EGL_NO_IMAGE_KHR && functions.destroyImage != nullptr) {
     functions.destroyImage(getDisplay(), image);
   }
+}
+
+void waitForSyncFence(int fd) {
+  if (fd < 0) {
+    return;
+  }
+  static const auto createSync = reinterpret_cast<PFNEGLCREATESYNCKHRPROC>(
+      eglGetProcAddress("eglCreateSyncKHR"));
+  static const auto waitSync = reinterpret_cast<PFNEGLWAITSYNCKHRPROC>(
+      eglGetProcAddress("eglWaitSyncKHR"));
+  static const auto destroySync = reinterpret_cast<PFNEGLDESTROYSYNCKHRPROC>(
+      eglGetProcAddress("eglDestroySyncKHR"));
+  EGLDisplay display = eglGetCurrentDisplay();
+  if (createSync != nullptr && waitSync != nullptr && destroySync != nullptr &&
+      display != EGL_NO_DISPLAY) {
+    const EGLint attributes[] = {EGL_SYNC_NATIVE_FENCE_FD_ANDROID, fd,
+                                 EGL_NONE};
+    EGLSyncKHR sync =
+        createSync(display, EGL_SYNC_NATIVE_FENCE_ANDROID, attributes);
+    if (sync != EGL_NO_SYNC_KHR) {
+      // EGL owns the fd now. The wait is queued on the GPU: the sync can be
+      // destroyed right away.
+      waitSync(display, sync, 0);
+      destroySync(display, sync);
+      return;
+    }
+  }
+  struct pollfd pollFd = {fd, POLLIN, 0};
+  poll(&pollFd, 1, 5000);
+  close(fd);
 }
 
 } // namespace RNSkiaVideo
