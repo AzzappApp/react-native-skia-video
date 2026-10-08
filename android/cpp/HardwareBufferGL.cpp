@@ -117,6 +117,122 @@ void waitForSyncFence(int fd) {
   close(fd);
 }
 
+int createSyncFence() {
+  static const auto createSync = reinterpret_cast<PFNEGLCREATESYNCKHRPROC>(
+      eglGetProcAddress("eglCreateSyncKHR"));
+  static const auto destroySync = reinterpret_cast<PFNEGLDESTROYSYNCKHRPROC>(
+      eglGetProcAddress("eglDestroySyncKHR"));
+  static const auto dupNativeFence =
+      reinterpret_cast<PFNEGLDUPNATIVEFENCEFDANDROIDPROC>(
+          eglGetProcAddress("eglDupNativeFenceFDANDROID"));
+  EGLDisplay display = eglGetCurrentDisplay();
+  if (createSync != nullptr && destroySync != nullptr &&
+      dupNativeFence != nullptr && display != EGL_NO_DISPLAY) {
+    const EGLint attributes[] = {EGL_SYNC_NATIVE_FENCE_FD_ANDROID,
+                                 EGL_NO_NATIVE_FENCE_FD_ANDROID, EGL_NONE};
+    EGLSyncKHR sync =
+        createSync(display, EGL_SYNC_NATIVE_FENCE_ANDROID, attributes);
+    if (sync != EGL_NO_SYNC_KHR) {
+      // The fence fd only exists once the commands are flushed.
+      glFlush();
+      int fd = dupNativeFence(display, sync);
+      destroySync(display, sync);
+      if (fd != EGL_NO_NATIVE_FENCE_FD_ANDROID) {
+        return fd;
+      }
+    }
+  }
+  glFinish();
+  return -1;
+}
+
+HardwareBufferFences& HardwareBufferFences::getInstance() {
+  static HardwareBufferFences instance;
+  return instance;
+}
+
+void HardwareBufferFences::setReadyFence(AHardwareBuffer* buffer, int fd) {
+  std::lock_guard<std::mutex> lock(mutex);
+  auto& entry = fences[buffer];
+  if (entry.ready >= 0) {
+    close(entry.ready);
+  }
+  entry.ready = fd;
+}
+
+int HardwareBufferFences::takeReadyFence(AHardwareBuffer* buffer) {
+  std::lock_guard<std::mutex> lock(mutex);
+  auto it = fences.find(buffer);
+  if (it == fences.end()) {
+    return -1;
+  }
+  int fd = it->second.ready;
+  it->second.ready = -1;
+  return fd;
+}
+
+int HardwareBufferFences::dupReadyFence(AHardwareBuffer* buffer) {
+  std::lock_guard<std::mutex> lock(mutex);
+  auto it = fences.find(buffer);
+  if (it == fences.end() || it->second.ready < 0) {
+    return -1;
+  }
+  return dup(it->second.ready);
+}
+
+void HardwareBufferFences::setReleaseFences(AHardwareBuffer* buffer,
+                                            std::vector<int> fds) {
+  std::vector<int> stale;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    auto it = fences.find(buffer);
+    if (it == fences.end()) {
+      stale = std::move(fds);
+    } else {
+      // The new fences are signaled after the previous ones (the reads were
+      // submitted in order on the same queue).
+      stale = std::move(it->second.release);
+      it->second.release = std::move(fds);
+    }
+  }
+  for (int fd : stale) {
+    if (fd >= 0) {
+      close(fd);
+    }
+  }
+}
+
+std::vector<int>
+HardwareBufferFences::takeReleaseFences(AHardwareBuffer* buffer) {
+  std::lock_guard<std::mutex> lock(mutex);
+  auto it = fences.find(buffer);
+  if (it == fences.end()) {
+    return {};
+  }
+  return std::move(it->second.release);
+}
+
+void HardwareBufferFences::forget(AHardwareBuffer* buffer) {
+  Fences entry;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    auto it = fences.find(buffer);
+    if (it == fences.end()) {
+      return;
+    }
+    entry = std::move(it->second);
+    fences.erase(it);
+  }
+  if (entry.ready >= 0) {
+    close(entry.ready);
+  }
+  for (int fd : entry.release) {
+    if (fd >= 0) {
+      close(fd);
+    }
+  }
+}
+
 } // namespace RNSkiaVideo
 
 using namespace RNSkiaVideo;
@@ -135,4 +251,36 @@ Java_com_azzapp_rnskv_HardwareBufferTexture_nativeDestroyImage(JNIEnv* env,
                                                                jclass clazz,
                                                                jlong image) {
   destroyHardwareBufferImage(reinterpret_cast<EGLImageKHR>(image));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_azzapp_rnskv_HardwareBufferTexture_nativeWaitForRelease(
+    JNIEnv* env, jclass clazz, jobject hardwareBuffer) {
+  AHardwareBuffer* buffer =
+      AHardwareBuffer_fromHardwareBuffer(env, hardwareBuffer);
+  auto& registry = HardwareBufferFences::getInstance();
+  // The frames handed out for the previous rendering hold their own
+  // duplicates of its ready fence.
+  int staleReadyFence = registry.takeReadyFence(buffer);
+  if (staleReadyFence >= 0) {
+    close(staleReadyFence);
+  }
+  for (int fd : registry.takeReleaseFences(buffer)) {
+    waitForSyncFence(fd);
+  }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_azzapp_rnskv_HardwareBufferTexture_nativeSignalReady(
+    JNIEnv* env, jclass clazz, jobject hardwareBuffer) {
+  AHardwareBuffer* buffer =
+      AHardwareBuffer_fromHardwareBuffer(env, hardwareBuffer);
+  HardwareBufferFences::getInstance().setReadyFence(buffer, createSyncFence());
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_azzapp_rnskv_HardwareBufferTexture_nativeForget(
+    JNIEnv* env, jclass clazz, jobject hardwareBuffer) {
+  HardwareBufferFences::getInstance().forget(
+      AHardwareBuffer_fromHardwareBuffer(env, hardwareBuffer));
 }

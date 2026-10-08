@@ -39,10 +39,18 @@ export type DecodedFrame = {
    */
   buffer: bigint | undefined;
   /**
-   * Hands the native buffer back to the decoder, once its pixels were copied
-   * (iOS only: the Android decoders recycle their own buffers).
+   * Android only: the sync fence (a sync_file descriptor, as a `BigInt`)
+   * signaled once the decoder is done rendering the frame into `buffer`. The
+   * buffer must not be read before. Owned by the frame.
    */
-  release?: () => void;
+  readyFence?: bigint;
+  /**
+   * Hands the native buffer back to the decoder, once its pixels were copied.
+   * On Android, `fences` are the sync fences (sync_file descriptors, as
+   * `BigInt`s, whose ownership is transferred) signaled once the buffer is
+   * read: the decoder waits for them before rendering into the buffer again.
+   */
+  release?: (fences?: bigint[]) => void;
   /**
    * The width in pixels of the frame.
    */

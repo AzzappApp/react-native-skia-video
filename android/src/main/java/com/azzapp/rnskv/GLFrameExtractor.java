@@ -14,11 +14,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener {
 
   /**
-   * Number of hardware buffers the frames are rendered to in turn. A frame handed to JS is drawn
-   * while the next ones are decoded (React Native Skia replays the canvas on its own threads), so
-   * it must survive a couple of decodes before its buffer is reused.
+   * Number of hardware buffers the frames are rendered to in turn. The buffers are guarded by GPU
+   * fences (see {@link HardwareBufferTexture#signalReady()}): JS copies a frame out of its buffer
+   * after waiting for the rendering, and the buffer is rendered into again only once that copy is
+   * done. Two buffers let a frame be decoded while the previous one is still being copied.
    */
-  private static final int OUTPUT_RING_CAPACITY = 3;
+  private static final int OUTPUT_RING_CAPACITY = 2;
 
   private final AtomicBoolean frameAvailable = new AtomicBoolean(false);
 
@@ -108,6 +109,9 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
     latestTimeStampNs = surfaceTexture.getTimestamp();
     surfaceTexture.getTransformMatrix(transformMatrix);
 
+    // React Native Skia's device may still be reading the frame previously rendered into the
+    // buffer.
+    output.waitForRelease();
     GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frameBuffer);
     GLES20.glFramebufferTexture2D(
       GLES20.GL_FRAMEBUFFER,
@@ -122,9 +126,8 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
     textureRenderer.draw(inputTexId, transformMatrix);
     EGLUtils.checkGlError("GLFrameExtractor.draw()");
     GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
-    // React Native Skia samples the hardware buffer without waiting on any
-    // GPU fence: the rendering must be complete before the frame is handed out.
-    GLES20.glFinish();
+    // The frame is handed out without waiting for the rendering: JS waits for its fence on the GPU.
+    output.signalReady();
     currentOutput = output;
     return true;
   }

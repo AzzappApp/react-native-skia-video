@@ -1,5 +1,11 @@
+import { Platform } from 'react-native';
 import { Skia, type SkImage } from 'react-native-skia';
-import { GPUTextureUsage, importDevice } from 'react-native-webgpu';
+import {
+  GPUTextureUsage,
+  importDevice,
+  type GPUSharedFenceState,
+  type GPUSharedTextureMemory,
+} from 'react-native-webgpu';
 import type { DecodedFrame, VideoFrame } from './types';
 
 /**
@@ -43,9 +49,25 @@ let nextFrameImagesId = 0;
  */
 export const createFrameImagesKey = () => `rnskv-${nextFrameImagesId++}`;
 
+// Android: the decoders render the frames into a few hardware buffers in
+// turn, guarded by sync fences (see `copySharedBuffer`).
+const IS_ANDROID = Platform.OS === 'android';
+
+// The hardware buffers of a key imported into Skia's device: a decoder's ring
+// (2 buffers), plus the buffers of a previous size.
+const MAX_SHARED_BUFFERS = 4;
+
+type SharedBuffer = {
+  handle: bigint;
+  memory: GPUSharedTextureMemory;
+  texture: GPUTexture;
+};
+
 type FrameTexture = {
   texture: GPUTexture | null;
   image: SkImage | null;
+  /** Android: the imported buffers, most recently used first. */
+  sharedBuffers: SharedBuffer[];
 };
 
 type FrameTextures = Record<string, FrameTexture>;
@@ -65,12 +87,151 @@ const getFrameTextures = (): FrameTextures => {
 };
 
 /**
+ * Returns the texture of `state`, (re)created if it does not have the given
+ * size.
+ */
+const getTexture = (
+  device: GPUDevice,
+  state: FrameTexture,
+  width: number,
+  height: number
+): GPUTexture => {
+  'worklet';
+  if (
+    state.texture == null ||
+    state.texture.width !== width ||
+    state.texture.height !== height
+  ) {
+    state.image?.dispose();
+    state.image = null;
+    state.texture?.destroy();
+    state.texture = device.createTexture({
+      size: [width, height],
+      format: 'rgba8unorm',
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT |
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_DST,
+    });
+  }
+  return state.texture;
+};
+
+/**
+ * iOS: copies the frame (a `CVPixelBuffer`, converting YUV to RGB) into the
+ * texture of `state` with React Native WebGPU's
+ * `queue.copyExternalImageToTexture`, submitted on Skia's queue: the copy is
+ * complete when Skia samples the texture.
+ */
+const copyNativeFrame = (
+  device: GPUDevice,
+  webgpu: FrameImageContext['webgpu'],
+  state: FrameTexture,
+  buffer: bigint,
+  frame: DecodedFrame
+): GPUTexture => {
+  'worklet';
+  const nativeFrame = webgpu.createVideoFrameFromNativeBuffer(buffer);
+  try {
+    const { width, height } = nativeFrame;
+    const texture = getTexture(device, state, width, height);
+    device.queue.copyExternalImageToTexture(
+      { source: nativeFrame },
+      { texture },
+      [width, height]
+    );
+    return texture;
+  } finally {
+    nativeFrame.release();
+    // Hand the buffer back to the decoder now rather than when the JS
+    // wrapper is garbage collected.
+    frame.release?.();
+  }
+};
+
+/**
+ * Android: copies the frame (an RGBA `AHardwareBuffer` of a decoder's ring)
+ * into the texture of `state`, on Skia's queue. The decoder renders into the
+ * buffer with OpenGL, so both sides are synchronized on the GPU with sync
+ * fences:
+ * - the copy waits for the frame's ready fence, signaled once OpenGL is done
+ *   rendering the frame;
+ * - the fences signaled once the copy is done are handed back to the decoder
+ *   (`frame.release(fences)`), that waits for them before rendering into the
+ *   buffer again.
+ *
+ * The buffers are imported once and kept (a decoder renders into the same
+ * few buffers in turn). An imported buffer is kept alive by Skia's device, so
+ * that its handle cannot be reused by another buffer while it is cached.
+ */
+const copySharedBuffer = (
+  device: GPUDevice,
+  state: FrameTexture,
+  handle: bigint,
+  frame: DecodedFrame
+): GPUTexture => {
+  'worklet';
+  const releaseFences: bigint[] = [];
+  try {
+    const { sharedBuffers } = state;
+    const index = sharedBuffers.findIndex((shared) => shared.handle === handle);
+    let source: SharedBuffer;
+    if (index >= 0) {
+      source = sharedBuffers[index]!;
+      sharedBuffers.splice(index, 1);
+    } else {
+      const memory = device.importSharedTextureMemory({ handle });
+      source = { handle, memory, texture: memory.createTexture() };
+      if (sharedBuffers.length >= MAX_SHARED_BUFFERS) {
+        sharedBuffers.pop()!.texture.destroy();
+      }
+    }
+    sharedBuffers.unshift(source);
+
+    const { width, height } = source.texture;
+    const texture = getTexture(device, state, width, height);
+    const readyFences: GPUSharedFenceState[] = [];
+    if (frame.readyFence != null) {
+      readyFences.push({
+        // Imports a duplicate of the fence: the frame keeps its own.
+        fence: device.importSharedFence({
+          type: 'sync-fd',
+          handle: frame.readyFence,
+        }),
+        signaledValue: BigInt(0),
+      });
+    }
+    source.memory.beginAccess(source.texture, true, readyFences);
+    try {
+      const encoder = device.createCommandEncoder();
+      encoder.copyTextureToTexture({ texture: source.texture }, { texture }, [
+        width,
+        height,
+      ]);
+      device.queue.submit([encoder.finish()]);
+    } finally {
+      const { fences } = source.memory.endAccess(source.texture);
+      for (const { fence } of fences) {
+        const exported = fence.export();
+        if (exported.type === 'sync-fd') {
+          releaseFences.push(exported.handle);
+        }
+      }
+    }
+    return texture;
+  } finally {
+    // Takes ownership of the fences.
+    frame.release?.(releaseFences);
+  }
+};
+
+/**
  * Turns a decoded frame into a `VideoFrame` whose image can be drawn by Skia.
  *
- * The frame is copied on the GPU (React Native WebGPU's
- * `queue.copyExternalImageToTexture`) into a texture of Skia's device that is
- * reused for every frame of the same `key`, and the texture is wrapped into an
- * SkImage without copy. The image of the previous frame of the same key is
+ * The frame is copied on the GPU (see `copyNativeFrame` and
+ * `copySharedBuffer`) into a texture of Skia's device that is reused for
+ * every frame of the same `key`, and the texture is wrapped into an SkImage
+ * without copy. The image of the previous frame of the same key is
  * disposed: frames are only valid until the next frame of the same key is
  * made.
  *
@@ -85,7 +246,7 @@ export const makeVideoFrame = (
   const textures = getFrameTextures();
   let state = textures[key];
   if (state == null) {
-    state = { texture: null, image: null };
+    state = { texture: null, image: null, sharedBuffers: [] };
     textures[key] = state;
   }
   const { device, webgpu } = context;
@@ -103,40 +264,9 @@ export const makeVideoFrame = (
       rotation: frame.rotation,
     };
   }
-  const nativeFrame = webgpu.createVideoFrameFromNativeBuffer(buffer);
-  let texture: GPUTexture;
-  try {
-    const { width, height } = nativeFrame;
-    if (
-      state.texture == null ||
-      state.texture.width !== width ||
-      state.texture.height !== height
-    ) {
-      state.image?.dispose();
-      state.image = null;
-      state.texture?.destroy();
-      state.texture = device.createTexture({
-        size: [width, height],
-        format: 'rgba8unorm',
-        usage:
-          GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-      });
-    }
-    texture = state.texture;
-    // A GPU copy (converting YUV frames to RGB), submitted on Skia's queue:
-    // the copy is complete when Skia samples the texture. The frame can be
-    // released right away.
-    device.queue.copyExternalImageToTexture(
-      { source: nativeFrame },
-      { texture },
-      [width, height]
-    );
-  } finally {
-    nativeFrame.release();
-    // Hand the buffer back to the decoder now rather than when the JS
-    // wrapper is garbage collected.
-    frame.release?.();
-  }
+  const texture = IS_ANDROID
+    ? copySharedBuffer(device, state, buffer, frame)
+    : copyNativeFrame(device, webgpu, state, buffer, frame);
   const previousImage = state.image;
   const image = Skia.Image.MakeImageFromGPUTexture(texture);
   state.image = image;
@@ -165,6 +295,9 @@ export const releaseFrameImages = (key: string) => {
     const state = textures[textureKey]!;
     state.image?.dispose();
     state.texture?.destroy();
+    for (const shared of state.sharedBuffers) {
+      shared.texture.destroy();
+    }
     delete textures[textureKey];
   }
 };
