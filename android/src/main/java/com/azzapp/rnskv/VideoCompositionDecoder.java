@@ -74,7 +74,7 @@ public class VideoCompositionDecoder {
         decoder.prepare();
 
         VideoComposition.Item item = decoder.getItem();
-        GLFrameExtractor glFrameExtractor = new GLFrameExtractor();
+        GLFrameExtractor glFrameExtractor = new GLFrameExtractor(decoder.isHdr());
 
         glFrameExtractor.setOnFrameAvailableListener(() -> {
           if (onItemImageAvailableListener != null) {
