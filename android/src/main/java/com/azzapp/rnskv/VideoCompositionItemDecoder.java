@@ -58,6 +58,35 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
 
   private OnFrameAvailableListener onFrameAvailableListener;
 
+  private boolean isHdr = false;
+
+  /**
+   * @return true if the underlying video track is HDR (PQ / ST2084, HLG, or Dolby Vision)
+   */
+  public boolean isHdr() {
+    return isHdr;
+  }
+
+  /**
+   * Evaluates if the MediaFormat contains HDR metadata or uses Dolby Vision.
+   */
+  private void detectHdrFormat(String mime, MediaFormat format) {
+    // Check for Dolby Vision
+    if ("video/dolby-vision".equalsIgnoreCase(mime)) {
+      this.isHdr = true;
+      return;
+    }
+
+    // Check for PQ (ST2084) or HLG Color Transfer Curves
+    if (format.containsKey(MediaFormat.KEY_COLOR_TRANSFER)) {
+      int transfer = format.getInteger(MediaFormat.KEY_COLOR_TRANSFER);
+      if (transfer == MediaFormat.COLOR_TRANSFER_ST2084 || 
+          transfer == MediaFormat.COLOR_TRANSFER_HLG) {
+        this.isHdr = true;
+      }
+    }
+  }
+
   /**
    * Create a new VideoCompositionItemDecoder.
    *
@@ -87,7 +116,21 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     if (mime == null) {
       throw new IOException("Could not determine file mime type");
     }
-    codec = MediaCodec.createDecoderByType(mime);
+
+    detectHdrFormat(mime, format);
+    if(!isHdr) {
+      codec = MediaCodec.createDecoderByType(mime);
+    } else {
+      mime = MediaFormat.MIMETYPE_VIDEO_HEVC;
+      format.setString(MediaFormat.KEY_MIME, mime);
+      // Remove Dolby-specific profile/level keys that confuse standard HEVC decoders
+      format.removeKey(MediaFormat.KEY_PROFILE);
+      format.removeKey(MediaFormat.KEY_LEVEL);
+      format.setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_HLG);
+      format.setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT2020);
+      codec = MediaCodec.createDecoderByType(mime);
+    }
+
     extractor.selectTrack(trackIndex);
     if (item.getStartTime() != 0) {
       extractor.seekTo(

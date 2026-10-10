@@ -37,6 +37,10 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
   private long latestTimeStampNs = -1;
 
   public GLFrameExtractor() {
+    this(false);
+  }
+
+  public GLFrameExtractor(boolean isHdr) {
     EGLUtils.purgeOpenGLError();
 
     int[] texIds = new int[2];
@@ -54,7 +58,7 @@ public class GLFrameExtractor implements SurfaceTexture.OnFrameAvailableListener
 
     EGLUtils.checkGlError("GLFrameExtractor()");
 
-    textureRenderer = new TextureRenderer(true);
+    textureRenderer = new TextureRenderer(true, isHdr);
 
     surfaceTexture = new SurfaceTexture(inputTexId);
     surfaceTexture.setOnFrameAvailableListener(this);

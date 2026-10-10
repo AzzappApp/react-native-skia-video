@@ -8,6 +8,7 @@ import android.media.MediaMuxer;
 import android.opengl.GLES20;
 import android.util.Log;
 import android.view.Surface;
+import android.os.Build;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -136,6 +137,12 @@ public class VideoEncoder {
     format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
     format.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate);
     format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, DEFAULT_I_FRAME_INTERVAL_SECONDS);
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+      format.setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT709);
+      format.setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_SDR_VIDEO);
+      format.setInteger(MediaFormat.KEY_COLOR_RANGE, MediaFormat.COLOR_RANGE_FULL);
+    }
 
     encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
 

@@ -100,6 +100,11 @@ void VideoEncoderHostObject::prepare() {
     AVVideoCodecKey : AVVideoCodecTypeH264,
     AVVideoWidthKey : @(width),
     AVVideoHeightKey : @(height),
+    AVVideoColorPropertiesKey: @{
+        AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+        AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+        AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
+    },
     AVVideoCompressionPropertiesKey : @{
       AVVideoAverageBitRateKey : @(bitRate),
       AVVideoMaxKeyFrameIntervalKey : @(frameRate),
@@ -197,6 +202,10 @@ void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
   if (status != kCVReturnSuccess || pixelBuffer == NULL) {
     throw createErrorWithMessage(@"Could not allocate pixel buffer from pool");
   }
+
+  CVBufferSetAttachment(pixelBuffer, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_709_2, kCVAttachmentMode_ShouldPropagate);
+  CVBufferSetAttachment(pixelBuffer, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_ITU_R_709_2, kCVAttachmentMode_ShouldPropagate);
+  CVBufferSetAttachment(pixelBuffer, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_709_2, kCVAttachmentMode_ShouldPropagate);
 
   CVPixelBufferLockBaseAddress(pixelBuffer, 0);
   void* pixelBufferBytes = CVPixelBufferGetBaseAddress(pixelBuffer);
