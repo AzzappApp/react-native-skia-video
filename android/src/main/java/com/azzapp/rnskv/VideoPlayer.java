@@ -39,6 +39,10 @@ public class VideoPlayer {
 
   private boolean isSeeking = false;
 
+  // Ready, but the size of the video is not known yet: the ready event is
+  // dispatched once it is.
+  private boolean readyPending = false;
+
   private EGLResourcesHolder eglResourcesHolder;
 
   private GLFrameExtractor glFrameExtractor;
@@ -91,14 +95,20 @@ public class VideoPlayer {
             if (!isInitialized) {
               isInitialized = true;
               duration = player.getDuration();
+              // Unknown (0x0) until the first frame is decoded: then
+              // updated by onVideoSizeChanged.
               VideoSize videoSize = player.getVideoSize();
-;
               videoHeight = videoSize.height;
               videoWidth = videoSize.width;
               if (glFrameExtractor != null) {
                 player.setVideoSurface(glFrameExtractor.getSurface());
               }
-              handleReady();
+              updateCurrentPosition();
+              if (videoWidth > 0 && videoHeight > 0) {
+                dispatchReady();
+              } else {
+                readyPending = true;
+              }
             }
             if (isSeeking) {
               isSeeking = false;
@@ -110,6 +120,20 @@ public class VideoPlayer {
 
           if (playbackState != Player.STATE_BUFFERING) {
             setBuffering(false);
+          }
+        }
+
+        @Override
+        public void onVideoSizeChanged(@NonNull VideoSize videoSize) {
+          // The player can be ready before it knows the size of the video:
+          // no frame would be decoded with the size read then (0x0).
+          if (videoSize.width > 0 && videoSize.height > 0) {
+            videoWidth = videoSize.width;
+            videoHeight = videoSize.height;
+            if (readyPending) {
+              readyPending = false;
+              dispatchReady();
+            }
           }
         }
 
@@ -140,8 +164,7 @@ public class VideoPlayer {
 
   long previousBufferedPosition = 0;
 
-  private void handleReady() {
-    updateCurrentPosition();
+  private void dispatchReady() {
     dispatchEventIfNoReleased("ready", new int[]{videoWidth, videoHeight, 0});
   }
 
