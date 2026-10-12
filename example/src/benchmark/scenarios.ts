@@ -25,6 +25,8 @@ export type PreviewScenario = {
   id: string;
   label: string;
   clips: string[];
+  /** The size the clips are decoded at (their own size by default). */
+  resolution?: { width: number; height: number };
   /** Measured duration, after a warm-up. */
   duration: number;
 };
@@ -100,6 +102,14 @@ export const SCENARIOS: Scenario[] = [
     id: 'preview-3x1080p30',
     label: 'Composition preview, 3 clips 1080p30 at once',
     clips: ['1080p30', '1080p30', '1080p30'],
+    duration: 10,
+  },
+  {
+    kind: 'preview',
+    id: 'preview-3x1080p30-at-360p',
+    label: 'Composition preview, 3 clips 1080p30 at once, decoded at 640×360',
+    clips: ['1080p30', '1080p30', '1080p30'],
+    resolution: { width: 640, height: 360 },
     duration: 10,
   },
   {

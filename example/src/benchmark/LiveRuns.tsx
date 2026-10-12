@@ -169,7 +169,11 @@ export const PreviewRun = ({
     // Longer than the run: the composition never loops during the
     // measurement.
     () =>
-      buildComposition(scenario.clips, getClip(scenario.clips[0]!).duration),
+      buildComposition(
+        scenario.clips,
+        getClip(scenario.clips[0]!).duration,
+        scenario.resolution
+      ),
     [scenario]
   );
   const runId = useUIFrameSampling(

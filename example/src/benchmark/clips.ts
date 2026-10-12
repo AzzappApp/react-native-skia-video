@@ -252,11 +252,13 @@ export const drawItemsGrid: FrameDrawer<any> = ({
 };
 
 /**
- * A composition playing the clips at the same time, from their start.
+ * A composition playing the clips at the same time, from their start,
+ * decoded at `resolution` if given.
  */
 export const buildComposition = (
   clipIds: string[],
-  duration: number
+  duration: number,
+  resolution?: { width: number; height: number }
 ): VideoComposition => ({
   duration,
   items: clipIds.map((clipId, index) => ({
@@ -265,5 +267,6 @@ export const buildComposition = (
     compositionStartTime: 0,
     startTime: 0,
     duration,
+    resolution,
   })),
 });
