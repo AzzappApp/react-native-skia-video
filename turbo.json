@@ -7,6 +7,7 @@
       "env": ["ANDROID_HOME", "ORG_GRADLE_PROJECT_newArchEnabled"],
       "inputs": [
         "$TURBO_ROOT$/package.json",
+        "$TURBO_ROOT$/.yarn/patches/**",
         "$TURBO_ROOT$/android/**",
         "!$TURBO_ROOT$/android/build/**",
         "!$TURBO_ROOT$/android/.cxx/**",
@@ -26,6 +27,7 @@
       "env": ["RCT_NEW_ARCH_ENABLED"],
       "inputs": [
         "$TURBO_ROOT$/package.json",
+        "$TURBO_ROOT$/.yarn/patches/**",
         "$TURBO_ROOT$/*.podspec",
         "$TURBO_ROOT$/ios/**",
         "$TURBO_ROOT$/cpp/**",

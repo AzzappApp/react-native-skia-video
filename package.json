@@ -112,6 +112,9 @@
   "workspaces": [
     "example"
   ],
+  "resolutions": {
+    "react-native-webgpu": "patch:react-native-webgpu@npm%3A0.13.0#~/.yarn/patches/react-native-webgpu-npm-0.13.0-b763f4097e.patch"
+  },
   "packageManager": "yarn@4.18.0",
   "jest": {
     "preset": "@react-native/jest-preset",
