@@ -1,6 +1,8 @@
 import { Platform } from 'react-native';
 import { Skia, type SkImage } from 'react-native-skia';
 import {
+  GPUBufferUsage,
+  GPUShaderStage,
   GPUTextureUsage,
   importDevice,
   type GPUSharedFence,
@@ -82,6 +84,11 @@ type FrameTexture = {
    * `copySharedBuffer`).
    */
   gpuReadyWait?: boolean;
+  /**
+   * Android: the uniforms of the conversion of YUV frames (see
+   * `convertYUVFrame`).
+   */
+  uniformBuffer?: GPUBuffer;
 };
 
 type FrameTextures = Record<string, FrameTexture>;
@@ -313,11 +320,230 @@ const copySharedBuffer = (
   }
 };
 
+type YUVLayout = NonNullable<DecodedFrame['yuv']>;
+
+/**
+ * The region `layout` of a buffer of `bufferWidth` × `bufferHeight` in the
+ * upright frame, once the buffer is rotated clockwise by `layout.rotation`:
+ * the coordinates React Native WebGPU samples external textures in.
+ */
+export const uprightCrop = (
+  layout: YUVLayout,
+  bufferWidth: number,
+  bufferHeight: number
+) => {
+  'worklet';
+  const { x, y, width, height } = layout;
+  switch (layout.rotation) {
+    case 90:
+      return {
+        x: bufferHeight - y - height,
+        y: x,
+        width: height,
+        height: width,
+      };
+    case 180:
+      return {
+        x: bufferWidth - x - width,
+        y: bufferHeight - y - height,
+        width,
+        height,
+      };
+    case 270:
+      return { x: y, y: bufferWidth - x - width, width: height, height: width };
+    default:
+      return { x, y, width, height };
+  }
+};
+
+// Draws a region of a YUV frame (an external texture) into a whole texture:
+// React Native WebGPU leaves the conversion of Android's YUV buffers to RGB
+// to the shader (GPUExternalTexture.yuvToRgbMatrix).
+const YUV_CONVERSION_SHADER = `
+struct Uniforms {
+  yuvToRgb0: vec4f,
+  yuvToRgb1: vec4f,
+  yuvToRgb2: vec4f,
+  // The region of the upright frame drawn: uv = position01 * uvScale + uvOffset.
+  uvScale: vec2f,
+  uvOffset: vec2f,
+};
+
+@group(0) @binding(0) var frame: texture_external;
+@group(0) @binding(1) var frameSampler: sampler;
+@group(0) @binding(2) var<uniform> u: Uniforms;
+
+struct VertexOutput {
+  @builtin(position) position: vec4f,
+  @location(0) uv: vec2f,
+};
+
+@vertex fn vs(@builtin(vertex_index) index: u32) -> VertexOutput {
+  // A triangle covering the target, position01 running from its top-left corner.
+  var corners = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  let corner = corners[index];
+  var output: VertexOutput;
+  output.position = vec4f(corner, 0.0, 1.0);
+  let position01 = vec2f(corner.x * 0.5 + 0.5, 0.5 - corner.y * 0.5);
+  output.uv = position01 * u.uvScale + u.uvOffset;
+  return output;
+}
+
+@fragment fn fs(input: VertexOutput) -> @location(0) vec4f {
+  let texel = vec4f(textureSampleBaseClampToEdge(frame, frameSampler, input.uv).rgb, 1.0);
+  let rgb = vec3f(dot(u.yuvToRgb0, texel), dot(u.yuvToRgb1, texel), dot(u.yuvToRgb2, texel));
+  return vec4f(clamp(rgb, vec3f(0.0), vec3f(1.0)), 1.0);
+}
+`;
+
+const YUV_UNIFORMS_SIZE = 16 * Float32Array.BYTES_PER_ELEMENT;
+
+type YUVConversion = {
+  device: GPUDevice;
+  bindGroupLayout: GPUBindGroupLayout;
+  sampler: GPUSampler;
+  pipeline: GPURenderPipeline;
+};
+
+// The pipeline converting the YUV frames, made once per runtime.
+const getYUVConversion = (device: GPUDevice): YUVConversion => {
+  'worklet';
+  const global = globalThis as unknown as {
+    __rnskvYUVConversion?: YUVConversion;
+  };
+  if (global.__rnskvYUVConversion?.device !== device) {
+    const module = device.createShaderModule({ code: YUV_CONVERSION_SHADER });
+    const bindGroupLayout = device.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.FRAGMENT,
+          externalTexture: {},
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.FRAGMENT,
+          sampler: { type: 'filtering' },
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform' },
+        },
+      ],
+    });
+    global.__rnskvYUVConversion = {
+      device,
+      bindGroupLayout,
+      sampler: device.createSampler({
+        magFilter: 'linear',
+        minFilter: 'linear',
+      }),
+      pipeline: device.createRenderPipeline({
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [bindGroupLayout],
+        }),
+        vertex: { module, entryPoint: 'vs' },
+        fragment: {
+          module,
+          entryPoint: 'fs',
+          targets: [{ format: 'rgba8unorm' }],
+        },
+        primitive: { topology: 'triangle-list' },
+      }),
+    };
+  }
+  return global.__rnskvYUVConversion;
+};
+
+/**
+ * Android: converts the frame (a buffer of its decoder, in the decoder's own
+ * YUV layout) to RGB into the texture of `state`, on Skia's queue: the region
+ * `frame.yuv` of the buffer is rotated and scaled to the size of the frame.
+ *
+ * React Native WebGPU imports the buffer as an external texture, and ends
+ * the access to it once the conversion is submitted, without handing out the
+ * fences signaled once it is done reading it: the decoder keeps the buffer a
+ * couple of frames before rendering into it again instead (see
+ * ImageReaderFrameExtractor).
+ */
+const convertYUVFrame = (
+  device: GPUDevice,
+  webgpu: FrameImageContext['webgpu'],
+  state: FrameTexture,
+  buffer: bigint,
+  frame: DecodedFrame
+): GPUTexture => {
+  'worklet';
+  const layout = frame.yuv!;
+  const nativeFrame = webgpu.createVideoFrameFromNativeBuffer(buffer);
+  try {
+    const external = device.importExternalTexture({
+      source: nativeFrame,
+      rotation: layout.rotation as 0 | 90 | 180 | 270,
+    });
+    try {
+      const texture = getTexture(device, state, frame.width, frame.height);
+      const conversion = getYUVConversion(device);
+      const swapped = layout.rotation === 90 || layout.rotation === 270;
+      const uprightWidth = swapped ? nativeFrame.height : nativeFrame.width;
+      const uprightHeight = swapped ? nativeFrame.width : nativeFrame.height;
+      const crop = uprightCrop(layout, nativeFrame.width, nativeFrame.height);
+      const uniforms = new Float32Array(
+        YUV_UNIFORMS_SIZE / Float32Array.BYTES_PER_ELEMENT
+      );
+      uniforms.set(external.yuvToRgbMatrix);
+      uniforms.set(
+        [
+          crop.width / uprightWidth,
+          crop.height / uprightHeight,
+          crop.x / uprightWidth,
+          crop.y / uprightHeight,
+        ],
+        12
+      );
+      state.uniformBuffer ??= device.createBuffer({
+        size: YUV_UNIFORMS_SIZE,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      device.queue.writeBuffer(state.uniformBuffer, 0, uniforms);
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [
+          { view: texture.createView(), loadOp: 'clear', storeOp: 'store' },
+        ],
+      });
+      pass.setPipeline(conversion.pipeline);
+      pass.setBindGroup(
+        0,
+        device.createBindGroup({
+          layout: conversion.bindGroupLayout,
+          entries: [
+            { binding: 0, resource: external },
+            { binding: 1, resource: conversion.sampler },
+            { binding: 2, resource: { buffer: state.uniformBuffer } },
+          ],
+        })
+      );
+      pass.draw(3);
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+      return texture;
+    } finally {
+      // Once the commands sampling the buffer are submitted, never before.
+      external.destroy();
+    }
+  } finally {
+    nativeFrame.release();
+    frame.release?.();
+  }
+};
+
 /**
  * Turns a decoded frame into a `VideoFrame` whose image can be drawn by Skia.
  *
- * The frame is copied on the GPU (see `copyNativeFrame` and
- * `copySharedBuffer`) into a texture of Skia's device that is reused for
+ * The frame is copied on the GPU (see `copyNativeFrame`, `copySharedBuffer`
+ * and `convertYUVFrame`) into a texture of Skia's device that is reused for
  * every frame of the same `key`, and the texture is wrapped into an SkImage
  * without copy. The images of a key show its latest frame: frames are only
  * valid until the next frame of the same key is made.
@@ -364,9 +590,14 @@ export const makeVideoFrame = (
   if (buffer == null) {
     throw new Error('The video frame was released before being drawn');
   }
-  const texture = IS_ANDROID
-    ? copySharedBuffer(device, state, buffer, frame)
-    : copyNativeFrame(device, webgpu, state, buffer, frame);
+  let texture: GPUTexture;
+  if (!IS_ANDROID) {
+    texture = copyNativeFrame(device, webgpu, state, buffer, frame);
+  } else if (frame.yuv != null) {
+    texture = convertYUVFrame(device, webgpu, state, buffer, frame);
+  } else {
+    texture = copySharedBuffer(device, state, buffer, frame);
+  }
   // Two images of the texture, handed out in turn: a new frame needs another
   // image (Reanimated ignores setting a shared value to the object it holds,
   // e.g. in `useDerivedValue(() => currentFrame.value?.image)`), and a new
@@ -400,6 +631,7 @@ export const releaseFrameImages = (key: string) => {
     state.image?.dispose();
     state.spareImage?.dispose();
     state.texture?.destroy();
+    state.uniformBuffer?.destroy();
     for (const shared of state.sharedBuffers) {
       shared.texture.destroy();
       shared.memory.destroy?.();

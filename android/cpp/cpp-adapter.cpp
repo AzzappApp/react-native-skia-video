@@ -22,6 +22,19 @@ struct MemoryUsage : jni::JavaClass<MemoryUsage> {
     return getFootprintMethod(cls);
   }
 };
+
+struct VideoCompositionDecoderClass
+    : jni::JavaClass<VideoCompositionDecoderClass> {
+  static constexpr auto kJavaDescriptor =
+      "Lcom/azzapp/rnskv/VideoCompositionDecoder;";
+
+  static void setYUVFramesEnabled(bool enabled) {
+    static const auto cls = javaClassStatic();
+    static const auto setYUVFramesEnabledMethod =
+        cls->getStaticMethod<void(jboolean)>("setYUVFramesEnabled");
+    setYUVFramesEnabledMethod(cls, enabled);
+  }
+};
 } // namespace
 
 void install(jsi::Runtime& jsiRuntime) {
@@ -243,6 +256,22 @@ void install(jsi::Runtime& jsiRuntime) {
       });
   RNSVModule.setProperty(jsiRuntime, "getMemoryFootprint",
                          std::move(getMemoryFootprint));
+
+  auto setYUVFramesEnabled = jsi::Function::createFromHostFunction(
+      jsiRuntime, jsi::PropNameID::forAscii(jsiRuntime, "setYUVFramesEnabled"),
+      1,
+      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+         const jsi::Value* arguments, size_t count) -> jsi::Value {
+        if (count < 1 || !arguments[0].isBool()) {
+          throw jsi::JSError(runtime, "setYUVFramesEnabled(..) expects a "
+                                      "boolean!");
+        }
+        VideoCompositionDecoderClass::setYUVFramesEnabled(
+            arguments[0].getBool());
+        return jsi::Value::undefined();
+      });
+  RNSVModule.setProperty(jsiRuntime, "setYUVFramesEnabled",
+                         std::move(setYUVFramesEnabled));
 
   jsiRuntime.global().setProperty(jsiRuntime, "RNSkiaVideo",
                                   std::move(RNSVModule));

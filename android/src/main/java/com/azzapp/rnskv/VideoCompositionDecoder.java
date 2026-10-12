@@ -1,5 +1,8 @@
 package com.azzapp.rnskv;
 
+import android.os.Build;
+import android.view.Surface;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -8,6 +11,19 @@ import java.util.Map;
  */
 public class VideoCompositionDecoder {
 
+  /**
+   * Whether the decoders hand their frames over in their own YUV buffers,
+   * converted to RGB on React Native Skia's device
+   * ({@link ImageReaderFrameExtractor}), rather than rendered into RGBA buffers
+   * with OpenGL ({@link GLFrameExtractor}). JS enables it once it checked that
+   * Skia's device can sample them; it applies to the decoders prepared next.
+   */
+  private static volatile boolean yuvFramesEnabled = false;
+
+  public static void setYUVFramesEnabled(boolean enabled) {
+    yuvFramesEnabled = enabled;
+  }
+
   private final VideoComposition composition;
 
   private final HashMap<VideoComposition.Item, VideoCompositionItemDecoder> decoders;
@@ -15,6 +31,9 @@ public class VideoCompositionDecoder {
   private EGLResourcesHolder eglResourcesHolder;
 
   private final HashMap<VideoComposition.Item, GLFrameExtractor> glFrameExtractors;
+
+  private final HashMap<VideoComposition.Item, ImageReaderFrameExtractor> yuvFrameExtractors =
+    new HashMap<>();
 
   private final HashMap<String, VideoFrame> videoFrames = new HashMap<>();
 
@@ -65,22 +84,36 @@ public class VideoCompositionDecoder {
    * Prepares the items decoders and the image readers.
    */
   public void prepare() {
-    eglResourcesHolder = EGLResourcesHolder.createWithPBBufferSurface();
-    eglResourcesHolder.makeCurrent();
+    // ImageReader only allocates GPU-sampleable buffers from Android 10 on.
+    boolean yuvFrames = yuvFramesEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
+    if (!yuvFrames) {
+      eglResourcesHolder = EGLResourcesHolder.createWithPBBufferSurface();
+      eglResourcesHolder.makeCurrent();
+    }
     decoders.values().forEach(decoder -> {
       try {
         decoder.prepare();
 
         VideoComposition.Item item = decoder.getItem();
-        GLFrameExtractor glFrameExtractor = new GLFrameExtractor();
-
-        glFrameExtractor.setOnFrameAvailableListener(() -> {
+        GLFrameExtractor.OnFrameAvailableListener onFrameAvailable = () -> {
           if (onItemImageAvailableListener != null) {
             onItemImageAvailableListener.onItemImageAvailable(item);
           }
-        });
-        glFrameExtractors.put(item, glFrameExtractor);
-        decoder.setSurface(glFrameExtractor.getSurface());
+        };
+        Surface surface;
+        if (yuvFrames) {
+          ImageReaderFrameExtractor yuvFrameExtractor = new ImageReaderFrameExtractor(
+            decoder.getVideoWidth(), decoder.getVideoHeight());
+          yuvFrameExtractor.setOnFrameAvailableListener(onFrameAvailable);
+          yuvFrameExtractors.put(item, yuvFrameExtractor);
+          surface = yuvFrameExtractor.getSurface();
+        } else {
+          GLFrameExtractor glFrameExtractor = new GLFrameExtractor();
+          glFrameExtractor.setOnFrameAvailableListener(onFrameAvailable);
+          glFrameExtractors.put(item, glFrameExtractor);
+          surface = glFrameExtractor.getSurface();
+        }
+        decoder.setSurface(surface);
       } catch (Exception e) {
         throw new RuntimeException(e);
       }
@@ -154,12 +187,10 @@ public class VideoCompositionDecoder {
       if (!item.isVideo()) {
         continue;
       }
-      GLFrameExtractor glFrameExtractor = glFrameExtractors.get(item);
       VideoCompositionItemDecoder decoder = decoders.get(item);
-      if (eglResourcesHolder == null || glFrameExtractor == null || decoder == null) {
+      if (decoder == null) {
         continue;
       }
-      eglResourcesHolder.makeCurrent();
       int itemWidth = item.getWidth();
       int itemHeight = item.getHeight();
       boolean shouldDownScale = itemWidth > 0 && itemHeight > 0;
@@ -169,15 +200,35 @@ public class VideoCompositionDecoder {
         int temp = frameWidth;
         frameWidth = frameHeight;
         frameHeight = temp;
-      } 
-      if (!glFrameExtractor.decodeNextFrame(frameWidth, frameHeight)) {
-        continue;
       }
-      VideoFrame nextFrame = new VideoFrame(
-        glFrameExtractor.getOutputBuffer(),
-        frameWidth, frameHeight, 0,
-        glFrameExtractor.getLatestTimeStampNs()
-      );
+      VideoFrame nextFrame;
+      ImageReaderFrameExtractor yuvFrameExtractor = yuvFrameExtractors.get(item);
+      GLFrameExtractor glFrameExtractor = glFrameExtractors.get(item);
+      if (yuvFrameExtractor != null) {
+        if (!yuvFrameExtractor.decodeNextFrame()) {
+          continue;
+        }
+        nextFrame = new VideoFrame(
+          yuvFrameExtractor.getOutputBuffer(),
+          frameWidth, frameHeight,
+          yuvFrameExtractor.getLatestTimeStampNs(),
+          yuvFrameExtractor.getCropRect(decoder.getVideoWidth(), decoder.getVideoHeight()),
+          decoder.getRotation()
+        );
+      } else {
+        if (eglResourcesHolder == null || glFrameExtractor == null) {
+          continue;
+        }
+        eglResourcesHolder.makeCurrent();
+        if (!glFrameExtractor.decodeNextFrame(frameWidth, frameHeight)) {
+          continue;
+        }
+        nextFrame = new VideoFrame(
+          glFrameExtractor.getOutputBuffer(),
+          frameWidth, frameHeight, 0,
+          glFrameExtractor.getLatestTimeStampNs()
+        );
+      }
       String id = item.getId();
       videoFrames.put(id, nextFrame);
     }
@@ -200,6 +251,8 @@ public class VideoCompositionDecoder {
     decoders.values().forEach(VideoCompositionItemDecoder::release);
     decoders.clear();
     videoFrames.clear();
+    yuvFrameExtractors.values().forEach(ImageReaderFrameExtractor::release);
+    yuvFrameExtractors.clear();
     // The GL deletes below require this context to be current on the
     // calling thread.
     if (eglResourcesHolder != null) {

@@ -6,6 +6,7 @@
 #include <jsi/jsi.h>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <vector>
 
 namespace RNSkiaVideo {
@@ -25,8 +26,27 @@ public:
   jint getWidth() const;
   jint getHeight() const;
   jint getRotation() const;
+  jboolean isYUV() const;
+  jint getCropLeft() const;
+  jint getCropTop() const;
+  jint getCropWidth() const;
+  jint getCropHeight() const;
+  jint getSourceRotation() const;
 
   jsi::Value toJS(jsi::Runtime& jsRuntime) const;
+};
+
+/**
+ * A frame in a buffer of its decoder, in the decoder's own YUV layout: the
+ * region of the buffer holding the frame and the clockwise rotation to apply
+ * to it (see DecodedFrame.yuv).
+ */
+struct YUVLayout {
+  int x;
+  int y;
+  int width;
+  int height;
+  int rotation;
 };
 
 /**
@@ -45,7 +65,8 @@ class JSI_EXPORT VideoFrameHostObject
       public std::enable_shared_from_this<VideoFrameHostObject> {
 public:
   VideoFrameHostObject(AHardwareBuffer* buffer, int64_t id, int width,
-                       int height, int rotation);
+                       int height, int rotation,
+                       std::optional<YUVLayout> yuv = std::nullopt);
   ~VideoFrameHostObject() override;
 
   /** Closes the ready fence (once read, imported or not needed). */
@@ -71,6 +92,7 @@ private:
   int width;
   int height;
   int rotation;
+  std::optional<YUVLayout> yuv;
 };
 
 } // namespace RNSkiaVideo

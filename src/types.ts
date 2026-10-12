@@ -58,6 +58,19 @@ export type DecodedFrame = {
    */
   waitForReady?: () => void;
   /**
+   * Android only, a frame in a buffer of its decoder, in the decoder's own
+   * YUV layout: the region of `buffer` holding the frame (decoders pad their
+   * buffers) and the clockwise rotation to apply to it. The library converts
+   * it to RGB on the GPU, rotated and scaled to `width` × `height`.
+   */
+  yuv?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+  /**
    * Hands the native buffer back to the decoder, once its pixels were copied.
    * On Android, `fences` are the sync fences (sync_file descriptors, as
    * `BigInt`s, whose ownership is transferred) signaled once the buffer is
@@ -560,6 +573,16 @@ export type RNSkiaVideoModule = {
    * Not part of the public API (exposed through `__RNSkiaVideoPrivateAPI`).
    */
   getMemoryFootprint?: () => number | null;
+  /**
+   * Android: whether the composition decoders prepared from now on hand
+   * their frames over in their own YUV buffers, converted to RGB on Skia's
+   * device, rather than rendered into RGBA buffers with OpenGL. Needs Android
+   * 10 and a device with the `opaque-ycbcr-android-for-external-texture`
+   * feature. Disabled by default.
+   *
+   * Not part of the public API (exposed through `__RNSkiaVideoPrivateAPI`).
+   */
+  setYUVFramesEnabled?: (enabled: boolean) => void;
   /**
    * Returns the decoding capabilities of the current platform for the specified mimetype.
    *

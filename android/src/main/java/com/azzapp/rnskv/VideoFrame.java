@@ -1,5 +1,6 @@
 package com.azzapp.rnskv;
 
+import android.graphics.Rect;
 import android.hardware.HardwareBuffer;
 
 import java.util.concurrent.atomic.AtomicLong;
@@ -16,7 +17,14 @@ public class VideoFrame {
   private final int height;
   private final int rotation;
   private final long timestampNs;
+  private final boolean yuv;
+  private final Rect cropRect;
+  private final int sourceRotation;
 
+  /**
+   * A frame rendered into an RGBA buffer, ready to be copied (see
+   * {@link GLFrameExtractor}).
+   */
   public VideoFrame(
     HardwareBuffer hardwareBuffer,
     int width,
@@ -29,6 +37,33 @@ public class VideoFrame {
     this.height = height;
     this.rotation = rotation;
     this.timestampNs = timestampNs;
+    this.yuv = false;
+    this.cropRect = new Rect(0, 0, width, height);
+    this.sourceRotation = 0;
+  }
+
+  /**
+   * A frame in a buffer of the decoder, in its own YUV layout (see
+   * {@link ImageReaderFrameExtractor}): JS converts the region `cropRect` of
+   * the buffer to RGB, rotates it clockwise by `sourceRotation` and scales it
+   * to width × height.
+   */
+  public VideoFrame(
+    HardwareBuffer hardwareBuffer,
+    int width,
+    int height,
+    long timestampNs,
+    Rect cropRect,
+    int sourceRotation
+  ) {
+    this.hardwareBuffer = hardwareBuffer;
+    this.width = width;
+    this.height = height;
+    this.rotation = 0;
+    this.timestampNs = timestampNs;
+    this.yuv = true;
+    this.cropRect = cropRect;
+    this.sourceRotation = sourceRotation;
   }
 
   /**
@@ -61,5 +96,29 @@ public class VideoFrame {
 
   public long getTimestampNs() {
     return timestampNs;
+  }
+
+  public boolean isYUV() {
+    return yuv;
+  }
+
+  public int getCropLeft() {
+    return cropRect.left;
+  }
+
+  public int getCropTop() {
+    return cropRect.top;
+  }
+
+  public int getCropWidth() {
+    return cropRect.width();
+  }
+
+  public int getCropHeight() {
+    return cropRect.height();
+  }
+
+  public int getSourceRotation() {
+    return sourceRotation;
   }
 }

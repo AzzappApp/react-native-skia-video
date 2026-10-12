@@ -39,19 +39,61 @@ jint VideoFrame::getRotation() const {
   return getRotationMethod(self());
 }
 
+jboolean VideoFrame::isYUV() const {
+  static const auto isYUVMethod = getClass()->getMethod<jboolean()>("isYUV");
+  return isYUVMethod(self());
+}
+
+jint VideoFrame::getCropLeft() const {
+  static const auto getCropLeftMethod =
+      getClass()->getMethod<jint()>("getCropLeft");
+  return getCropLeftMethod(self());
+}
+
+jint VideoFrame::getCropTop() const {
+  static const auto getCropTopMethod =
+      getClass()->getMethod<jint()>("getCropTop");
+  return getCropTopMethod(self());
+}
+
+jint VideoFrame::getCropWidth() const {
+  static const auto getCropWidthMethod =
+      getClass()->getMethod<jint()>("getCropWidth");
+  return getCropWidthMethod(self());
+}
+
+jint VideoFrame::getCropHeight() const {
+  static const auto getCropHeightMethod =
+      getClass()->getMethod<jint()>("getCropHeight");
+  return getCropHeightMethod(self());
+}
+
+jint VideoFrame::getSourceRotation() const {
+  static const auto getSourceRotationMethod =
+      getClass()->getMethod<jint()>("getSourceRotation");
+  return getSourceRotationMethod(self());
+}
+
 jsi::Value VideoFrame::toJS(jsi::Runtime& runtime) const {
   auto buffer = getHardwareBuffer();
   if (buffer == nullptr) {
     return jsi::Value::null();
   }
+  std::optional<YUVLayout> yuv;
+  if (isYUV()) {
+    yuv = YUVLayout{getCropLeft(), getCropTop(), getCropWidth(),
+                    getCropHeight(), getSourceRotation()};
+  }
   auto hostObject = std::make_shared<VideoFrameHostObject>(
-      buffer, getId(), getWidth(), getHeight(), getRotation());
+      buffer, getId(), getWidth(), getHeight(), getRotation(), yuv);
   return jsi::Object::createFromHostObject(runtime, hostObject);
 }
 
 VideoFrameHostObject::VideoFrameHostObject(AHardwareBuffer* buffer, int64_t id,
-                                           int width, int height, int rotation)
-    : buffer(buffer), id(id), width(width), height(height), rotation(rotation) {
+                                           int width, int height, int rotation,
+                                           std::optional<YUVLayout> yuv)
+    : buffer(buffer), id(id), width(width), height(height), rotation(rotation),
+      yuv(yuv) {
   AHardwareBuffer_acquire(buffer);
   // A frame can be handed out several times (the composition decoders hand
   // out the last frame of an item until a new one is decoded): each one
@@ -117,6 +159,7 @@ VideoFrameHostObject::getPropertyNames(jsi::Runtime& rt) {
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("readyFence")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("release")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("waitForReady")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("yuv")));
   return result;
 }
 
@@ -138,6 +181,16 @@ jsi::Value VideoFrameHostObject::get(jsi::Runtime& runtime,
     std::lock_guard<std::mutex> lock(mutex);
     if (readyFence >= 0) {
       return jsi::BigInt::fromInt64(runtime, readyFence);
+    }
+  } else if (propName == "yuv") {
+    if (yuv.has_value()) {
+      auto layout = jsi::Object(runtime);
+      layout.setProperty(runtime, "x", yuv->x);
+      layout.setProperty(runtime, "y", yuv->y);
+      layout.setProperty(runtime, "width", yuv->width);
+      layout.setProperty(runtime, "height", yuv->height);
+      layout.setProperty(runtime, "rotation", yuv->rotation);
+      return layout;
     }
   } else if (propName == "waitForReady") {
     return jsi::Function::createFromHostFunction(
