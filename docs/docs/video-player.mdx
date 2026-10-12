@@ -75,9 +75,9 @@ player?.isPlaying;
 ```
 
 :::tip Frame lifecycle
-The frame images are owned by the player: an image is disposed when the next
-frame is decoded. Draw the current one (as above) and don't keep it around —
-use `makeNonTextureImage()` if you need a lasting copy.
+The frame images are owned by the player: an image only shows its frame until
+the next one is decoded. Draw the current one (as above) and don't keep it
+around — use `makeNonTextureImage()` if you need a lasting copy.
 :::
 
 For playing **several** videos on a shared clock — cuts, transitions,

@@ -57,8 +57,8 @@ With `useVideoPlayer`:
 
 ## 3. Don't keep frames around
 
-The images are owned by the player (or composition player): an image is
-disposed when the next frame is produced. Don't dispose them yourself, and use
+The images are owned by the player (or composition player): an image only
+shows its frame until the next one is produced. Don't dispose them, and use
 `image.makeNonTextureImage()` if you need a lasting copy (a thumbnail for
 instance).
 

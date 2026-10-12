@@ -1,3 +1,4 @@
+import { Skia } from 'react-native-skia';
 import type { FrameImageContext } from '../frameImages';
 import { makeVideoFrame, releaseFrameImages } from '../frameImages';
 import type { DecodedFrame } from '../types';
@@ -95,21 +96,50 @@ describe('makeVideoFrame', () => {
     expect(frameAgain.release).toHaveBeenCalledTimes(1);
   });
 
-  it('copies a new frame of the same key and disposes the previous image', () => {
+  it('hands out two images of the texture in turn for the new frames of a key', () => {
     const { context, copyExternalImageToTexture, createTexture } =
       makeContext();
+    const makeImage = jest.mocked(Skia.Image.MakeImageFromGPUTexture);
+    makeImage.mockClear();
     const key = makeKey();
 
     const first = makeVideoFrame(context, key, makeFrame(1n, 1));
     // The decoders recycle their buffers: a new frame can come in the buffer
     // of a previous one.
     const second = makeVideoFrame(context, key, makeFrame(1n, 2));
+    const third = makeVideoFrame(context, key, makeFrame(1n, 3));
 
-    expect(copyExternalImageToTexture).toHaveBeenCalledTimes(2);
+    expect(copyExternalImageToTexture).toHaveBeenCalledTimes(3);
     expect(createTexture).toHaveBeenCalledTimes(1);
+    expect(makeImage).toHaveBeenCalledTimes(2);
     expect(second.image).not.toBe(first.image);
-    expect(first.image.dispose).toHaveBeenCalledTimes(1);
+    expect(third.image).toBe(first.image);
+    expect(first.image.dispose).not.toHaveBeenCalled();
     expect(second.image.dispose).not.toHaveBeenCalled();
+  });
+
+  it('disposes the images of a texture recreated for a new size', () => {
+    const { context, createTexture, createVideoFrameFromNativeBuffer } =
+      makeContext();
+    const key = makeKey();
+
+    const first = makeVideoFrame(context, key, makeFrame(1n, 1));
+    const second = makeVideoFrame(context, key, makeFrame(1n, 2));
+    createVideoFrameFromNativeBuffer.mockReturnValueOnce({
+      width: WIDTH * 2,
+      height: HEIGHT * 2,
+      release: jest.fn(),
+    });
+    const resized = makeVideoFrame(context, key, makeFrame(1n, 3));
+
+    expect(createTexture).toHaveBeenCalledTimes(2);
+    expect(createTexture.mock.results[0]!.value.destroy).toHaveBeenCalledTimes(
+      1
+    );
+    expect(first.image.dispose).toHaveBeenCalledTimes(1);
+    expect(second.image.dispose).toHaveBeenCalledTimes(1);
+    expect(resized.image).not.toBe(first.image);
+    expect(resized.image).not.toBe(second.image);
   });
 
   it('hands out the image again for a frame released after its copy', () => {
@@ -140,11 +170,13 @@ describe('releaseFrameImages', () => {
     const other = makeKey();
 
     const frame = makeVideoFrame(context, key, makeFrame(1n, 1));
+    const nextFrame = makeVideoFrame(context, key, makeFrame(1n, 4));
     const item = makeVideoFrame(context, `${key}:item`, makeFrame(2n, 2));
     const otherFrame = makeVideoFrame(context, other, makeFrame(3n, 3));
     releaseFrameImages(key);
 
     expect(frame.image.dispose).toHaveBeenCalledTimes(1);
+    expect(nextFrame.image.dispose).toHaveBeenCalledTimes(1);
     expect(item.image.dispose).toHaveBeenCalledTimes(1);
     expect(otherFrame.image.dispose).not.toHaveBeenCalled();
     const [texture, itemTexture, otherTexture] = createTexture.mock.results.map(
@@ -155,8 +187,8 @@ describe('releaseFrameImages', () => {
     expect(otherTexture.destroy).not.toHaveBeenCalled();
 
     // The same frame handed out again is copied into a new texture.
-    makeVideoFrame(context, key, makeFrame(1n, 1));
-    expect(copyExternalImageToTexture).toHaveBeenCalledTimes(4);
+    makeVideoFrame(context, key, makeFrame(1n, 4));
+    expect(copyExternalImageToTexture).toHaveBeenCalledTimes(5);
     expect(createTexture).toHaveBeenCalledTimes(4);
   });
 });

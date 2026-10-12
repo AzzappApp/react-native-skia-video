@@ -206,8 +206,8 @@ WebGPU.
   + frame.image
   ```
 
-- The images are owned by the player: an image is disposed when the next frame
-  is produced, so draw it instead of keeping it around (use
+- The images are owned by the player: an image only shows its frame until the
+  next one is produced, so draw it instead of keeping it around (use
   `image.makeNonTextureImage()` to keep a copy).
 - `useVideoCompositionPlayer` and `exportVideoComposition` keep the same API.
 

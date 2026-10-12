@@ -65,7 +65,13 @@ type SharedBuffer = {
 
 type FrameTexture = {
   texture: GPUTexture | null;
+  /** The image of the texture handed out with the current frame. */
   image: SkImage | null;
+  /**
+   * The other image of the texture, handed out with the next frame (see
+   * `makeVideoFrame`).
+   */
+  spareImage: SkImage | null;
   /** The id of the frame copied into the texture (see DecodedFrame.id). */
   frameId: number | undefined;
   /** Android: the imported buffers, most recently used first. */
@@ -111,6 +117,8 @@ const getTexture = (
   ) {
     state.image?.dispose();
     state.image = null;
+    state.spareImage?.dispose();
+    state.spareImage = null;
     state.texture?.destroy();
     state.texture = device.createTexture({
       size: [width, height],
@@ -298,9 +306,8 @@ const copySharedBuffer = (
  * The frame is copied on the GPU (see `copyNativeFrame` and
  * `copySharedBuffer`) into a texture of Skia's device that is reused for
  * every frame of the same `key`, and the texture is wrapped into an SkImage
- * without copy. The image of the previous frame of the same key is
- * disposed: frames are only valid until the next frame of the same key is
- * made.
+ * without copy. The images of a key show its latest frame: frames are only
+ * valid until the next frame of the same key is made.
  *
  * Must be called on the runtime that draws the frames.
  */
@@ -316,6 +323,7 @@ export const makeVideoFrame = (
     state = {
       texture: null,
       image: null,
+      spareImage: null,
       frameId: undefined,
       sharedBuffers: [],
     };
@@ -346,11 +354,14 @@ export const makeVideoFrame = (
   const texture = IS_ANDROID
     ? copySharedBuffer(device, state, buffer, frame)
     : copyNativeFrame(device, webgpu, state, buffer, frame);
-  const previousImage = state.image;
-  const image = Skia.Image.MakeImageFromGPUTexture(texture);
+  // Two images of the texture, handed out in turn: a new frame needs another
+  // image (Reanimated ignores setting a shared value to the object it holds,
+  // e.g. in `useDerivedValue(() => currentFrame.value?.image)`), and a new
+  // image per frame would charge the texture's size to the GC every frame.
+  const image = state.spareImage ?? Skia.Image.MakeImageFromGPUTexture(texture);
+  state.spareImage = state.image;
   state.image = image;
   state.frameId = frameId;
-  previousImage?.dispose();
   return {
     image,
     width: frame.width,
@@ -374,6 +385,7 @@ export const releaseFrameImages = (key: string) => {
     }
     const state = textures[textureKey]!;
     state.image?.dispose();
+    state.spareImage?.dispose();
     state.texture?.destroy();
     for (const shared of state.sharedBuffers) {
       shared.texture.destroy();

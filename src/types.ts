@@ -8,8 +8,9 @@ export type VideoFrame = {
    * The image of the frame, ready to be drawn with React Native Skia.
    *
    * The image is owned by the player (or composition player) that produced the
-   * frame and is disposed when the next frame is produced: draw it, don't keep
-   * it around (use `image.makeNonTextureImage()` to keep a copy).
+   * frame and only shows it until the next frame is produced: draw it, don't
+   * keep it around or dispose it (use `image.makeNonTextureImage()` to keep a
+   * copy).
    */
   image: SkImage;
   /**
