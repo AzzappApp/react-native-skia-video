@@ -3,6 +3,7 @@ import { Skia, type SkImage } from 'react-native-skia';
 import {
   GPUTextureUsage,
   importDevice,
+  type GPUSharedFence,
   type GPUSharedFenceState,
   type GPUSharedTextureMemory,
 } from 'react-native-webgpu';
@@ -209,6 +210,11 @@ const beginAccessReporting = (
  * The buffers are imported once and kept (a decoder renders into the same
  * few buffers in turn). An imported buffer is kept alive by Skia's device, so
  * that its handle cannot be reused by another buffer while it is cached.
+ *
+ * The fences (a sync fd each) and the buffers dropped from the cache are
+ * released right away rather than when the runtime collects them, with the
+ * `destroy()` of the react-native-webgpu patch (see .yarn/patches). Without
+ * the patch, they are left to the GC.
  */
 const copySharedBuffer = (
   device: GPUDevice,
@@ -218,6 +224,7 @@ const copySharedBuffer = (
 ): GPUTexture => {
   'worklet';
   const releaseFences: bigint[] = [];
+  let readyFence: GPUSharedFence | undefined;
   try {
     const { sharedBuffers } = state;
     const index = sharedBuffers.findIndex((shared) => shared.handle === handle);
@@ -229,7 +236,9 @@ const copySharedBuffer = (
       const memory = device.importSharedTextureMemory({ handle });
       source = { handle, memory, texture: memory.createTexture() };
       if (sharedBuffers.length >= MAX_SHARED_BUFFERS) {
-        sharedBuffers.pop()!.texture.destroy();
+        const evicted = sharedBuffers.pop()!;
+        evicted.texture.destroy();
+        evicted.memory.destroy?.();
       }
     }
     sharedBuffers.unshift(source);
@@ -240,12 +249,13 @@ const copySharedBuffer = (
     const readyFences: GPUSharedFenceState[] = [];
     if (frame.readyFence != null) {
       if (state.gpuReadyWait) {
+        // Imports a duplicate of the fence: the frame keeps its own.
+        readyFence = device.importSharedFence({
+          type: 'sync-fd',
+          handle: frame.readyFence,
+        });
         readyFences.push({
-          // Imports a duplicate of the fence: the frame keeps its own.
-          fence: device.importSharedFence({
-            type: 'sync-fd',
-            handle: frame.readyFence,
-          }),
+          fence: readyFence,
           // Dawn's Vulkan backend backs sync fds with binary semaphores, and
           // rejects any other signaled value than 1.
           signaledValue: BigInt(1),
@@ -266,6 +276,7 @@ const copySharedBuffer = (
         frame.waitForReady?.();
         sharedBuffers.shift();
         source.texture.destroy();
+        source.memory.destroy?.();
         const memory = device.importSharedTextureMemory({ handle });
         source = { handle, memory, texture: memory.createTexture() };
         sharedBuffers.unshift(source);
@@ -291,10 +302,12 @@ const copySharedBuffer = (
         if (exported.type === 'sync-fd') {
           releaseFences.push(exported.handle);
         }
+        fence.destroy?.();
       }
     }
     return texture;
   } finally {
+    readyFence?.destroy?.();
     // Takes ownership of the fences.
     frame.release?.(releaseFences);
   }
@@ -389,6 +402,7 @@ export const releaseFrameImages = (key: string) => {
     state.texture?.destroy();
     for (const shared of state.sharedBuffers) {
       shared.texture.destroy();
+      shared.memory.destroy?.();
     }
     delete textures[textureKey];
   }

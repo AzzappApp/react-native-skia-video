@@ -330,6 +330,9 @@ export const exportVideoComposition = async <T = undefined>({
                     } else {
                       gpuWait = false;
                     }
+                    // Closes Dawn's sync fd now rather than when collected
+                    // (see copySharedBuffer in frameImages).
+                    fence.destroy?.();
                   }
                   if (!gpuWait) {
                     // No fence the encoder can wait for: wait for the drawing
@@ -368,6 +371,7 @@ export const exportVideoComposition = async <T = undefined>({
           for (const target of targets) {
             target.surface.dispose();
             target.texture.destroy();
+            target.memory.destroy?.();
           }
           targets.length = 0;
           // Note: the offscreen surface is deliberately not disposed — it is the
