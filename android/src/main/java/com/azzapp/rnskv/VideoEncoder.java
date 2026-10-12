@@ -232,6 +232,12 @@ public class VideoEncoder {
   public HardwareBuffer beginFrame() {
     if (frameTexture == null) {
       frameTexture = new HardwareBufferTexture(width, height);
+    } else {
+      // Vulkan draws the frame into the buffer the encoder read the previous
+      // frame from: the encoder must be done reading it. Waiting here rather
+      // than at the end of endFrame lets that read (and the drawing it waits
+      // for on the GPU) run while the next frame is decoded.
+      GLES20.glFinish();
     }
     return frameTexture.getHardwareBuffer();
   }
@@ -250,9 +256,6 @@ public class VideoEncoder {
       throw new IllegalStateException("endFrame called without beginFrame");
     }
     encodeFrame(frameTexture.getTextureId(), time);
-    // The next frame is drawn into the same buffer, from Vulkan: the encoder
-    // must be done reading it (a single quad, about a millisecond).
-    GLES20.glFinish();
   }
 
   public void encodeFrame(int texture, double time) {

@@ -310,9 +310,10 @@ export const exportVideoComposition = async <T = undefined>({
                 let accessState: GPUSharedTextureMemoryEndAccessState;
                 try {
                   draw(target.surface.getCanvas());
-                  // The encoder reads the buffer as soon as it is handed
-                  // back: wait for the GPU to finish drawing into it.
-                  target.surface.flush(true);
+                  // iOS: the encoder reads the buffer as soon as it is handed
+                  // back, wait for the GPU to finish drawing into it. Android:
+                  // the encoder waits for it on the GPU (see below).
+                  target.surface.flush(!IS_ANDROID);
                 } finally {
                   accessState = target.memory.endAccess(target.texture);
                 }
@@ -321,11 +322,19 @@ export const exportVideoComposition = async <T = undefined>({
                 // the encoder waits for on the GPU.
                 const fences: bigint[] = [];
                 if (IS_ANDROID) {
+                  let gpuWait = accessState.fences.length > 0;
                   for (const { fence } of accessState.fences) {
                     const exported = fence.export();
                     if (exported.type === 'sync-fd') {
                       fences.push(exported.handle);
+                    } else {
+                      gpuWait = false;
                     }
+                  }
+                  if (!gpuWait) {
+                    // No fence the encoder can wait for: wait for the drawing
+                    // on the CPU instead.
+                    target.surface.flush(true);
                   }
                 }
                 currentEncoder.endFrame!(currentTime, fences);
