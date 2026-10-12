@@ -293,9 +293,13 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     if (framesToRenders.isEmpty()) {
       return null;
     }
+    // Only the latest frame is rendered to the surface, the earlier ones are
+    // dropped: they are already outdated, and the frame extractor would still
+    // draw each of them into a frame buffer.
+    Frame latestFrame = framesToRenders.get(framesToRenders.size() - 1);
     framesToRenders.forEach(frame -> {
       try {
-        codec.releaseOutputBuffer(frame.outputBufferIndex, true);
+        codec.releaseOutputBuffer(frame.outputBufferIndex, frame == latestFrame);
       } catch (Throwable e) {
         return;
       }
@@ -303,7 +307,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     freeFrames.addAll(framesToRenders);
     pendingFrames.removeAll(framesToRenders);
 
-    return framesToRenders.get(framesToRenders.size() - 1).presentationTimeUs;
+    return latestFrame.presentationTimeUs;
   }
 
   /**
