@@ -356,7 +356,11 @@ public class VideoEncoder {
     }
 
     while (true) {
-      int encoderStatus = encoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_USEC);
+      // Only wait for outputs at the end of the stream: after each frame, the
+      // last call would block for the whole timeout once the available
+      // outputs are drained (the next frames drain the later ones).
+      int encoderStatus = encoder.dequeueOutputBuffer(
+        bufferInfo, endOfStream ? TIMEOUT_USEC : 0);
       if (encoderStatus == MediaCodec.INFO_TRY_AGAIN_LATER) {
         // no output available yet
         if (!endOfStream) {
