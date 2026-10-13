@@ -578,11 +578,19 @@ export type RNSkiaVideoModule = {
    * their frames over in their own YUV buffers, converted to RGB on Skia's
    * device, rather than rendered into RGBA buffers with OpenGL. Needs Android
    * 10 and a device with the `opaque-ycbcr-android-for-external-texture`
-   * feature. Disabled by default.
+   * feature. By default, enabled when Skia's device has it.
    *
    * Not part of the public API (exposed through `__RNSkiaVideoPrivateAPI`).
    */
   setYUVFramesEnabled?: (enabled: boolean) => void;
+  /**
+   * Android: tells the native side whether Skia's device can sample the YUV
+   * buffers of the decoders (see `setYUVFramesEnabled`). Called by the
+   * library itself.
+   *
+   * Not part of the public API.
+   */
+  setYUVFramesSupported?: (supported: boolean) => void;
   /**
    * Returns the decoding capabilities of the current platform for the specified mimetype.
    *

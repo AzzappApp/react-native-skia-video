@@ -115,7 +115,8 @@ const BenchmarkScreen = () => {
   const [liveRun, setLiveRun] = useState<LiveRun | null>(null);
   const [results, setResults] = useState<RunResult[]>([]);
   const [yuvFramesSupported] = useState(areYUVFramesSupported);
-  const [yuvFrames, setYUVFrames] = useState(false);
+  // The library's default: YUV frames when Skia's device supports them.
+  const [yuvFrames, setYUVFrames] = useState(yuvFramesSupported);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Also on mount: the setting is kept by the native module across reloads.

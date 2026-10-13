@@ -12,13 +12,34 @@ import java.util.Map;
 public class VideoCompositionDecoder {
 
   /**
+   * Whether React Native Skia's device can sample the decoders' own YUV
+   * buffers: JS checks it once (see setYUVFramesSupported in JS).
+   */
+  private static volatile boolean yuvFramesSupported = false;
+
+  /**
+   * An explicit choice to hand the frames over in YUV buffers or not,
+   * overriding yuvFramesSupported, or null.
+   */
+  private static volatile Boolean yuvFramesEnabled = null;
+
+  /**
    * Whether the decoders hand their frames over in their own YUV buffers,
    * converted to RGB on React Native Skia's device
    * ({@link ImageReaderFrameExtractor}), rather than rendered into RGBA buffers
-   * with OpenGL ({@link GLFrameExtractor}). JS enables it once it checked that
-   * Skia's device can sample them; it applies to the decoders prepared next.
+   * with OpenGL ({@link GLFrameExtractor}): when Skia's device can sample them,
+   * unless disabled. It applies to the decoders prepared next.
    */
-  private static volatile boolean yuvFramesEnabled = false;
+  private static boolean useYUVFrames() {
+    Boolean enabled = yuvFramesEnabled;
+    // ImageReader only allocates GPU-sampleable buffers from Android 10 on.
+    return (enabled != null ? enabled : yuvFramesSupported)
+      && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
+  }
+
+  public static void setYUVFramesSupported(boolean supported) {
+    yuvFramesSupported = supported;
+  }
 
   public static void setYUVFramesEnabled(boolean enabled) {
     yuvFramesEnabled = enabled;
@@ -84,8 +105,7 @@ public class VideoCompositionDecoder {
    * Prepares the items decoders and the image readers.
    */
   public void prepare() {
-    // ImageReader only allocates GPU-sampleable buffers from Android 10 on.
-    boolean yuvFrames = yuvFramesEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
+    boolean yuvFrames = useYUVFrames();
     if (!yuvFrames) {
       eglResourcesHolder = EGLResourcesHolder.createWithPBBufferSurface();
       eglResourcesHolder.makeCurrent();

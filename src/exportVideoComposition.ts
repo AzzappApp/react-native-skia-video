@@ -24,6 +24,7 @@ import type {
   VideoCompositionFramesExtractorSync,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
+import { checkYUVFramesSupport } from './yuvFrames';
 import {
   createFrameImagesKey,
   getFrameImageContext,
@@ -166,6 +167,7 @@ export const exportVideoComposition = async <T = undefined>({
     let frameImageContext: ReturnType<typeof getFrameImageContext>;
     try {
       frameImageContext = getFrameImageContext();
+      checkYUVFramesSupport(frameImageContext);
     } catch (error) {
       settleReject(error);
       return;

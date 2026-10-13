@@ -13,6 +13,7 @@ import type {
   VideoCompositionFramesExtractor,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
+import { checkYUVFramesSupport } from './yuvFrames';
 import {
   createFrameImagesKey,
   getFrameImageContext,
@@ -123,7 +124,11 @@ export const useVideoCompositionPlayer = <T = undefined>({
     })();
   }, [framesExtractor]);
 
-  const frameImageContext = useMemo(() => getFrameImageContext(), []);
+  const frameImageContext = useMemo(() => {
+    const context = getFrameImageContext();
+    checkYUVFramesSupport(context);
+    return context;
+  }, []);
   const framesKey = useMemo(() => createFrameImagesKey(), []);
 
   // The offscreen surface the frames are drawn into. `currentFrame` is its
