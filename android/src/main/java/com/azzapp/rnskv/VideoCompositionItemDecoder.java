@@ -5,6 +5,7 @@ import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
+import android.util.Log;
 import android.view.Surface;
 
 import androidx.annotation.NonNull;
@@ -20,7 +21,19 @@ import java.util.Stack;
  */
 public class VideoCompositionItemDecoder extends MediaCodec.Callback {
 
+  private static final String TAG = "VideoCompositionItemDecoder";
+
+  /**
+   * The priority of a decoder that does not have to keep up with playback,
+   * {@link MediaFormat#KEY_PRIORITY}: 1 is non-realtime.
+   */
+  private static final int NON_REALTIME_PRIORITY = 1;
+
   private final VideoComposition.Item item;
+
+  private final boolean realtime;
+
+  private int trackIndex;
 
   private MediaExtractor extractor;
 
@@ -63,10 +76,13 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
   /**
    * Create a new VideoCompositionItemDecoder.
    *
-   * @param item the video composition item to decode
+   * @param item     the video composition item to decode
+   * @param realtime whether the frames are decoded for playback, at the pace
+   *                 of the video, rather than as fast as possible (export)
    */
-  public VideoCompositionItemDecoder(VideoComposition.Item item) {
+  public VideoCompositionItemDecoder(VideoComposition.Item item, boolean realtime) {
     this.item = item;
+    this.realtime = realtime;
   }
 
   /**
@@ -80,7 +96,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     }
     extractor = new MediaExtractor();
     extractor.setDataSource(item.getPath());
-    int trackIndex = selectTrack(extractor);
+    trackIndex = selectTrack(extractor);
     if (trackIndex == -1) {
       throw new RuntimeException("No video track");
     }
@@ -132,7 +148,18 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     if (!prepared || !configured || started) {
       return;
     }
-    codec.start();
+    try {
+      codec.start();
+    } catch (IllegalStateException e) {
+      if (realtime) {
+        throw e;
+      }
+      // The decoder may only run at the pace of the video (see configure).
+      Log.w(TAG, "Could not start a non-realtime decoder, starting it as realtime", e);
+      codec.reset();
+      configureCodec(format);
+      codec.start();
+    }
     started = true;
   }
 
@@ -364,10 +391,48 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
 
   private synchronized void configure() {
     if (prepared && surface != null && !configured) {
-      codec.setCallback(this);
-      codec.configure(format, surface, null, 0);
+      if (realtime) {
+        configureCodec(format);
+      } else {
+        // A decoder sizes its resources for the frame rate of the video,
+        // unless told it does not have to keep up with playback and the rate
+        // to run at: the non-realtime priority and the operating rate
+        // Android's own transcoder sets (VideoTrackTranscoder in
+        // libmediatranscoding).
+        MediaFormat nonRealtimeFormat = extractor.getTrackFormat(trackIndex);
+        nonRealtimeFormat.setInteger(MediaFormat.KEY_PRIORITY, NON_REALTIME_PRIORITY);
+        nonRealtimeFormat.setInteger(
+          MediaFormat.KEY_OPERATING_RATE, getMaxOperatingRate(videoWidth, videoHeight));
+        try {
+          configureCodec(nonRealtimeFormat);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+          Log.w(TAG, "Could not configure a non-realtime decoder, configuring it as realtime", e);
+          codec.reset();
+          configureCodec(format);
+        }
+      }
       configured = true;
     }
+  }
+
+  private void configureCodec(MediaFormat format) {
+    codec.setCallback(this);
+    codec.configure(format, surface, null, 0);
+  }
+
+  /**
+   * The operating rate Android's own transcoder sets on its codecs to run
+   * them at their maximum speed.
+   */
+  private static int getMaxOperatingRate(int width, int height) {
+    int pixels = width * height;
+    if (pixels <= 1280 * 720) {
+      return 480;
+    }
+    if (pixels <= 1920 * 1088) {
+      return 240;
+    }
+    return 120;
   }
 
   private static int selectTrack(MediaExtractor extractor) {

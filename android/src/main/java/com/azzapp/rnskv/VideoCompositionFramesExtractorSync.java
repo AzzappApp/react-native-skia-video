@@ -31,7 +31,7 @@ public class VideoCompositionFramesExtractorSync {
 
   public VideoCompositionFramesExtractorSync(VideoComposition composition) {
     this.composition = composition;
-    this.decoder = new VideoCompositionDecoder(composition);
+    this.decoder = new VideoCompositionDecoder(composition, false);
   }
 
   public void start() throws Exception {

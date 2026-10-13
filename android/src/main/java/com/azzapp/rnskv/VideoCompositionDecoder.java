@@ -70,8 +70,11 @@ public class VideoCompositionDecoder {
    * Creates a new video composition decoder.
    *
    * @param composition The video composition to decode.
+   * @param realtime    Whether the frames are decoded for playback, at the
+   *                    pace of the videos, rather than as fast as possible
+   *                    (export).
    */
-  public VideoCompositionDecoder(VideoComposition composition) {
+  public VideoCompositionDecoder(VideoComposition composition, boolean realtime) {
     this.composition = composition;
     decoders = new HashMap<>();
     glFrameExtractors = new HashMap<>();
@@ -79,7 +82,7 @@ public class VideoCompositionDecoder {
       if (!item.isVideo()) {
         return;
       }
-      VideoCompositionItemDecoder decoder = new VideoCompositionItemDecoder(item);
+      VideoCompositionItemDecoder decoder = new VideoCompositionItemDecoder(item, realtime);
       decoder.setOnErrorListener(error -> {
         if (onErrorListener != null) {
           onErrorListener.onError(error);
