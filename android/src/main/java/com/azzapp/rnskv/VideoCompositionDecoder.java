@@ -58,6 +58,9 @@ public class VideoCompositionDecoder {
 
   private final HashMap<String, VideoFrame> videoFrames = new HashMap<>();
 
+  /** The time spent getting frames from the frame extractors (see ExportDiagnostics). */
+  private long acquireNs = 0;
+
   private OnItemImageAvailableListener onItemImageAvailableListener;
 
   private OnFrameAvailableListener onFrameAvailableListener;
@@ -227,8 +230,11 @@ public class VideoCompositionDecoder {
       VideoFrame nextFrame;
       ImageReaderFrameExtractor yuvFrameExtractor = yuvFrameExtractors.get(item);
       GLFrameExtractor glFrameExtractor = glFrameExtractors.get(item);
+      long acquireStartNs = System.nanoTime();
       if (yuvFrameExtractor != null) {
-        if (!yuvFrameExtractor.decodeNextFrame()) {
+        boolean decoded = yuvFrameExtractor.decodeNextFrame();
+        acquireNs += System.nanoTime() - acquireStartNs;
+        if (!decoded) {
           continue;
         }
         nextFrame = new VideoFrame(
@@ -243,7 +249,9 @@ public class VideoCompositionDecoder {
           continue;
         }
         eglResourcesHolder.makeCurrent();
-        if (!glFrameExtractor.decodeNextFrame(frameWidth, frameHeight)) {
+        boolean decoded = glFrameExtractor.decodeNextFrame(frameWidth, frameHeight);
+        acquireNs += System.nanoTime() - acquireStartNs;
+        if (!decoded) {
           continue;
         }
         nextFrame = new VideoFrame(
@@ -256,6 +264,31 @@ public class VideoCompositionDecoder {
       videoFrames.put(id, nextFrame);
     }
     return videoFrames;
+  }
+
+  /**
+   * @return whether the frames are handed over in the decoders' own YUV buffers
+   */
+  public synchronized boolean usesYUVFrames() {
+    return !yuvFrameExtractors.isEmpty();
+  }
+
+  /**
+   * @return the frames the decoder of the item decoded and did not render yet
+   */
+  public synchronized int getPendingFramesCount(VideoComposition.Item item) {
+    VideoCompositionItemDecoder decoder = decoders.get(item);
+    return decoder != null ? decoder.getPendingFramesCount() : 0;
+  }
+
+  /**
+   * @return the time spent getting frames from the frame extractors since the
+   * last call, in nanoseconds
+   */
+  public synchronized long takeAcquireNs() {
+    long ns = acquireNs;
+    acquireNs = 0;
+    return ns;
   }
 
   /**

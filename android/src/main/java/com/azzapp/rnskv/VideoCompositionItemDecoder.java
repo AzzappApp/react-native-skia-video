@@ -156,6 +156,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
       }
       // The decoder may only run at the pace of the video (see configure).
       Log.w(TAG, "Could not start a non-realtime decoder, starting it as realtime", e);
+      ExportDiagnostics.log(codec.getName() + ": non-realtime refused at start, realtime");
       codec.reset();
       configureCodec(format);
       codec.start();
@@ -319,6 +320,13 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     // Do nothing
   }
 
+  /**
+   * @return the frames decoded and not rendered yet
+   */
+  synchronized public int getPendingFramesCount() {
+    return pendingFrames.size();
+  }
+
   synchronized public Long render(long compositionTimeUs) {
     if (pendingFrames.isEmpty()) {
       return null;
@@ -405,8 +413,12 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
           MediaFormat.KEY_OPERATING_RATE, getMaxOperatingRate(videoWidth, videoHeight));
         try {
           configureCodec(nonRealtimeFormat);
+          ExportDiagnostics.log(codec.getName() + " " + videoWidth + "x" + videoHeight
+            + ": non-realtime, operating rate "
+            + nonRealtimeFormat.getInteger(MediaFormat.KEY_OPERATING_RATE));
         } catch (IllegalArgumentException | IllegalStateException e) {
           Log.w(TAG, "Could not configure a non-realtime decoder, configuring it as realtime", e);
+          ExportDiagnostics.log(codec.getName() + ": non-realtime refused at configure, realtime");
           codec.reset();
           configureCodec(format);
         }
