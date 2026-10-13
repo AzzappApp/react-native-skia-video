@@ -10,6 +10,7 @@ import {
   type GPUSharedTextureMemory,
 } from 'react-native-webgpu';
 import type { DecodedFrame, VideoFrame } from './types';
+import { endPhase, startPhase } from './exportDiagnostics';
 
 /**
  * What the worklets need to turn decoded frames into Skia images: Skia's GPU
@@ -236,6 +237,7 @@ const copySharedBuffer = (
     const { sharedBuffers } = state;
     const index = sharedBuffers.findIndex((shared) => shared.handle === handle);
     let source: SharedBuffer;
+    let phaseStart = startPhase();
     if (index >= 0) {
       source = sharedBuffers[index]!;
       sharedBuffers.splice(index, 1);
@@ -249,6 +251,8 @@ const copySharedBuffer = (
       }
     }
     sharedBuffers.unshift(source);
+    endPhase('gl.import', phaseStart);
+    phaseStart = startPhase();
 
     // Skia's device waits for the frame's ready fence on the GPU if it can
     // import sync fds, and the CPU waits for it otherwise.
@@ -271,6 +275,8 @@ const copySharedBuffer = (
         frame.waitForReady?.();
       }
     }
+    endPhase('gl.readyFence', phaseStart);
+    phaseStart = startPhase();
     try {
       source.memory.beginAccess(source.texture, true, readyFences);
     } catch (error) {
@@ -293,16 +299,22 @@ const copySharedBuffer = (
         state.gpuReadyWait = false;
       }
     }
+    endPhase('gl.beginAccess', phaseStart);
     const { width, height } = source.texture;
     const texture = getTexture(device, state, width, height);
     try {
+      phaseStart = startPhase();
       const encoder = device.createCommandEncoder();
       encoder.copyTextureToTexture({ texture: source.texture }, { texture }, [
         width,
         height,
       ]);
+      endPhase('gl.encode', phaseStart);
+      phaseStart = startPhase();
       device.queue.submit([encoder.finish()]);
+      endPhase('gl.submit', phaseStart);
     } finally {
+      phaseStart = startPhase();
       const { fences } = source.memory.endAccess(source.texture);
       for (const { fence } of fences) {
         const exported = fence.export();
@@ -311,12 +323,15 @@ const copySharedBuffer = (
         }
         fence.destroy?.();
       }
+      endPhase('gl.endAccess', phaseStart);
     }
     return texture;
   } finally {
+    const phaseStart = startPhase();
     readyFence?.destroy?.();
     // Takes ownership of the fences.
     frame.release?.(releaseFences);
+    endPhase('gl.release', phaseStart);
   }
 };
 
@@ -476,13 +491,18 @@ const convertYUVFrame = (
 ): GPUTexture => {
   'worklet';
   const layout = frame.yuv!;
+  let phaseStart = startPhase();
   const nativeFrame = webgpu.createVideoFrameFromNativeBuffer(buffer);
+  endPhase('yuv.createVideoFrame', phaseStart);
   try {
+    phaseStart = startPhase();
     const external = device.importExternalTexture({
       source: nativeFrame,
       rotation: layout.rotation as 0 | 90 | 180 | 270,
     });
+    endPhase('yuv.importExternalTexture', phaseStart);
     try {
+      phaseStart = startPhase();
       const texture = getTexture(device, state, frame.width, frame.height);
       const conversion = getYUVConversion(device);
       const swapped = layout.rotation === 90 || layout.rotation === 270;
@@ -527,15 +547,23 @@ const convertYUVFrame = (
       );
       pass.draw(3);
       pass.end();
-      device.queue.submit([encoder.finish()]);
+      const commands = encoder.finish();
+      endPhase('yuv.encode', phaseStart);
+      phaseStart = startPhase();
+      device.queue.submit([commands]);
+      endPhase('yuv.submit', phaseStart);
       return texture;
     } finally {
+      phaseStart = startPhase();
       // Once the commands sampling the buffer are submitted, never before.
       external.destroy();
+      endPhase('yuv.destroyExternalTexture', phaseStart);
     }
   } finally {
+    phaseStart = startPhase();
     nativeFrame.release();
     frame.release?.();
+    endPhase('yuv.release', phaseStart);
   }
 };
 
