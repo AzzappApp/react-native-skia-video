@@ -26,13 +26,6 @@ import type {
 import RNSkiaVideoModule from './RNSkiaVideoModule';
 import { checkYUVFramesSupport } from './yuvFrames';
 import {
-  endExportFrame,
-  endPhase,
-  startExportTimings,
-  startPhase,
-  stopExportTimings,
-} from './exportDiagnostics';
-import {
   createFrameImagesKey,
   getFrameImageContext,
   makeVideoFrames,
@@ -272,26 +265,17 @@ export const exportVideoComposition = async <T = undefined>({
           const framePixels = zeroCopy
             ? null
             : new Uint8Array(width * height * 4);
-          startExportTimings();
-          let frameStart = startPhase();
           for (let i = 0; i < nbFrames; i++) {
             if (cancelledSynchronizable.getDirty()) {
               return;
             }
             const currentTime = i / options.frameRate;
             runPooled(() => {
-              endPhase('betweenFrames', frameStart);
-              let phaseStart = startPhase();
-              const decodedFrames =
-                currentExtractor.decodeCompositionFrames(currentTime);
-              endPhase('decodeCall', phaseStart);
-              phaseStart = startPhase();
               const frames = makeVideoFrames(
                 frameImageContext,
                 framesKey,
-                decodedFrames
+                currentExtractor.decodeCompositionFrames(currentTime)
               );
-              endPhase('makeVideoFrames', phaseStart);
               const context = beforeDrawFrame?.() as any;
               const draw = (canvas: SkCanvas) => {
                 canvas.drawColor(clearColor, BlendMode.Clear);
@@ -381,12 +365,9 @@ export const exportVideoComposition = async <T = undefined>({
                   nbFrames,
                 });
               }
-              endExportFrame();
-              frameStart = startPhase();
             });
           }
         } finally {
-          stopExportTimings();
           // Also on cancellation or failure.
           surfaceImage?.dispose();
           for (const target of targets) {

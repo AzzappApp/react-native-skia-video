@@ -11866,7 +11866,7 @@ __metadata:
 
 "react-native-webgpu@patch:react-native-webgpu@npm%3A0.13.0#~/.yarn/patches/react-native-webgpu-npm-0.13.0-b763f4097e.patch":
   version: 0.13.0
-  resolution: "react-native-webgpu@patch:react-native-webgpu@npm%3A0.13.0#~/.yarn/patches/react-native-webgpu-npm-0.13.0-b763f4097e.patch::version=0.13.0&hash=49b4c1"
+  resolution: "react-native-webgpu@patch:react-native-webgpu@npm%3A0.13.0#~/.yarn/patches/react-native-webgpu-npm-0.13.0-b763f4097e.patch::version=0.13.0&hash=100b60"
   dependencies:
     react-native-webgpu-dawn: "npm:154.2.0"
   peerDependencies:
@@ -11879,7 +11879,7 @@ __metadata:
       optional: true
     react-native-worklets:
       optional: true
-  checksum: 10/d0b52cd6970a2f6f4ff1109bfe3186b2a31e0fe1a4233ba42f2226e72f579b463e1097fef4760b7551bd9a4128813e0fd6767c7caa7042d0e4370812f1495ff9
+  checksum: 10/5523a9c46d6def372ad52333cab95ee3dac19188153356878512884b9e377bf06efa0279076c014dd448eaed0b5f5d1258cdb8c46e9661592b5fa1b5ea029d3c
   languageName: node
   linkType: hard
 

@@ -86,10 +86,9 @@ const makeYUVFrame = (
   id: number,
   rotation: number,
   width: number,
-  height: number,
-  buffer = BigInt(id)
+  height: number
 ): DecodedFrame => ({
-  buffer,
+  buffer: BigInt(id),
   id,
   width,
   height,
@@ -100,58 +99,6 @@ const makeYUVFrame = (
 
 let nextKey = 0;
 const makeKey = () => `yuv-test-${nextKey++}`;
-
-// A buffer imported with importSharedTextureMemory (react-native-webgpu
-// patch), whose accesses end with a sync fd fence each.
-const makeSharedMemory = (handle: bigint) => {
-  const texture = {
-    width: BUFFER_WIDTH,
-    height: BUFFER_HEIGHT,
-    destroy: jest.fn(),
-  };
-  const fences: { destroy: jest.Mock }[] = [];
-  return {
-    handle,
-    texture,
-    fences,
-    createTexture: jest.fn(() => texture),
-    beginAccess: jest.fn(),
-    endAccess: jest.fn(() => {
-      const fence = { destroy: jest.fn() };
-      fences.push(fence);
-      return { initialized: true, fences: [{ fence, signaledValue: 1n }] };
-    }),
-    destroy: jest.fn(),
-  };
-};
-
-// A device with the createExternalTexture of the react-native-webgpu patch.
-const makeSharedContext = () => {
-  const base = makeContext();
-  const memories: ReturnType<typeof makeSharedMemory>[] = [];
-  const importSharedTextureMemory = jest.fn(
-    ({ handle }: { handle: bigint }) => {
-      const memory = makeSharedMemory(handle);
-      memories.push(memory);
-      return memory;
-    }
-  );
-  const createExternalTexture = jest.fn(() => {
-    const external = { yuvToRgbMatrix: YUV_TO_RGB, destroy: jest.fn() };
-    base.externalTextures.push(external);
-    return external;
-  });
-  Object.assign(base.device, {
-    importSharedTextureMemory,
-    createExternalTexture,
-  });
-  return {
-    ...base,
-    memories,
-    importSharedTextureMemory,
-    createExternalTexture,
-  };
-};
 
 describe('uprightCrop', () => {
   const crop = { x: 0, y: 0, width: 1920, height: 1080 };
@@ -240,119 +187,5 @@ describe('releaseFrameImages with YUV frames', () => {
 
     const uniformBuffer = device.createBuffer.mock.results[0]!.value;
     expect(uniformBuffer.destroy).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('makeVideoFrame with YUV frames and createExternalTexture', () => {
-  it('imports a buffer once, then only begins and ends the access to it', () => {
-    const {
-      context,
-      device,
-      memories,
-      importSharedTextureMemory,
-      createExternalTexture,
-    } = makeSharedContext();
-    const key = makeKey();
-    const frames = [
-      makeYUVFrame(1, 90, 360, 640, 7n),
-      makeYUVFrame(2, 90, 360, 640, 7n),
-    ];
-
-    frames.forEach((frame) => makeVideoFrame(context, key, frame));
-
-    expect(importSharedTextureMemory).toHaveBeenCalledTimes(1);
-    expect(importSharedTextureMemory).toHaveBeenCalledWith({ handle: 7n });
-    const memory = memories[0]!;
-    expect(createExternalTexture).toHaveBeenCalledTimes(1);
-    expect(createExternalTexture).toHaveBeenCalledWith(
-      memory,
-      memory.texture,
-      90
-    );
-    expect(device.createBindGroup).toHaveBeenCalledTimes(1);
-    expect(device.importExternalTexture).not.toHaveBeenCalled();
-    expect(memory.beginAccess).toHaveBeenCalledTimes(2);
-    expect(memory.beginAccess).toHaveBeenCalledWith(memory.texture, true);
-    expect(device.queue.submit).toHaveBeenCalledTimes(2);
-    // Each access ends once the commands sampling the buffer are submitted,
-    // and its fences are released.
-    expect(memory.endAccess).toHaveBeenCalledTimes(2);
-    memory.endAccess.mock.invocationCallOrder.forEach((order, i) =>
-      expect(order).toBeGreaterThan(
-        device.queue.submit.mock.invocationCallOrder[i]!
-      )
-    );
-    memory.fences.forEach((fence) =>
-      expect(fence.destroy).toHaveBeenCalledTimes(1)
-    );
-    frames.forEach((frame) => expect(frame.release).toHaveBeenCalledTimes(1));
-    // The region of the upright 1088×1920 buffer, as without the cache.
-    const uniforms = Array.from(
-      device.queue.writeBuffer.mock.calls[1]![2] as Float32Array
-    );
-    [1080 / 1088, 1, 8 / 1088, 0].forEach((value, i) =>
-      expect(uniforms[12 + i]).toBeCloseTo(value, 5)
-    );
-  });
-
-  it('releases the buffers no frame used for a while', () => {
-    const { context, memories, externalTextures } = makeSharedContext();
-    const key = makeKey();
-
-    makeVideoFrame(context, key, makeYUVFrame(1, 0, 1920, 1080, 100n));
-    for (let id = 2; id < 80; id++) {
-      makeVideoFrame(context, key, makeYUVFrame(id, 0, 1920, 1080, 200n));
-    }
-    expect(memories[0]!.destroy).not.toHaveBeenCalled();
-    // A new buffer: the decoder gave up the first one.
-    makeVideoFrame(context, key, makeYUVFrame(80, 0, 1920, 1080, 300n));
-
-    expect(externalTextures[0]!.destroy).toHaveBeenCalledTimes(1);
-    expect(memories[0]!.texture.destroy).toHaveBeenCalledTimes(1);
-    expect(memories[0]!.destroy).toHaveBeenCalledTimes(1);
-    expect(memories[1]!.destroy).not.toHaveBeenCalled();
-  });
-
-  it('imports the frame on its own if the access to its buffer fails', () => {
-    const { context, device, memories, importSharedTextureMemory } =
-      makeSharedContext();
-    const key = makeKey();
-    importSharedTextureMemory.mockImplementationOnce(({ handle }) => {
-      const memory = makeSharedMemory(handle);
-      memory.beginAccess.mockImplementation(() => {
-        throw new Error('beginAccess failed');
-      });
-      memories.push(memory);
-      return memory;
-    });
-    const frame = makeYUVFrame(1, 0, 1920, 1080, 7n);
-
-    makeVideoFrame(context, key, frame);
-
-    expect(device.importExternalTexture).toHaveBeenCalledTimes(1);
-    expect(memories[0]!.destroy).toHaveBeenCalledTimes(1);
-    expect(frame.release).toHaveBeenCalledTimes(1);
-
-    // Imported again for the next frame.
-    makeVideoFrame(context, key, makeYUVFrame(2, 0, 1920, 1080, 7n));
-    expect(importSharedTextureMemory).toHaveBeenCalledTimes(2);
-    expect(memories[1]!.beginAccess).toHaveBeenCalledTimes(1);
-  });
-
-  it('releases the imported buffers with the frames of the key', () => {
-    const { context, memories, externalTextures } = makeSharedContext();
-    const key = makeKey();
-
-    makeVideoFrame(context, key, makeYUVFrame(1, 0, 1920, 1080, 7n));
-    makeVideoFrame(context, key, makeYUVFrame(2, 0, 1920, 1080, 8n));
-    releaseFrameImages(key);
-
-    memories.forEach((memory) => {
-      expect(memory.texture.destroy).toHaveBeenCalledTimes(1);
-      expect(memory.destroy).toHaveBeenCalledTimes(1);
-    });
-    externalTextures.forEach((external) =>
-      expect(external.destroy).toHaveBeenCalledTimes(1)
-    );
   });
 });

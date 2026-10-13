@@ -58,9 +58,6 @@ public class VideoCompositionDecoder {
 
   private final HashMap<String, VideoFrame> videoFrames = new HashMap<>();
 
-  /** The time spent getting frames from the frame extractors (see ExportDiagnostics). */
-  private long acquireNs = 0;
-
   private OnItemImageAvailableListener onItemImageAvailableListener;
 
   private OnFrameAvailableListener onFrameAvailableListener;
@@ -73,11 +70,8 @@ public class VideoCompositionDecoder {
    * Creates a new video composition decoder.
    *
    * @param composition The video composition to decode.
-   * @param realtime    Whether the frames are decoded for playback, at the
-   *                    pace of the videos, rather than as fast as possible
-   *                    (export).
    */
-  public VideoCompositionDecoder(VideoComposition composition, boolean realtime) {
+  public VideoCompositionDecoder(VideoComposition composition) {
     this.composition = composition;
     decoders = new HashMap<>();
     glFrameExtractors = new HashMap<>();
@@ -85,7 +79,7 @@ public class VideoCompositionDecoder {
       if (!item.isVideo()) {
         return;
       }
-      VideoCompositionItemDecoder decoder = new VideoCompositionItemDecoder(item, realtime);
+      VideoCompositionItemDecoder decoder = new VideoCompositionItemDecoder(item);
       decoder.setOnErrorListener(error -> {
         if (onErrorListener != null) {
           onErrorListener.onError(error);
@@ -230,11 +224,8 @@ public class VideoCompositionDecoder {
       VideoFrame nextFrame;
       ImageReaderFrameExtractor yuvFrameExtractor = yuvFrameExtractors.get(item);
       GLFrameExtractor glFrameExtractor = glFrameExtractors.get(item);
-      long acquireStartNs = System.nanoTime();
       if (yuvFrameExtractor != null) {
-        boolean decoded = yuvFrameExtractor.decodeNextFrame();
-        acquireNs += System.nanoTime() - acquireStartNs;
-        if (!decoded) {
+        if (!yuvFrameExtractor.decodeNextFrame()) {
           continue;
         }
         nextFrame = new VideoFrame(
@@ -249,9 +240,7 @@ public class VideoCompositionDecoder {
           continue;
         }
         eglResourcesHolder.makeCurrent();
-        boolean decoded = glFrameExtractor.decodeNextFrame(frameWidth, frameHeight);
-        acquireNs += System.nanoTime() - acquireStartNs;
-        if (!decoded) {
+        if (!glFrameExtractor.decodeNextFrame(frameWidth, frameHeight)) {
           continue;
         }
         nextFrame = new VideoFrame(
@@ -264,31 +253,6 @@ public class VideoCompositionDecoder {
       videoFrames.put(id, nextFrame);
     }
     return videoFrames;
-  }
-
-  /**
-   * @return whether the frames are handed over in the decoders' own YUV buffers
-   */
-  public synchronized boolean usesYUVFrames() {
-    return !yuvFrameExtractors.isEmpty();
-  }
-
-  /**
-   * @return the frames the decoder of the item decoded and did not render yet
-   */
-  public synchronized int getPendingFramesCount(VideoComposition.Item item) {
-    VideoCompositionItemDecoder decoder = decoders.get(item);
-    return decoder != null ? decoder.getPendingFramesCount() : 0;
-  }
-
-  /**
-   * @return the time spent getting frames from the frame extractors since the
-   * last call, in nanoseconds
-   */
-  public synchronized long takeAcquireNs() {
-    long ns = acquireNs;
-    acquireNs = 0;
-    return ns;
   }
 
   /**
