@@ -341,6 +341,13 @@ export const exportVideoComposition = async <T = undefined>({
                     // on the CPU instead.
                     target.surface.flush(true);
                   }
+                } else {
+                  // iOS: the drawing was waited for on the CPU (see flush
+                  // above). Releases the fences (MTLSharedEvent) of the access
+                  // now rather than when collected.
+                  for (const { fence } of accessState.fences) {
+                    fence.destroy();
+                  }
                 }
                 currentEncoder.endFrame!(currentTime, fences);
               } else {
