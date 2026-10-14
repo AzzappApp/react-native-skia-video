@@ -140,7 +140,10 @@ void VideoEncoderHostObject::prepare() {
   assetWriterInput =
       [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo
                                          outputSettings:videoSettings];
-  assetWriterInput.expectsMediaDataInRealTime = NO;
+  // Not real time, the encoder kept about 55 frames ahead (the frame
+  // buffers, see acquireFrameBuffer: ~480 MB at 1080×1920, 1.8 GB in 4K).
+  // In real time, it should only keep a few.
+  assetWriterInput.expectsMediaDataInRealTime = YES;
   assetWriterInput.performsMultiPassEncodingIfSupported = NO;
   if ([assetWriter canAddInput:assetWriterInput]) {
     [assetWriter addInput:assetWriterInput];
