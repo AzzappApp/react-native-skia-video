@@ -219,9 +219,8 @@ const beginAccessReporting = (
  * that its handle cannot be reused by another buffer while it is cached.
  *
  * The fences (a sync fd each) and the buffers dropped from the cache are
- * released right away rather than when the runtime collects them, with the
- * `destroy()` of the react-native-webgpu patch (see .yarn/patches). Without
- * the patch, they are left to the GC.
+ * released right away with `destroy()`, rather than when the runtime collects
+ * them.
  */
 const copySharedBuffer = (
   device: GPUDevice,
@@ -245,7 +244,7 @@ const copySharedBuffer = (
       if (sharedBuffers.length >= MAX_SHARED_BUFFERS) {
         const evicted = sharedBuffers.pop()!;
         evicted.texture.destroy();
-        evicted.memory.destroy?.();
+        evicted.memory.destroy();
       }
     }
     sharedBuffers.unshift(source);
@@ -283,7 +282,7 @@ const copySharedBuffer = (
         frame.waitForReady?.();
         sharedBuffers.shift();
         source.texture.destroy();
-        source.memory.destroy?.();
+        source.memory.destroy();
         const memory = device.importSharedTextureMemory({ handle });
         source = { handle, memory, texture: memory.createTexture() };
         sharedBuffers.unshift(source);
@@ -309,12 +308,12 @@ const copySharedBuffer = (
         if (exported.type === 'sync-fd') {
           releaseFences.push(exported.handle);
         }
-        fence.destroy?.();
+        fence.destroy();
       }
     }
     return texture;
   } finally {
-    readyFence?.destroy?.();
+    readyFence?.destroy();
     // Takes ownership of the fences.
     frame.release?.(releaseFences);
   }
@@ -634,7 +633,7 @@ export const releaseFrameImages = (key: string) => {
     state.uniformBuffer?.destroy();
     for (const shared of state.sharedBuffers) {
       shared.texture.destroy();
-      shared.memory.destroy?.();
+      shared.memory.destroy();
     }
     delete textures[textureKey];
   }

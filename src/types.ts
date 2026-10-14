@@ -9,7 +9,7 @@ export type VideoFrame = {
    *
    * The image is owned by the player (or composition player) that produced the
    * frame and only shows it until the next frame is produced: draw it, don't
-   * keep it around or dispose it (use `image.makeNonTextureImage()` to keep a
+   * keep it around or dispose it (use `image.makeRasterImageSync()` to keep a
    * copy).
    */
   image: SkImage;

@@ -13,8 +13,8 @@ npm install @azzapp/react-native-skia-video react-native-webgpu
 ```
 
 This library requires [React Native Skia](https://wcandillon.github.io/react-native-skia/) v3
-(`react-native-skia` 3.3.0 or above, Graphite backend),
-[React Native WebGPU](https://wcandillon.github.io/react-native-webgpu/) 0.13.0 or above (built
+(`react-native-skia` 3.4.2 or above, Graphite backend),
+[React Native WebGPU](https://wcandillon.github.io/react-native-webgpu/) 0.14.1 or above (built
 against the same Dawn release as React Native Skia), [Reanimated](https://docs.swmansion.com/react-native-reanimated/) 4
 and [Worklets](https://docs.swmansion.com/react-native-worklets/). On Android the minimum API level is 28.
 
@@ -208,7 +208,7 @@ WebGPU.
 
 - The images are owned by the player: an image only shows its frame until the
   next one is produced, so draw it instead of keeping it around (use
-  `image.makeNonTextureImage()` to keep a copy).
+  `image.makeRasterImageSync()` to keep a copy).
 - `useVideoCompositionPlayer` and `exportVideoComposition` keep the same API.
 
 ## Contributing

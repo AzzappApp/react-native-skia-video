@@ -59,7 +59,7 @@ With `useVideoPlayer`:
 
 The images are owned by the player (or composition player): an image only
 shows its frame until the next one is produced. Don't dispose them, and use
-`image.makeNonTextureImage()` if you need a lasting copy (a thumbnail for
+`image.makeRasterImageSync()` if you need a lasting copy (a thumbnail for
 instance).
 
 ## What doesn't change
