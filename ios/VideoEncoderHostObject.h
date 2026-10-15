@@ -34,6 +34,9 @@ private:
   CVPixelBufferPoolRef pixelBufferPool = NULL;
   // The buffers handed out by beginFrame() (see acquireFrameBuffer()).
   std::vector<CVPixelBufferRef> frameBuffers;
+  // The use count of each buffer's IOSurface when it was appended, the
+  // encoder not reading it yet (see isFrameBufferIdle()).
+  std::map<CVPixelBufferRef, int32_t> idleUseCounts;
   NSDictionary* frameBufferAttributes;
   // The buffer handed out by beginFrame(), appended by endFrame().
   CVPixelBufferRef pendingFrameBuffer = NULL;
@@ -47,6 +50,7 @@ private:
 
   void prepare();
   CVPixelBufferRef createFrameBuffer();
+  bool isFrameBufferIdle(CVPixelBufferRef buffer);
   CVPixelBufferRef acquireFrameBuffer();
   void releaseFrameBuffers();
   void appendFrameBuffer(CVPixelBufferRef pixelBuffer, CMTime time);
