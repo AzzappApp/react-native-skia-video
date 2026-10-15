@@ -26,7 +26,6 @@ jest.mock('react-native-webgpu', () => ({
 // A 1080p frame in a padded buffer, as decoders allocate them.
 const BUFFER_WIDTH = 1920;
 const BUFFER_HEIGHT = 1088;
-const YUV_TO_RGB = [1, 0, 1.5, -0.75, 1, -0.2, -0.5, 0.3, 1, 1.9, 0, -0.9];
 
 const makeContext = () => {
   const pass = {
@@ -39,8 +38,7 @@ const makeContext = () => {
     beginRenderPass: jest.fn(() => pass),
     finish: jest.fn(() => ({})),
   };
-  const externalTextures: { yuvToRgbMatrix: number[]; destroy: jest.Mock }[] =
-    [];
+  const externalTextures: { destroy: jest.Mock }[] = [];
   const nativeFrames: { width: number; height: number; release: jest.Mock }[] =
     [];
   const device = {
@@ -61,7 +59,7 @@ const makeContext = () => {
       })
     ),
     importExternalTexture: jest.fn(() => {
-      const external = { yuvToRgbMatrix: YUV_TO_RGB, destroy: jest.fn() };
+      const external = { destroy: jest.fn() };
       externalTextures.push(external);
       return external;
     }),
@@ -137,7 +135,6 @@ describe('makeVideoFrame with a YUV frame', () => {
       device.queue.writeBuffer.mock.calls[0]![2] as Float32Array
     );
     const expected = [
-      ...YUV_TO_RGB,
       // The region of the upright 1088×1920 frame: 8 padding columns skipped.
       1080 / 1088,
       1,

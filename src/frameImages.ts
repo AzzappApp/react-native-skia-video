@@ -356,13 +356,10 @@ export const uprightCrop = (
 };
 
 // Draws a region of a YUV frame (an external texture) into a whole texture:
-// React Native WebGPU leaves the conversion of Android's YUV buffers to RGB
-// to the shader (GPUExternalTexture.yuvToRgbMatrix).
+// the external texture converts the frame to RGB while sampling it, with the
+// frame's color space.
 const YUV_CONVERSION_SHADER = `
 struct Uniforms {
-  yuvToRgb0: vec4f,
-  yuvToRgb1: vec4f,
-  yuvToRgb2: vec4f,
   // The region of the upright frame drawn: uv = position01 * uvScale + uvOffset.
   uvScale: vec2f,
   uvOffset: vec2f,
@@ -389,13 +386,11 @@ struct VertexOutput {
 }
 
 @fragment fn fs(input: VertexOutput) -> @location(0) vec4f {
-  let texel = vec4f(textureSampleBaseClampToEdge(frame, frameSampler, input.uv).rgb, 1.0);
-  let rgb = vec3f(dot(u.yuvToRgb0, texel), dot(u.yuvToRgb1, texel), dot(u.yuvToRgb2, texel));
-  return vec4f(clamp(rgb, vec3f(0.0), vec3f(1.0)), 1.0);
+  return vec4f(textureSampleBaseClampToEdge(frame, frameSampler, input.uv).rgb, 1.0);
 }
 `;
 
-const YUV_UNIFORMS_SIZE = 16 * Float32Array.BYTES_PER_ELEMENT;
+const YUV_UNIFORMS_SIZE = 4 * Float32Array.BYTES_PER_ELEMENT;
 
 type YUVConversion = {
   device: GPUDevice;
@@ -488,19 +483,12 @@ const convertYUVFrame = (
       const uprightWidth = swapped ? nativeFrame.height : nativeFrame.width;
       const uprightHeight = swapped ? nativeFrame.width : nativeFrame.height;
       const crop = uprightCrop(layout, nativeFrame.width, nativeFrame.height);
-      const uniforms = new Float32Array(
-        YUV_UNIFORMS_SIZE / Float32Array.BYTES_PER_ELEMENT
-      );
-      uniforms.set(external.yuvToRgbMatrix);
-      uniforms.set(
-        [
-          crop.width / uprightWidth,
-          crop.height / uprightHeight,
-          crop.x / uprightWidth,
-          crop.y / uprightHeight,
-        ],
-        12
-      );
+      const uniforms = new Float32Array([
+        crop.width / uprightWidth,
+        crop.height / uprightHeight,
+        crop.x / uprightWidth,
+        crop.y / uprightHeight,
+      ]);
       state.uniformBuffer ??= device.createBuffer({
         size: YUV_UNIFORMS_SIZE,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
