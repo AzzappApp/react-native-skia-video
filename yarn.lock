@@ -56,8 +56,8 @@ __metadata:
     react-native-reanimated: "npm:^4.7.1"
     react-native-safe-area-context: "npm:^5.10.1"
     react-native-screens: "npm:^4.28.0"
-    react-native-skia: "npm:^3.5.0"
-    react-native-webgpu: "npm:^0.15.0"
+    react-native-skia: "npm:^3.6.1"
+    react-native-webgpu: "npm:^0.16.0"
     react-native-worklets: "npm:^0.13.0"
   languageName: unknown
   linkType: soft
@@ -93,8 +93,8 @@ __metadata:
     react-native: "npm:0.87.1"
     react-native-builder-bob: "npm:^0.43.1"
     react-native-reanimated: "npm:^4.7.1"
-    react-native-skia: "npm:^3.5.0"
-    react-native-webgpu: "npm:^0.15.0"
+    react-native-skia: "npm:^3.6.1"
+    react-native-webgpu: "npm:^0.16.0"
     react-native-worklets: "npm:^0.13.0"
     react-test-renderer: "npm:19.3.0"
     release-it: "npm:^21.1.0"
@@ -105,8 +105,8 @@ __metadata:
     react: "*"
     react-native: "*"
     react-native-reanimated: ">= 4.0.0"
-    react-native-skia: ">= 3.5.0"
-    react-native-webgpu: ">= 0.15.0"
+    react-native-skia: ">= 3.6.1"
+    react-native-webgpu: ">= 0.16.0"
     react-native-worklets: ">= 0.10.0"
   languageName: unknown
   linkType: soft
@@ -11817,9 +11817,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-skia@npm:^3.5.0":
-  version: 3.5.0
-  resolution: "react-native-skia@npm:3.5.0"
+"react-native-skia@npm:^3.6.1":
+  version: 3.6.1
+  resolution: "react-native-skia@npm:3.6.1"
   dependencies:
     canvaskit-wasm: "npm:0.41.1"
     react-native-skia-graphite-android: "npm:154.3.0"
@@ -11842,7 +11842,7 @@ __metadata:
       optional: true
   bin:
     setup-skia-web: scripts/setup-canvaskit.js
-  checksum: 10/59435f9f00e9df5a25b7ef1eb90ae9634a7bd04f775c476cdd896f453926dab5328c7066a5f23257f364a2626bba178541111a782ef0973eb064f9c2e70ff6ba
+  checksum: 10/56a16bdaf46c0137b341a54025c5a31933593e32659b21cd5e4502c594496515c012b04b01c12b9c84b6e49182a511fefb7ca6ac67c251e2562b80ef308ebf4e
   languageName: node
   linkType: hard
 
@@ -11853,9 +11853,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-webgpu@npm:^0.15.0":
-  version: 0.15.0
-  resolution: "react-native-webgpu@npm:0.15.0"
+"react-native-webgpu@npm:^0.16.0":
+  version: 0.16.0
+  resolution: "react-native-webgpu@npm:0.16.0"
   dependencies:
     react-native-webgpu-dawn: "npm:154.3.0"
   peerDependencies:
@@ -11868,7 +11868,7 @@ __metadata:
       optional: true
     react-native-worklets:
       optional: true
-  checksum: 10/2b0c7a55897aba643ddfaa8951c7fd85659a3adc028037943afe589a8dc325b0b6eb8e8ad02bc2522e612d1da651c004de9b207a1e0f2ce2463bdeb44739b9f0
+  checksum: 10/a564b30c45280ff4bfb1bd0a8844e277e875b79287ad23bccd983c8d61884295156090639a9082a9b7e29935bc573667b81dbf9ee864e890e14537a37450bc77
   languageName: node
   linkType: hard
 

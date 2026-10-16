@@ -27,6 +27,31 @@ jest.mock('react-native-webgpu', () => ({
 const BUFFER_WIDTH = 1920;
 const BUFFER_HEIGHT = 1088;
 
+// A buffer imported with createNativeBufferExternalTexture, whose accesses
+// end with a fence each.
+type Wrapper = {
+  externalTexture: { destroy: jest.Mock };
+  beginAccess: jest.Mock;
+  endAccess: jest.Mock;
+  destroy: jest.Mock;
+  fences: { destroy: jest.Mock }[];
+};
+
+const makeWrapper = (): Wrapper => {
+  const fences: { destroy: jest.Mock }[] = [];
+  return {
+    externalTexture: { destroy: jest.fn() },
+    beginAccess: jest.fn(),
+    endAccess: jest.fn(() => {
+      const fence = { destroy: jest.fn() };
+      fences.push(fence);
+      return { fence, signaledValue: 1n };
+    }),
+    destroy: jest.fn(),
+    fences,
+  };
+};
+
 const makeContext = () => {
   const pass = {
     setPipeline: jest.fn(),
@@ -38,7 +63,7 @@ const makeContext = () => {
     beginRenderPass: jest.fn(() => pass),
     finish: jest.fn(() => ({})),
   };
-  const externalTextures: { destroy: jest.Mock }[] = [];
+  const wrappers: Wrapper[] = [];
   const nativeFrames: { width: number; height: number; release: jest.Mock }[] =
     [];
   const device = {
@@ -58,10 +83,10 @@ const makeContext = () => {
         createView: jest.fn(() => ({})),
       })
     ),
-    importExternalTexture: jest.fn(() => {
-      const external = { destroy: jest.fn() };
-      externalTextures.push(external);
-      return external;
+    createNativeBufferExternalTexture: jest.fn(() => {
+      const wrapper = makeWrapper();
+      wrappers.push(wrapper);
+      return wrapper;
     }),
     queue: { writeBuffer: jest.fn(), submit: jest.fn() },
   };
@@ -77,16 +102,17 @@ const makeContext = () => {
     }),
   };
   const context = { device, webgpu } as unknown as FrameImageContext;
-  return { context, device, webgpu, pass, externalTextures, nativeFrames };
+  return { context, device, webgpu, pass, wrappers, nativeFrames };
 };
 
 const makeYUVFrame = (
   id: number,
   rotation: number,
   width: number,
-  height: number
+  height: number,
+  buffer = BigInt(id)
 ): DecodedFrame => ({
-  buffer: BigInt(id),
+  buffer,
   id,
   width,
   height,
@@ -116,7 +142,7 @@ describe('uprightCrop', () => {
 
 describe('makeVideoFrame with a YUV frame', () => {
   it('converts, crops, rotates and scales the frame on the GPU', () => {
-    const { context, device, webgpu, pass, externalTextures, nativeFrames } =
+    const { context, device, webgpu, pass, wrappers, nativeFrames } =
       makeContext();
     // A portrait video (stored rotated) decoded at 360×640.
     const frame = makeYUVFrame(1, 90, 360, 640);
@@ -124,10 +150,10 @@ describe('makeVideoFrame with a YUV frame', () => {
     const videoFrame = makeVideoFrame(context, makeKey(), frame);
 
     expect(webgpu.createVideoFrameFromNativeBuffer).toHaveBeenCalledWith(1n);
-    expect(device.importExternalTexture).toHaveBeenCalledWith({
-      source: nativeFrames[0],
-      rotation: 90,
-    });
+    expect(device.createNativeBufferExternalTexture).toHaveBeenCalledWith(
+      nativeFrames[0],
+      { rotation: 90 }
+    );
     expect(device.createTexture).toHaveBeenCalledWith(
       expect.objectContaining({ size: [360, 640], format: 'rgba8unorm' })
     );
@@ -146,11 +172,15 @@ describe('makeVideoFrame with a YUV frame', () => {
     expect(pass.draw).toHaveBeenCalledWith(3);
     expect(device.queue.submit).toHaveBeenCalledTimes(1);
     // The access to the buffer ends once the commands sampling it are
-    // submitted, never before.
-    expect(
-      externalTextures[0]!.destroy.mock.invocationCallOrder[0]
-    ).toBeGreaterThan(device.queue.submit.mock.invocationCallOrder[0]!);
-    expect(nativeFrames[0]!.release).toHaveBeenCalledTimes(1);
+    // submitted, never before, and its fence is released.
+    const wrapper = wrappers[0]!;
+    expect(wrapper.beginAccess).toHaveBeenCalledTimes(1);
+    expect(wrapper.endAccess.mock.invocationCallOrder[0]).toBeGreaterThan(
+      device.queue.submit.mock.invocationCallOrder[0]!
+    );
+    expect(wrapper.fences[0]!.destroy).toHaveBeenCalledTimes(1);
+    // The wrapper keeps the native frame until it is destroyed.
+    expect(nativeFrames[0]!.release).not.toHaveBeenCalled();
     expect(frame.release).toHaveBeenCalledTimes(1);
     expect(videoFrame).toEqual({
       image: expect.anything(),
@@ -158,6 +188,63 @@ describe('makeVideoFrame with a YUV frame', () => {
       height: 640,
       rotation: 0,
     });
+  });
+
+  it('imports a buffer once, then only begins and ends the access to it', () => {
+    const { context, device, wrappers } = makeContext();
+    const key = makeKey();
+    const frames = [
+      makeYUVFrame(1, 0, 1920, 1080, 7n),
+      makeYUVFrame(2, 0, 1920, 1080, 7n),
+    ];
+
+    frames.forEach((frame) => makeVideoFrame(context, key, frame));
+
+    expect(device.createNativeBufferExternalTexture).toHaveBeenCalledTimes(1);
+    expect(device.createBindGroup).toHaveBeenCalledTimes(1);
+    expect(wrappers[0]!.beginAccess).toHaveBeenCalledTimes(2);
+    expect(wrappers[0]!.endAccess).toHaveBeenCalledTimes(2);
+    expect(device.queue.submit).toHaveBeenCalledTimes(2);
+    frames.forEach((frame) => expect(frame.release).toHaveBeenCalledTimes(1));
+  });
+
+  it('releases the buffers no frame used for a while', () => {
+    const { context, wrappers } = makeContext();
+    const key = makeKey();
+
+    makeVideoFrame(context, key, makeYUVFrame(1, 0, 1920, 1080, 100n));
+    for (let id = 2; id < 80; id++) {
+      makeVideoFrame(context, key, makeYUVFrame(id, 0, 1920, 1080, 200n));
+    }
+    expect(wrappers[0]!.destroy).not.toHaveBeenCalled();
+    // A new buffer: the decoder gave up the first one.
+    makeVideoFrame(context, key, makeYUVFrame(80, 0, 1920, 1080, 300n));
+
+    expect(wrappers[0]!.externalTexture.destroy).toHaveBeenCalledTimes(1);
+    expect(wrappers[0]!.destroy).toHaveBeenCalledTimes(1);
+    expect(wrappers[1]!.destroy).not.toHaveBeenCalled();
+  });
+
+  it('imports a buffer again if the access to it fails', () => {
+    const { context, device } = makeContext();
+    const key = makeKey();
+    const failing = makeWrapper();
+    failing.beginAccess.mockImplementation(() => {
+      throw new Error('beginAccess failed');
+    });
+    device.createNativeBufferExternalTexture.mockImplementationOnce(
+      () => failing
+    );
+    const frame = makeYUVFrame(1, 0, 1920, 1080, 7n);
+
+    expect(() => makeVideoFrame(context, key, frame)).toThrow(
+      'beginAccess failed'
+    );
+    expect(failing.destroy).toHaveBeenCalledTimes(1);
+    expect(frame.release).toHaveBeenCalledTimes(1);
+
+    makeVideoFrame(context, key, makeYUVFrame(2, 0, 1920, 1080, 7n));
+    expect(device.createNativeBufferExternalTexture).toHaveBeenCalledTimes(2);
   });
 
   it('creates the pipeline once and a uniform buffer per key', () => {
@@ -175,14 +262,20 @@ describe('makeVideoFrame with a YUV frame', () => {
 });
 
 describe('releaseFrameImages with YUV frames', () => {
-  it('destroys the uniform buffer of the key', () => {
-    const { context, device } = makeContext();
+  it('destroys the uniform buffer and the imported buffers of the key', () => {
+    const { context, device, wrappers } = makeContext();
     const key = makeKey();
 
     makeVideoFrame(context, key, makeYUVFrame(1, 0, 1920, 1080));
+    makeVideoFrame(context, key, makeYUVFrame(2, 0, 1920, 1080));
     releaseFrameImages(key);
 
     const uniformBuffer = device.createBuffer.mock.results[0]!.value;
     expect(uniformBuffer.destroy).toHaveBeenCalledTimes(1);
+    expect(wrappers).toHaveLength(2);
+    wrappers.forEach((wrapper) => {
+      expect(wrapper.externalTexture.destroy).toHaveBeenCalledTimes(1);
+      expect(wrapper.destroy).toHaveBeenCalledTimes(1);
+    });
   });
 });

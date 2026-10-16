@@ -5,6 +5,7 @@ import {
   GPUShaderStage,
   GPUTextureUsage,
   importDevice,
+  type GPUNativeBufferExternalTexture,
   type GPUSharedFence,
   type GPUSharedFenceState,
   type GPUSharedTextureMemory,
@@ -66,6 +67,31 @@ type SharedBuffer = {
   texture: GPUTexture;
 };
 
+// Android: the YUV buffers of a key imported into Skia's device (see
+// `convertYUVFrame`). A decoder renders into every buffer it decodes ahead
+// into (up to 14 on a Qualcomm device), and its frames are kept a few more
+// frames (see ImageReaderFrameExtractor).
+const MAX_YUV_BUFFERS = 32;
+
+// The frames after which an imported YUV buffer no frame used again is
+// released: its decoder no longer renders into it.
+const YUV_BUFFER_MAX_AGE = 2 * MAX_YUV_BUFFERS;
+
+type YUVBuffer = {
+  handle: bigint;
+  /** The buffer imported once, with its external texture. */
+  wrapper: GPUNativeBufferExternalTexture;
+  /** The size of the buffer. */
+  width: number;
+  height: number;
+  /** The rotation of the external texture. */
+  rotation: number;
+  /** The bind group of the conversion sampling the external texture. */
+  bindGroup: GPUBindGroup;
+  /** The last frame (see FrameTexture.yuvFrameIndex) that used the buffer. */
+  lastUse: number;
+};
+
 type FrameTexture = {
   texture: GPUTexture | null;
   /** The image of the texture handed out with the current frame. */
@@ -89,6 +115,10 @@ type FrameTexture = {
    * `convertYUVFrame`).
    */
   uniformBuffer?: GPUBuffer;
+  /** Android: the imported YUV buffers (see `convertYUVFrame`). */
+  yuvBuffers?: YUVBuffer[];
+  /** Android: the number of YUV frames converted. */
+  yuvFrameIndex?: number;
 };
 
 type FrameTextures = Record<string, FrameTexture>;
@@ -450,16 +480,119 @@ const getYUVConversion = (device: GPUDevice): YUVConversion => {
   return global.__rnskvYUVConversion;
 };
 
+// Worklets capture the functions they call when they are created: define
+// them first.
+const getYUVUniformBuffer = (device: GPUDevice, state: FrameTexture) => {
+  'worklet';
+  state.uniformBuffer ??= device.createBuffer({
+    size: YUV_UNIFORMS_SIZE,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  return state.uniformBuffer;
+};
+
+/**
+ * Releases a YUV buffer imported by `getYUVBuffer`.
+ */
+const releaseYUVBuffer = (yuvBuffer: YUVBuffer) => {
+  'worklet';
+  yuvBuffer.wrapper.externalTexture.destroy();
+  yuvBuffer.wrapper.destroy();
+};
+
+/**
+ * Returns the buffer `handle` imported into Skia's device as an external
+ * texture rotated by `rotation`, imported on its first frame. The buffers no
+ * frame used for `YUV_BUFFER_MAX_AGE` frames are released.
+ */
+const getYUVBuffer = (
+  device: GPUDevice,
+  webgpu: FrameImageContext['webgpu'],
+  state: FrameTexture,
+  handle: bigint,
+  rotation: number
+): YUVBuffer => {
+  'worklet';
+  const yuvBuffers = (state.yuvBuffers ??= []);
+  const frameIndex = (state.yuvFrameIndex = (state.yuvFrameIndex ?? 0) + 1);
+  const index = yuvBuffers.findIndex(
+    (candidate) => candidate.handle === handle
+  );
+  if (index >= 0) {
+    const yuvBuffer = yuvBuffers[index]!;
+    if (yuvBuffer.rotation === rotation) {
+      yuvBuffer.lastUse = frameIndex;
+      return yuvBuffer;
+    }
+    releaseYUVBuffer(yuvBuffer);
+    yuvBuffers.splice(index, 1);
+  }
+  for (let i = yuvBuffers.length - 1; i >= 0; i--) {
+    if (frameIndex - yuvBuffers[i]!.lastUse > YUV_BUFFER_MAX_AGE) {
+      releaseYUVBuffer(yuvBuffers[i]!);
+      yuvBuffers.splice(i, 1);
+    }
+  }
+  if (yuvBuffers.length >= MAX_YUV_BUFFERS) {
+    let oldest = 0;
+    for (let i = 1; i < yuvBuffers.length; i++) {
+      if (yuvBuffers[i]!.lastUse < yuvBuffers[oldest]!.lastUse) {
+        oldest = i;
+      }
+    }
+    releaseYUVBuffer(yuvBuffers[oldest]!);
+    yuvBuffers.splice(oldest, 1);
+  }
+  // The wrapper keeps the frame, and so the buffer, until it is destroyed:
+  // the handle can't be reused by another buffer while it is cached.
+  const nativeFrame = webgpu.createVideoFrameFromNativeBuffer(handle);
+  let wrapper: GPUNativeBufferExternalTexture;
+  try {
+    wrapper = device.createNativeBufferExternalTexture(nativeFrame, {
+      rotation: rotation as 0 | 90 | 180 | 270,
+    });
+  } catch (error) {
+    nativeFrame.release();
+    throw error;
+  }
+  const conversion = getYUVConversion(device);
+  const yuvBuffer: YUVBuffer = {
+    handle,
+    wrapper,
+    width: nativeFrame.width,
+    height: nativeFrame.height,
+    rotation,
+    bindGroup: device.createBindGroup({
+      layout: conversion.bindGroupLayout,
+      entries: [
+        { binding: 0, resource: wrapper.externalTexture },
+        { binding: 1, resource: conversion.sampler },
+        {
+          binding: 2,
+          resource: { buffer: getYUVUniformBuffer(device, state) },
+        },
+      ],
+    }),
+    lastUse: frameIndex,
+  };
+  yuvBuffers.push(yuvBuffer);
+  return yuvBuffer;
+};
+
 /**
  * Android: converts the frame (a buffer of its decoder, in the decoder's own
  * YUV layout) to RGB into the texture of `state`, on Skia's queue: the region
  * `frame.yuv` of the buffer is rotated and scaled to the size of the frame.
  *
- * React Native WebGPU imports the buffer as an external texture, and ends
- * the access to it once the conversion is submitted, without handing out the
- * fences signaled once it is done reading it: the decoder keeps the buffer a
- * couple of frames before rendering into it again instead (see
- * ImageReaderFrameExtractor).
+ * A decoder renders into the same buffers in turn: each one is imported into
+ * Skia's device once, as an external texture (React Native WebGPU's
+ * createNativeBufferExternalTexture, the color conversion included), and only
+ * the access to it begins and ends with each frame. Imported for each frame,
+ * a 1080p buffer cost about 8 ms a frame on a Qualcomm device.
+ *
+ * The fence signaled once the conversion is done reading the buffer is not
+ * handed back to the decoder: the decoder keeps the buffer a couple of frames
+ * before rendering into it again instead (see ImageReaderFrameExtractor).
  */
 const convertYUVFrame = (
   device: GPUDevice,
@@ -469,31 +602,37 @@ const convertYUVFrame = (
   frame: DecodedFrame
 ): GPUTexture => {
   'worklet';
-  const layout = frame.yuv!;
-  const nativeFrame = webgpu.createVideoFrameFromNativeBuffer(buffer);
   try {
-    const external = device.importExternalTexture({
-      source: nativeFrame,
-      rotation: layout.rotation as 0 | 90 | 180 | 270,
-    });
+    const layout = frame.yuv!;
+    const yuvBuffer = getYUVBuffer(
+      device,
+      webgpu,
+      state,
+      buffer,
+      layout.rotation
+    );
+    try {
+      yuvBuffer.wrapper.beginAccess();
+    } catch (error) {
+      // Imported again with the next frame.
+      releaseYUVBuffer(yuvBuffer);
+      state.yuvBuffers!.splice(state.yuvBuffers!.indexOf(yuvBuffer), 1);
+      throw error;
+    }
     try {
       const texture = getTexture(device, state, frame.width, frame.height);
       const conversion = getYUVConversion(device);
       const swapped = layout.rotation === 90 || layout.rotation === 270;
-      const uprightWidth = swapped ? nativeFrame.height : nativeFrame.width;
-      const uprightHeight = swapped ? nativeFrame.width : nativeFrame.height;
-      const crop = uprightCrop(layout, nativeFrame.width, nativeFrame.height);
+      const uprightWidth = swapped ? yuvBuffer.height : yuvBuffer.width;
+      const uprightHeight = swapped ? yuvBuffer.width : yuvBuffer.height;
+      const crop = uprightCrop(layout, yuvBuffer.width, yuvBuffer.height);
       const uniforms = new Float32Array([
         crop.width / uprightWidth,
         crop.height / uprightHeight,
         crop.x / uprightWidth,
         crop.y / uprightHeight,
       ]);
-      state.uniformBuffer ??= device.createBuffer({
-        size: YUV_UNIFORMS_SIZE,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      });
-      device.queue.writeBuffer(state.uniformBuffer, 0, uniforms);
+      device.queue.writeBuffer(getYUVUniformBuffer(device, state), 0, uniforms);
       const encoder = device.createCommandEncoder();
       const pass = encoder.beginRenderPass({
         colorAttachments: [
@@ -501,27 +640,16 @@ const convertYUVFrame = (
         ],
       });
       pass.setPipeline(conversion.pipeline);
-      pass.setBindGroup(
-        0,
-        device.createBindGroup({
-          layout: conversion.bindGroupLayout,
-          entries: [
-            { binding: 0, resource: external },
-            { binding: 1, resource: conversion.sampler },
-            { binding: 2, resource: { buffer: state.uniformBuffer } },
-          ],
-        })
-      );
+      pass.setBindGroup(0, yuvBuffer.bindGroup);
       pass.draw(3);
       pass.end();
       device.queue.submit([encoder.finish()]);
       return texture;
     } finally {
       // Once the commands sampling the buffer are submitted, never before.
-      external.destroy();
+      yuvBuffer.wrapper.endAccess()?.fence.destroy();
     }
   } finally {
-    nativeFrame.release();
     frame.release?.();
   }
 };
@@ -623,6 +751,7 @@ export const releaseFrameImages = (key: string) => {
       shared.texture.destroy();
       shared.memory.destroy();
     }
+    state.yuvBuffers?.forEach(releaseYUVBuffer);
     delete textures[textureKey];
   }
 };
