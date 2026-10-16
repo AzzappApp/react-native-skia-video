@@ -54,7 +54,9 @@ type Samples = {
 // A UI frame longer than this means the app stopped rendering.
 const INTERRUPTION_MS = 1000;
 
-let nextRunId = 0;
+// Unique across JS reloads: the UI runtime may outlive a reload, with the
+// samples the frame callbacks of a finished run recreated there.
+let nextRunId = Date.now();
 
 const getSamples = (runId: number): Samples => {
   'worklet';
