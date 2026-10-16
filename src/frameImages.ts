@@ -9,6 +9,7 @@ import {
   type GPUSharedFence,
   type GPUSharedFenceState,
   type GPUSharedTextureMemory,
+  type NativeVideoFrame,
 } from 'react-native-webgpu';
 import type { DecodedFrame, VideoFrame } from './types';
 
@@ -82,6 +83,8 @@ type YUVBuffer = {
   handle: bigint;
   /** The buffer imported once, with its external texture. */
   wrapper: GPUNativeBufferExternalTexture;
+  /** The frame of the buffer the wrapper was made from. */
+  nativeFrame: NativeVideoFrame;
   /** The size of the buffer. */
   width: number;
   height: number;
@@ -501,6 +504,9 @@ const releaseYUVBuffer = (yuvBuffer: YUVBuffer) => {
   'worklet';
   yuvBuffer.wrapper.externalTexture.destroy();
   yuvBuffer.wrapper.destroy();
+  // The wrapper only drops its reference to the frame: the frame's own keeps
+  // the buffer (and its decoder's memory) until it is garbage collected.
+  yuvBuffer.nativeFrame.release();
 };
 
 /**
@@ -562,6 +568,7 @@ const getYUVBuffer = (
   const yuvBuffer: YUVBuffer = {
     handle,
     wrapper,
+    nativeFrame,
     width: nativeFrame.width,
     height: nativeFrame.height,
     rotation,

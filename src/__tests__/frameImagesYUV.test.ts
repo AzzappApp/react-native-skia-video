@@ -183,7 +183,7 @@ describe('makeVideoFrame with a YUV frame', () => {
       device.queue.submit.mock.invocationCallOrder[0]!
     );
     expect(wrapper.fences[0]!.destroy).toHaveBeenCalledTimes(1);
-    // The wrapper keeps the native frame until it is destroyed.
+    // The wrapper keeps the native frame until it is released.
     expect(nativeFrames[0]!.release).not.toHaveBeenCalled();
     expect(frame.release).toHaveBeenCalledTimes(1);
     expect(videoFrame).toEqual({
@@ -213,7 +213,7 @@ describe('makeVideoFrame with a YUV frame', () => {
   });
 
   it('releases the buffers no frame used for a while', () => {
-    const { context, wrappers } = makeContext();
+    const { context, wrappers, nativeFrames } = makeContext();
     const key = makeKey();
 
     makeVideoFrame(context, key, makeYUVFrame(1, 0, 1920, 1080, 100n));
@@ -226,11 +226,13 @@ describe('makeVideoFrame with a YUV frame', () => {
 
     expect(wrappers[0]!.externalTexture.destroy).toHaveBeenCalledTimes(1);
     expect(wrappers[0]!.destroy).toHaveBeenCalledTimes(1);
+    expect(nativeFrames[0]!.release).toHaveBeenCalledTimes(1);
     expect(wrappers[1]!.destroy).not.toHaveBeenCalled();
+    expect(nativeFrames[1]!.release).not.toHaveBeenCalled();
   });
 
   it('imports a buffer again if the access to it fails', () => {
-    const { context, device } = makeContext();
+    const { context, device, nativeFrames } = makeContext();
     const key = makeKey();
     const failing = makeWrapper();
     failing.beginAccess.mockImplementation(() => {
@@ -245,6 +247,7 @@ describe('makeVideoFrame with a YUV frame', () => {
       'beginAccess failed'
     );
     expect(failing.destroy).toHaveBeenCalledTimes(1);
+    expect(nativeFrames[0]!.release).toHaveBeenCalledTimes(1);
     expect(frame.release).toHaveBeenCalledTimes(1);
 
     makeVideoFrame(context, key, makeYUVFrame(2, 0, 1920, 1080, 7n));
@@ -267,7 +270,7 @@ describe('makeVideoFrame with a YUV frame', () => {
 
 describe('releaseFrameImages with YUV frames', () => {
   it('destroys the uniform buffer and the imported buffers of the key', () => {
-    const { context, device, wrappers } = makeContext();
+    const { context, device, wrappers, nativeFrames } = makeContext();
     const key = makeKey();
 
     makeVideoFrame(context, key, makeYUVFrame(1, 0, 1920, 1080));
@@ -280,6 +283,13 @@ describe('releaseFrameImages with YUV frames', () => {
     wrappers.forEach((wrapper) => {
       expect(wrapper.externalTexture.destroy).toHaveBeenCalledTimes(1);
       expect(wrapper.destroy).toHaveBeenCalledTimes(1);
+    });
+    // The frames are released after their wrappers.
+    nativeFrames.forEach((nativeFrame, i) => {
+      expect(nativeFrame.release).toHaveBeenCalledTimes(1);
+      expect(nativeFrame.release.mock.invocationCallOrder[0]).toBeGreaterThan(
+        wrappers[i]!.destroy.mock.invocationCallOrder[0]!
+      );
     });
     // A submission after the release, for Dawn to free the buffers now.
     expect(device.queue.submit).toHaveBeenCalledTimes(3);
