@@ -88,7 +88,11 @@ const makeContext = () => {
       wrappers.push(wrapper);
       return wrapper;
     }),
-    queue: { writeBuffer: jest.fn(), submit: jest.fn() },
+    queue: {
+      writeBuffer: jest.fn(),
+      submit: jest.fn(),
+      onSubmittedWorkDone: jest.fn(() => Promise.resolve()),
+    },
   };
   const webgpu = {
     createVideoFrameFromNativeBuffer: jest.fn(() => {
@@ -277,5 +281,12 @@ describe('releaseFrameImages with YUV frames', () => {
       expect(wrapper.externalTexture.destroy).toHaveBeenCalledTimes(1);
       expect(wrapper.destroy).toHaveBeenCalledTimes(1);
     });
+    // A submission after the release, for Dawn to free the buffers now.
+    expect(device.queue.submit).toHaveBeenCalledTimes(3);
+    expect(device.queue.submit).toHaveBeenLastCalledWith([]);
+    expect(device.queue.submit.mock.invocationCallOrder[2]).toBeGreaterThan(
+      wrappers[1]!.destroy.mock.invocationCallOrder[0]!
+    );
+    expect(device.queue.onSubmittedWorkDone).toHaveBeenCalledTimes(1);
   });
 });

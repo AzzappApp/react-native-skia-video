@@ -68,7 +68,10 @@ const makeContext = () => {
       copyTextureToTexture: jest.fn(),
       finish: jest.fn(() => ({})),
     })),
-    queue: { submit: jest.fn() },
+    queue: {
+      submit: jest.fn(),
+      onSubmittedWorkDone: jest.fn(() => Promise.resolve()),
+    },
   };
   const context = { device, webgpu: {} } as unknown as FrameImageContext;
   return { context, device, memories, readyFences };
@@ -124,7 +127,7 @@ describe('makeVideoFrame on Android', () => {
 
 describe('releaseFrameImages on Android', () => {
   it('releases the buffers imported for the key, after their textures', () => {
-    const { context, memories } = makeContext();
+    const { context, device, memories } = makeContext();
     const key = makeKey();
 
     makeVideoFrame(context, key, makeFrame(1n, 1));
@@ -139,5 +142,11 @@ describe('releaseFrameImages on Android', () => {
         memory.destroy.mock.invocationCallOrder[0]!
       );
     }
+    // A submission after the release, for Dawn to free the buffers now.
+    expect(device.queue.submit).toHaveBeenLastCalledWith([]);
+    expect(device.queue.submit.mock.invocationCallOrder.at(-1)).toBeGreaterThan(
+      memories[1]!.destroy.mock.invocationCallOrder[0]!
+    );
+    expect(device.queue.onSubmittedWorkDone).toHaveBeenCalledTimes(1);
   });
 });

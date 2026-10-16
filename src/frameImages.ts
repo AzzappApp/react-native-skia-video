@@ -69,8 +69,9 @@ type SharedBuffer = {
 
 // Android: the YUV buffers of a key imported into Skia's device (see
 // `convertYUVFrame`). A decoder renders into every buffer it decodes ahead
-// into (up to 14 on a Qualcomm device), and its frames are kept a few more
-// frames (see ImageReaderFrameExtractor).
+// into, and its frames are kept a few more frames (see
+// ImageReaderFrameExtractor): about 20 buffers in turn on a Qualcomm device.
+// Fewer would import every frame's buffer again.
 const MAX_YUV_BUFFERS = 32;
 
 // The frames after which an imported YUV buffer no frame used again is
@@ -93,6 +94,8 @@ type YUVBuffer = {
 };
 
 type FrameTexture = {
+  /** Skia's device, the frames are copied with. */
+  device: GPUDevice;
   texture: GPUTexture | null;
   /** The image of the texture handed out with the current frame. */
   image: SkImage | null;
@@ -675,6 +678,7 @@ export const makeVideoFrame = (
   let state = textures[key];
   if (state == null) {
     state = {
+      device: context.device,
       texture: null,
       image: null,
       spareImage: null,
@@ -738,11 +742,15 @@ export const makeVideoFrame = (
 export const releaseFrameImages = (key: string) => {
   'worklet';
   const textures = getFrameTextures();
+  let importsDevice: GPUDevice | null = null;
   for (const textureKey of Object.keys(textures)) {
     if (textureKey !== key && !textureKey.startsWith(`${key}:`)) {
       continue;
     }
     const state = textures[textureKey]!;
+    if (state.sharedBuffers.length > 0 || (state.yuvBuffers?.length ?? 0) > 0) {
+      importsDevice = state.device;
+    }
     state.image?.dispose();
     state.spareImage?.dispose();
     state.texture?.destroy();
@@ -753,6 +761,15 @@ export const releaseFrameImages = (key: string) => {
     }
     state.yuvBuffers?.forEach(releaseYUVBuffer);
     delete textures[textureKey];
+  }
+  if (importsDevice != null) {
+    // Android: Dawn frees the memory of the released buffers once the GPU is
+    // done with a submission made after their release, and nothing is
+    // submitted once the frames stop (an export done, a player released): the
+    // buffers would be kept until the next video. Submits one now, and has the
+    // device ticked until it is done.
+    importsDevice.queue.submit([]);
+    importsDevice.queue.onSubmittedWorkDone().catch(() => {});
   }
 };
 
