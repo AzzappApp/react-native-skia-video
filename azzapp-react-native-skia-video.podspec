@@ -23,6 +23,9 @@ Pod::Spec.new do |s|
     "CLANG_CXX_LANGUAGE_STANDARD" => "c++20"
   }
 
+  # IOSurfaceGetUseCount (the iOS encoder's frame buffers)
+  s.frameworks = "IOSurface"
+
   s.dependency "React-callinvoker"
 
   # Install the React Native dependencies (React-Core, TurboModules, codegen, etc.)

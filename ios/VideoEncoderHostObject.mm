@@ -2,6 +2,7 @@
 #import "AudioCompositionUtils.h"
 #import "RNSVJSIUtils.h"
 #import "RNSVPixelData.h"
+#import <algorithm>
 #import <future>
 
 NS_INLINE NSError* createErrorWithMessage(NSString* message) {
@@ -293,6 +294,28 @@ void VideoEncoderHostObject::encodeFrame(const uint8_t* pixels, size_t size,
 static const size_t kMaxFrameBuffers = 8;
 static const CFTimeInterval kFrameBufferWaitTime = 0.1;
 
+bool VideoEncoderHostObject::isFrameBufferIdle(CVPixelBufferRef buffer) {
+  // Only referenced by this encoder: AVAssetWriter has released it.
+  if (CFGetRetainCount(buffer) != 1) {
+    return false;
+  }
+  // That is not enough: in real time (see prepare()), AVAssetWriter releases
+  // the buffer while the video encoder (out of process on a device) still
+  // reads its IOSurface. Handed out again, the buffer was cleared and drawn
+  // into while being encoded: isolated black frames in the export, never on
+  // the simulator. The encoder holds the IOSurface's use count while it
+  // reads it, as CVPixelBufferPool expects before recycling a buffer: the
+  // buffer is idle once its use count is back to what it was when it was
+  // appended.
+  auto idle = idleUseCounts.find(buffer);
+  if (idle == idleUseCounts.end()) {
+    // Never appended: the encoder has not seen it.
+    return true;
+  }
+  IOSurfaceRef surface = CVPixelBufferGetIOSurface(buffer);
+  return surface == NULL || IOSurfaceGetUseCount(surface) <= idle->second;
+}
+
 CVPixelBufferRef VideoEncoderHostObject::acquireFrameBuffer() {
   // The buffers handed out by beginFrame() are reused, rather than taken
   // from the pool: JS imports each one into Skia's device once, and an
@@ -303,8 +326,7 @@ CVPixelBufferRef VideoEncoderHostObject::acquireFrameBuffer() {
       CFAbsoluteTimeGetCurrent() + kFrameBufferWaitTime;
   while (true) {
     for (CVPixelBufferRef buffer : frameBuffers) {
-      // Only referenced by this encoder: AVAssetWriter is done with it.
-      if (CFGetRetainCount(buffer) == 1) {
+      if (isFrameBufferIdle(buffer)) {
         return CVPixelBufferRetain(buffer);
       }
     }
@@ -333,6 +355,7 @@ void VideoEncoderHostObject::releaseFrameBuffers() {
     CVPixelBufferRelease(buffer);
   }
   frameBuffers.clear();
+  idleUseCounts.clear();
 }
 
 IOSurfaceRef VideoEncoderHostObject::beginFrame() {
@@ -349,6 +372,17 @@ IOSurfaceRef VideoEncoderHostObject::beginFrame() {
 void VideoEncoderHostObject::endFrame(CMTime time) {
   if (pendingFrameBuffer == NULL) {
     throw createErrorWithMessage(@"endFrame called without beginFrame");
+  }
+  // The use count of the IOSurface before the encoder reads it (the texture
+  // imported over it holds some), see isFrameBufferIdle(). The lowest one
+  // seen: a use still pending when a frame ends would raise it for good.
+  IOSurfaceRef surface = CVPixelBufferGetIOSurface(pendingFrameBuffer);
+  if (surface != NULL) {
+    int32_t useCount = IOSurfaceGetUseCount(surface);
+    auto known = idleUseCounts.find(pendingFrameBuffer);
+    idleUseCounts[pendingFrameBuffer] = known == idleUseCounts.end()
+                                            ? useCount
+                                            : std::min(known->second, useCount);
   }
   try {
     appendFrameBuffer(pendingFrameBuffer, time);
