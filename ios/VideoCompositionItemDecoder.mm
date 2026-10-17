@@ -142,20 +142,31 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
     CMTime duration = CMTimeMakeWithSeconds(item->duration, NSEC_PER_SEC);
     CMTime endTime = CMTimeAdd(startTime, duration);
 
-    if (realTime && CMTimeCompare(endTime, inputPosition) < 0 && !hasLooped) {
+    bool looped;
+    {
+      std::lock_guard<std::mutex> frames(framesMutex);
+      looped = hasLooped;
+    }
+    if (realTime && CMTimeCompare(endTime, inputPosition) < 0 && !looped) {
       setupReader(kCMTimeZero);
-      hasLooped = true;
+      {
+        std::lock_guard<std::mutex> frames(framesMutex);
+        hasLooped = true;
+      }
       // we will loop so we want to decode the first frames of the next loop
       inputPosition =
           CMTimeAdd(position, CMTimeMakeWithSeconds(DECODER_INPUT_TIME_ADVANCE,
                                                     NSEC_PER_SEC));
     }
 
-    auto framesQueue = hasLooped ? &nextLoopFrames : &decodedFrames;
     CMTime latestSampleTime = kCMTimeInvalid;
-    if (framesQueue->size() > 0) {
-      latestSampleTime =
-          CMTimeMakeWithSeconds(framesQueue->back().first, NSEC_PER_SEC);
+    {
+      std::lock_guard<std::mutex> frames(framesMutex);
+      auto framesQueue = hasLooped ? &nextLoopFrames : &decodedFrames;
+      if (framesQueue->size() > 0) {
+        latestSampleTime =
+            CMTimeMakeWithSeconds(framesQueue->back().first, NSEC_PER_SEC);
+      }
     }
 
     bool recovered = false;
@@ -174,8 +185,13 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
              assetReader.status == AVAssetReaderStatusFailed ||
              assetReader.status == AVAssetReaderStatusCancelled)) {
           recovered = true;
+          bool aheadOfLoop;
+          {
+            std::lock_guard<std::mutex> frames(framesMutex);
+            aheadOfLoop = hasLooped;
+          }
           try {
-            setupReader(hasLooped ? kCMTimeZero : currentTime);
+            setupReader(aheadOfLoop ? kCMTimeZero : currentTime);
           } catch (...) {
             break;
           }
@@ -197,6 +213,11 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
       double targetSeconds = this->mapSourceTimeToTarget(timeStamp);
       auto buffer = CMSampleBufferGetImageBuffer(sampleBuffer);
       if (buffer) {
+        // The list is picked again for each frame: acquireFrameForTime may
+        // have promoted the next loop's frames in between, and a frame
+        // appended to the list it just emptied would never be shown.
+        std::lock_guard<std::mutex> frames(framesMutex);
+        auto framesQueue = hasLooped ? &nextLoopFrames : &decodedFrames;
         framesQueue->push_back(std::make_pair(targetSeconds, sampleBuffer));
       } else {
         CFRelease(sampleBuffer);
@@ -210,17 +231,6 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
 std::shared_ptr<VideoFrame>
 VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
                                                  bool force) {
-  if (hasLooped && CMTIME_IS_VALID(lastRequestedTime) &&
-      CMTimeCompare(currentTime, lastRequestedTime) < 0) {
-    hasLooped = false;
-    for (const auto& frame : decodedFrames) {
-      CFRelease(frame.second);
-    }
-    decodedFrames = nextLoopFrames;
-    nextLoopFrames.clear();
-  }
-  lastRequestedTime = currentTime;
-
   CMTime position = CMTimeAdd(
       CMTimeMakeWithSeconds(item->startTime, NSEC_PER_SEC),
       CMTimeMakeWithSeconds(
@@ -228,18 +238,32 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
           NSEC_PER_SEC));
 
   CMSampleBufferRef nextFrame = nil;
-  auto it = decodedFrames.begin();
-  while (it != decodedFrames.end()) {
-    auto timestamp = CMTimeMakeWithSeconds(it->first, NSEC_PER_SEC);
-    if (CMTimeCompare(timestamp, position) <= 0 ||
-        (force && nextFrame == nullptr)) {
-      if (nextFrame != nullptr) {
-        CFRelease(nextFrame);
+  {
+    std::lock_guard<std::mutex> frames(framesMutex);
+    if (hasLooped && CMTIME_IS_VALID(lastRequestedTime) &&
+        CMTimeCompare(currentTime, lastRequestedTime) < 0) {
+      hasLooped = false;
+      for (const auto& frame : decodedFrames) {
+        CFRelease(frame.second);
       }
-      nextFrame = it->second;
-      it = decodedFrames.erase(it);
-    } else {
-      break;
+      decodedFrames = std::move(nextLoopFrames);
+      nextLoopFrames.clear();
+    }
+    lastRequestedTime = currentTime;
+
+    auto it = decodedFrames.begin();
+    while (it != decodedFrames.end()) {
+      auto timestamp = CMTimeMakeWithSeconds(it->first, NSEC_PER_SEC);
+      if (CMTimeCompare(timestamp, position) <= 0 ||
+          (force && nextFrame == nullptr)) {
+        if (nextFrame != nullptr) {
+          CFRelease(nextFrame);
+        }
+        nextFrame = it->second;
+        it = decodedFrames.erase(it);
+      } else {
+        break;
+      }
     }
   }
   if (nextFrame) {
@@ -265,18 +289,25 @@ void VideoCompositionItemDecoder::release() {
       [assetReader cancelReading];
       assetReader = nullptr;
     }
-    for (const auto& frame : decodedFrames) {
-      CFRelease(frame.second);
+    {
+      std::lock_guard<std::mutex> frames(framesMutex);
+      releaseFrames();
+      hasLooped = false;
+      lastRequestedTime = kCMTimeInvalid;
     }
-    decodedFrames.clear();
-    for (const auto& frame : nextLoopFrames) {
-      CFRelease(frame.second);
-    }
-    nextLoopFrames.clear();
-    hasLooped = false;
-    lastRequestedTime = kCMTimeInvalid;
     currentFrame = nullptr;
   }
+}
+
+void VideoCompositionItemDecoder::releaseFrames() {
+  for (const auto& frame : decodedFrames) {
+    CFRelease(frame.second);
+  }
+  decodedFrames.clear();
+  for (const auto& frame : nextLoopFrames) {
+    CFRelease(frame.second);
+  }
+  nextLoopFrames.clear();
 }
 
 VideoCompositionItemDecoder::~VideoCompositionItemDecoder() {}

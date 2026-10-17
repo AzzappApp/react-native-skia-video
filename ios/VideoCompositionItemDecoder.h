@@ -4,6 +4,7 @@
 #import "VideoFrame.h"
 #import <AVFoundation/AVFoundation.h>
 #import <list>
+#import <mutex>
 
 using namespace facebook;
 
@@ -22,6 +23,18 @@ public:
 
 private:
   NSObject* lock;
+  // Guards the two frame lists below, `hasLooped` (which one the decoder
+  // fills) and `lastRequestedTime`. advanceDecoder appends to the lists on
+  // its own thread (std::async, see the frames extractor) while
+  // acquireFrameForTime erases from them and swaps them on the thread that
+  // draws: a std::list mutated from both at once corrupts.
+  //
+  // Not `lock`: advanceDecoder holds it for its whole decoding pass, and
+  // taking it in acquireFrameForTime would park the drawing thread behind a
+  // copyNextSampleBuffer loop. Sections under this one are short, nothing is
+  // decoded inside them. Lock order: `lock`, then `framesMutex`;
+  // acquireFrameForTime takes `framesMutex` alone.
+  std::mutex framesMutex;
   bool realTime = false;
   bool hasLooped = false;
   std::shared_ptr<VideoCompositionItem> item;
@@ -38,6 +51,8 @@ private:
   std::shared_ptr<VideoFrame> currentFrame;
 
   void setupReader(CMTime initialTime);
+  // Releases both frame lists. Callers hold `framesMutex`.
+  void releaseFrames();
   double mapSourceTimeToTarget(CMTime sourceTime);
 };
 
