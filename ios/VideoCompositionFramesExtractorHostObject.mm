@@ -268,6 +268,17 @@ void VideoCompositionFramesExtractorHostObject::init() {
           }
         }
       }
+      // A seek issued before init (a player positioned right after it is
+      // created, as when a change of the composition rebuilds it) only
+      // reached `pausePosition` and, above, the audio player: the item
+      // decoders still read from zero and caught up with the clock by
+      // decoding every frame in between, visibly a fast-forward from the
+      // start of the clip. Position them where the clock starts.
+      if (CMTimeCompare(pausePosition, kCMTimeZero) > 0) {
+        for (const auto& entry : itemDecoders) {
+          entry.second->seekTo(pausePosition);
+        }
+      }
     } catch (NSError* error) {
       itemDecoders.clear();
       audioPlayer = nil;
