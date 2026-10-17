@@ -216,6 +216,21 @@ public class VideoCompositionDecoder {
       boolean shouldDownScale = itemWidth > 0 && itemHeight > 0;
       int frameWidth = shouldDownScale ? itemWidth : decoder.getVideoWidth();
       int frameHeight = shouldDownScale ? itemHeight : decoder.getVideoHeight();
+      double maxLongSide = item.getMaxLongSide();
+      if (!shouldDownScale && maxLongSide > 0) {
+        // Resolved HERE, before the rotation swap below: these are the
+        // decoder's own dimensions, in the file's encoded orientation. A
+        // caller capping the size itself would have to pass encoded
+        // dimensions, the ones it cannot know, since every API hands it
+        // display dimensions. Asking it for the long side leaves nothing to
+        // get wrong.
+        int longSide = Math.max(frameWidth, frameHeight);
+        if (longSide > maxLongSide) {
+          double scale = maxLongSide / longSide;
+          frameWidth = (int) Math.round(frameWidth * scale);
+          frameHeight = (int) Math.round(frameHeight * scale);
+        }
+      }
       if (decoder.getRotation() == 90 || decoder.getRotation() == 270) {
         int temp = frameWidth;
         frameWidth = frameHeight;

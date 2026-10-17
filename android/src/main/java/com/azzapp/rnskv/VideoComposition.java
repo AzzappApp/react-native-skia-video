@@ -44,6 +44,10 @@ public class VideoComposition {
     private double duration;
     private int width = -1;
     private int height = -1;
+    // Cap on the decoded long side, resolved against the decoder's own frame
+    // size (see types.ts): unlike width/height it says nothing about
+    // orientation, so a caller holding display dimensions cannot get it wrong.
+    private double maxLongSide = 0;
     private boolean isVideo = true;
     private boolean audioEnabled = false;
     private double audioVolume = 1.0;
@@ -91,6 +95,10 @@ public class VideoComposition {
 
     public int getHeight() {
       return height;
+    }
+
+    public double getMaxLongSide() {
+      return maxLongSide;
     }
 
     public boolean isVideo() {

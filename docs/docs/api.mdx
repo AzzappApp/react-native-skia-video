@@ -51,7 +51,8 @@ type VideoCompositionItem = VideoCompositionVideoItem | VideoCompositionAudioIte
 | Field | Type | Description |
 | --- | --- | --- |
 | `kind` | `'video'` (default) | Produces frames for `drawFrame`. |
-| `resolution` | `{ width, height }?` | Decode at this resolution (downscaling improves performance). |
+| `resolution` | `{ width, height }?` | Decode at this resolution (downscaling improves performance). Read in the file's ENCODED orientation: a portrait phone clip is a 1920×1080 file with a 90° rotation. |
+| `maxLongSide` | `number?` | Cap the long side of the decoded frames, keeping the aspect ratio (only scales down). Resolved against the track itself: safe for rotated videos. Ignored when `resolution` is set. |
 | `audio` | `boolean \| { volume?: number }` | Also play/mix the file's audio track. Defaults to `false`. |
 
 ### VideoCompositionAudioItem

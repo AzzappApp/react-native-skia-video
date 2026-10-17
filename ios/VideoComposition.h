@@ -13,6 +13,10 @@ public:
   double startTime;
   double duration;
   CGSize resolution;
+  // Cap on the decoded long side, resolved against the track's natural size
+  // by the decoder (see types.ts): unlike `resolution`, it says nothing about
+  // orientation, so a caller holding display dimensions cannot get it wrong.
+  double maxLongSide = 0;
   bool isVideo = true;
   bool audioEnabled = false;
   double audioVolume = 1.0;
@@ -60,6 +64,13 @@ public:
           item->resolution.width = res.getProperty(runtime, "width").asNumber();
           item->resolution.height =
               res.getProperty(runtime, "height").asNumber();
+        }
+      }
+
+      if (jsItem.hasProperty(runtime, "maxLongSide")) {
+        auto prop = jsItem.getProperty(runtime, "maxLongSide");
+        if (prop.isNumber()) {
+          item->maxLongSide = prop.asNumber();
         }
       }
 

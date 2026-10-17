@@ -63,8 +63,11 @@ const CompositionPlayer = ({ composition, width, height }) => {
 
 ## Performance notes
 
-- Give video items a `resolution` no larger than what you display: decoding
-  1080p to show a 300pt preview wastes decoder bandwidth and memory.
+- Cap the decoded size of video items to what you display (`maxLongSide`,
+  or `resolution`): decoding 1080p to show a 300pt preview wastes decoder
+  bandwidth and memory. Prefer `maxLongSide`: `resolution` is read in the
+  file's encoded orientation, and display dimensions passed to it squash
+  videos filmed in portrait.
 - `drawFrame` runs on the UI thread — keep per-frame allocations low and
   cache expensive Skia objects (paragraphs, runtime effects) between frames.
 - The player owns the frame images; don't hold on to `VideoFrame`s across

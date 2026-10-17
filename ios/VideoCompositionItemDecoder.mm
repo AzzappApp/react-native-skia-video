@@ -63,6 +63,22 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
     (id)kCVPixelBufferMetalCompatibilityKey : @YES
   };
   CGSize resolution = item->resolution;
+  if ((resolution.width <= 0 || resolution.height <= 0) &&
+      item->maxLongSide > 0) {
+    // Resolved HERE and nowhere else: `naturalSize` is the file's encoded
+    // frame, and the output settings below are read in that same orientation.
+    // A caller capping the size itself would have to pass encoded dimensions,
+    // the ones it cannot know, since every API hands it display dimensions
+    // (a portrait phone clip is a 1920x1080 file with a 90° transform). Ask
+    // it for the long side and there is nothing left to get wrong.
+    CGSize natural = videoTrack.naturalSize;
+    double longSide = MAX(natural.width, natural.height);
+    if (longSide > item->maxLongSide) {
+      double scale = item->maxLongSide / longSide;
+      resolution = CGSizeMake(round(natural.width * scale),
+                              round(natural.height * scale));
+    }
+  }
   if (resolution.width > 0 && resolution.height > 0) {
     pixBuffAttributes =
         [NSMutableDictionary dictionaryWithDictionary:pixBuffAttributes];

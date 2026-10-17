@@ -72,6 +72,6 @@ controller.abort();
   devices; feed your target settings through
   [`getValidEncoderConfigurations`](/docs/android-capabilities) and use the
   first result.
-- **Cap decode resolutions.** Item `resolution` also applies during export;
-  decoding 4K sources to render 1080p output wastes decoder sessions (some
-  devices only have a few).
+- **Cap decode resolutions.** Item `maxLongSide` / `resolution` also apply
+  during export; decoding 4K sources to render 1080p output wastes decoder
+  sessions (some devices only have a few).

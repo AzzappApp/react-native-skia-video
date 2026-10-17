@@ -269,8 +269,31 @@ export type VideoCompositionVideoItem = VideoCompositionItemBase & {
    * If provided, the resolution to scale the video to.
    * If not provided, the original resolution of the video will be used.
    * Downscaling the video can improve performance.
+   *
+   * CAREFUL: this is read in the file's ENCODED orientation, the one
+   * `naturalSize` reports, NOT the orientation the video is displayed in. A
+   * clip filmed in portrait on a phone is a 1920x1080 file carrying a 90°
+   * transform, and every API that hands out dimensions (a picker, a media
+   * library) reports its DISPLAY size, 1080x1920. Passing that transposed
+   * pair scales a 16:9 frame into a 9:16 buffer and hands back a squashed
+   * picture. To simply bound the decoded size, use {@link maxLongSide}, which
+   * is resolved against the track itself and cannot be given the wrong way
+   * round.
    */
   resolution?: { width: number; height: number };
+  /**
+   * If provided, caps the LONG SIDE of the decoded frames: the decoder scales
+   * the video down, keeping its aspect ratio, so that neither side exceeds
+   * this many pixels. A smaller video is decoded as is. Ignored when
+   * {@link resolution} is set.
+   *
+   * This is the orientation-proof way to keep decoders from working bigger
+   * than needed: the cap is resolved against the track's own frame size,
+   * where the encoded orientation is known. A decoded frame becomes a
+   * texture: a 4K one is 33 MB, so a preview a few hundred points wide has
+   * every reason to ask for less.
+   */
+  maxLongSide?: number;
   /**
    * If set, the audio track of the video file will be played (during
    * playback) and mixed into the exported video (during export), following

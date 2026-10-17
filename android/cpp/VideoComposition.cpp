@@ -118,6 +118,13 @@ VideoComposition::fromJSIObject(jsi::Runtime& runtime,
         }
       }
     }
+    if (jsItem.hasProperty(runtime, "maxLongSide")) {
+      auto prop = jsItem.getProperty(runtime, "maxLongSide");
+      if (prop.isNumber()) {
+        item->setFieldValue(itemCls->getField<jdouble>("maxLongSide"),
+                            prop.asNumber());
+      }
+    }
     item->setFieldValue(itemCls->getField<jboolean>("isVideo"),
                         (jboolean)isVideo);
     item->setFieldValue(itemCls->getField<jboolean>("audioEnabled"),
