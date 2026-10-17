@@ -5,7 +5,6 @@
 #include <map>
 
 #include "RNSVEventEmitter.h"
-#include "SkiaContextHolder.h"
 #include "VideoPlayer.h"
 
 using namespace facebook;
@@ -17,7 +16,7 @@ class JSI_EXPORT VideoPlayerHostObject : public jsi::HostObject,
                                          EventEmitter {
 public:
   VideoPlayerHostObject(jsi::Runtime& runtime, const std::string& uri,
-                        int width, int height);
+                        int width, int height, double maxLongSide);
   ~VideoPlayerHostObject();
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
   void set(jsi::Runtime&, const jsi::PropNameID& name,
@@ -27,7 +26,7 @@ public:
 
 private:
   global_ref<NativeEventDispatcher> jEventDispatcher;
-  std::shared_ptr<SkiaContextHolder> skiaContextHolder;
+  bool glSetup = false;
   jni::global_ref<VideoPlayer> player;
   std::atomic_flag released = ATOMIC_FLAG_INIT;
   void release();

@@ -11,7 +11,6 @@ import androidx.media3.common.util.UnstableApi;
 
 import java.io.IOException;
 import java.util.Map;
-import javax.microedition.khronos.egl.EGLContext;
 
 /**
  * A class that previews a video composition.
@@ -26,6 +25,7 @@ public class VideoCompositionFramesExtractor {
   private static final int PLAYBACK_LOOP = 4;
   private static final int PLAYBACK_SEEK = 5;
   private static final int PLAYBACK_RELEASE = 6;
+  private static final int PLAYBACK_SET_VOLUME = 7;
 
   private final VideoComposition composition;
 
@@ -40,6 +40,9 @@ public class VideoCompositionFramesExtractor {
   private final NativeEventDispatcher eventDispatcher;
 
   private boolean playWhenReady = false;
+
+  // Master volume (0..1); read from any thread, applied on the playback one.
+  private volatile float volume = 1f;
 
   private boolean prepared;
   private boolean releasing;
@@ -72,8 +75,7 @@ public class VideoCompositionFramesExtractor {
     if (prepared) {
       return;
     }
-    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
-    decoder.prepare(sharedContext);
+    decoder.prepare();
     handler.sendEmptyMessage(PLAYBACK_PREPARE);
   }
 
@@ -116,6 +118,23 @@ public class VideoCompositionFramesExtractor {
   }
 
   /**
+   * @return the master volume (0..1)
+   */
+  public float getVolume() {
+    return volume;
+  }
+
+  /**
+   * Sets the master volume, on top of the items' own volumes. Applied on the
+   * playback thread: ExoPlayer instances live there.
+   */
+  public void setVolume(float value) {
+    volume = Math.max(0f, Math.min(1f, value));
+    handler.removeMessages(PLAYBACK_SET_VOLUME);
+    handler.sendEmptyMessage(PLAYBACK_SET_VOLUME);
+  }
+
+  /**
    * @return whether the player is looping
    */
   public boolean getIsLooping() {
@@ -155,6 +174,8 @@ public class VideoCompositionFramesExtractor {
       audioPlayer = new AudioCompositionPlayer(composition);
       audioPlayer.setOnErrorListener(
         message -> eventDispatcher.dispatchEvent("error", message));
+      // a volume set before prepare applies from the first sample
+      audioPlayer.setVolume(volume);
       audioPlayer.prepare();
     }
     prepared = true;
@@ -171,6 +192,12 @@ public class VideoCompositionFramesExtractor {
   private void playInternal() {
     if (!prepared) {
       playWhenReady = true;
+      return;
+    }
+    // Already playing: nothing to do. Recomputing startTime from a zero
+    // pausePosition would restart the clock at 0: a seek followed by play
+    // (the usual "play from here") landed at the beginning instead.
+    if (isPlaying) {
       return;
     }
     if (isEOS) {
@@ -296,6 +323,12 @@ public class VideoCompositionFramesExtractor {
           }
           case PLAYBACK_RELEASE -> {
             releaseInternal();
+            return true;
+          }
+          case PLAYBACK_SET_VOLUME -> {
+            if (audioPlayer != null) {
+              audioPlayer.setVolume(volume);
+            }
             return true;
           }
           default -> {

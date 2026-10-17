@@ -5,7 +5,6 @@
 
 #import "RNSVVideoPlayer.h"
 #import "AVAssetTrackUtils.h"
-#import "MTLTextureUtils.h"
 
 static void* timeRangeContext = &timeRangeContext;
 static void* statusContext = &statusContext;
@@ -17,40 +16,32 @@ static void* rateContext = &rateContext;
 @implementation RNSVVideoPlayer {
   AVPlayer* _player;
   AVPlayerItemVideoOutput* _videoOutput;
-  id<MTLTexture> _mtlTexture;
   CADisplayLink* _displayLink;
   id<RNSVVideoPlayerDelegate> _delegate;
   Boolean _complete;
   Boolean _waitingForFrame;
   float _playbackSpeed;
+  double _maxLongSide;
 }
 
 - (instancetype)initWithURL:(NSURL*)url
                    delegate:(id<RNSVVideoPlayerDelegate>)delegate
-                 resolution:(CGSize)resolution {
+                 resolution:(CGSize)resolution
+                maxLongSide:(double)maxLongSide {
   self = [super init];
   _delegate = delegate;
   _complete = NO;
   _waitingForFrame = YES;
   _playbackSpeed = 1.0f;
+  _maxLongSide = maxLongSide;
 
   AVAsset* asset = [AVAsset assetWithURL:url];
   self.resolution = resolution;
-  NSDictionary* pixBuffAttributes = @{
-    (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
-    (id)kCVPixelBufferMetalCompatibilityKey : @YES
-  };
-  if (!CGSizeEqualToSize(CGSizeZero, resolution)) {
-    pixBuffAttributes =
-        [NSMutableDictionary dictionaryWithDictionary:pixBuffAttributes];
-    [pixBuffAttributes setValue:@(resolution.width)
-                         forKey:(id)kCVPixelBufferWidthKey];
-    [pixBuffAttributes setValue:@(resolution.height)
-                         forKey:(id)kCVPixelBufferHeightKey];
+  // With maxLongSide, the size of the output depends on the video track's: it
+  // is made once the item is ready (see observeValueForKeyPath).
+  if (!CGSizeEqualToSize(CGSizeZero, resolution) || maxLongSide <= 0) {
+    _videoOutput = [self makeVideoOutput];
   }
-
-  _videoOutput = [[AVPlayerItemVideoOutput alloc]
-      initWithPixelBufferAttributes:pixBuffAttributes];
 
   _displayLink =
       [CADisplayLink displayLinkWithTarget:self
@@ -64,6 +55,50 @@ static void* rateContext = &rateContext;
   [self addObserversForItem:item player:_player];
 
   return self;
+}
+
+- (AVPlayerItemVideoOutput*)makeVideoOutput {
+  // NV12 is the decoder's native output: requesting BGRA would make
+  // VideoToolbox convert every frame. The YUV to RGB conversion happens on the
+  // GPU when the frame is copied into a texture (React Native WebGPU's
+  // copyExternalImageToTexture), which needs IOSurface-backed buffers.
+  NSDictionary* pixBuffAttributes = @{
+    (id)kCVPixelBufferPixelFormatTypeKey :
+        @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+    (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
+    (id)kCVPixelBufferMetalCompatibilityKey : @YES
+  };
+  CGSize resolution = self.resolution;
+  if (!CGSizeEqualToSize(CGSizeZero, resolution)) {
+    pixBuffAttributes =
+        [NSMutableDictionary dictionaryWithDictionary:pixBuffAttributes];
+    [pixBuffAttributes setValue:@(resolution.width)
+                         forKey:(id)kCVPixelBufferWidthKey];
+    [pixBuffAttributes setValue:@(resolution.height)
+                         forKey:(id)kCVPixelBufferHeightKey];
+  }
+  return [[AVPlayerItemVideoOutput alloc]
+      initWithPixelBufferAttributes:pixBuffAttributes];
+}
+
+// Caps the long side of the frames of `item` to maxLongSide. Resolved against
+// the video track's naturalSize, the file's encoded frame, in the orientation
+// the output's size is read in (see VideoCompositionItemDecoder).
+- (void)applyMaxLongSideToItem:(AVPlayerItem*)item {
+  for (AVPlayerItemTrack* itemTrack in item.tracks) {
+    AVAssetTrack* track = itemTrack.assetTrack;
+    if (![track.mediaType isEqualToString:AVMediaTypeVideo]) {
+      continue;
+    }
+    CGSize natural = track.naturalSize;
+    double longSide = MAX(natural.width, natural.height);
+    if (longSide > _maxLongSide) {
+      double scale = _maxLongSide / longSide;
+      self.resolution = CGSizeMake(round(natural.width * scale),
+                                   round(natural.height * scale));
+    }
+    return;
+  }
 }
 
 - (CMTime)currentTime {
@@ -115,25 +150,11 @@ static void* rateContext = &rateContext;
   }
 }
 
-- (nullable id<MTLTexture>)getNextTextureForTime:(CMTime)time {
-  id<MTLTexture> texture = NULL;
-  if ([_videoOutput hasNewPixelBufferForItemTime:time]) {
-    auto buffer = [_videoOutput copyPixelBufferForItemTime:time
-                                        itemTimeForDisplay:nil];
-    if (buffer) {
-      size_t width = CVPixelBufferGetWidth(buffer);
-      size_t height = CVPixelBufferGetHeight(buffer);
-      if (!_mtlTexture || width != _mtlTexture.width ||
-          height != _mtlTexture.height) {
-        _mtlTexture = [MTLTextureUtils
-            createMTLTextureForVideoOutput:CGSizeMake(width, height)];
-      }
-      [MTLTextureUtils updateTexture:_mtlTexture with:buffer];
-      CVPixelBufferRelease(buffer);
-      texture = _mtlTexture;
-    }
+- (nullable CVPixelBufferRef)copyPixelBufferForTime:(CMTime)time {
+  if (![_videoOutput hasNewPixelBufferForItemTime:time]) {
+    return NULL;
   }
-  return texture;
+  return [_videoOutput copyPixelBufferForItemTime:time itemTimeForDisplay:nil];
 }
 
 - (void)seekTo:(CMTime)time
@@ -261,6 +282,10 @@ static void* rateContext = &rateContext;
       case AVPlayerItemStatusUnknown:
         break;
       case AVPlayerItemStatusReadyToPlay:
+        if (_videoOutput == nil) {
+          [self applyMaxLongSideToItem:item];
+          _videoOutput = [self makeVideoOutput];
+        }
         [item addOutput:_videoOutput];
         [self dispatchReadyToPlay];
         [self updatePlayingState];
@@ -290,7 +315,9 @@ static void* rateContext = &rateContext;
 }
 
 - (void)dispatchReadyToPlay {
-  if (!_isInitialized) {
+  // With maxLongSide, the size of the frames is only known once the output is
+  // made, when the item is ready (see observeValueForKeyPath).
+  if (!_isInitialized && _videoOutput != nil) {
     AVPlayerItem* currentItem = _player.currentItem;
     CGSize resolution = CGSizeEqualToSize(self.resolution, CGSizeZero)
                             ? currentItem.presentationSize

@@ -13,8 +13,6 @@ import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 
-import javax.microedition.khronos.egl.EGLContext;
-
 /**
  * A class that wraps ExoPlayer to play video, and extract frames from it using OpenGL
  */
@@ -41,6 +39,10 @@ public class VideoPlayer {
 
   private boolean isSeeking = false;
 
+  // Ready, but the size of the video is not known yet: the ready event is
+  // dispatched once it is.
+  private boolean readyPending = false;
+
   private EGLResourcesHolder eglResourcesHolder;
 
   private GLFrameExtractor glFrameExtractor;
@@ -50,8 +52,9 @@ public class VideoPlayer {
 
   private final int outputWidth;
   private final int outputHeight;
+  private final double maxLongSide;
 
-  private boolean released = false;
+  private volatile boolean released = false;
 
   private final NativeEventDispatcher eventDispatcher;
 
@@ -59,10 +62,17 @@ public class VideoPlayer {
    * Create a new VideoPlayer with the given URI
    */
   @UnstableApi
-  public VideoPlayer(String uriStr, int width, int height, NativeEventDispatcher eventDispatcher) {
+  public VideoPlayer(
+    String uriStr,
+    int width,
+    int height,
+    double maxLongSide,
+    NativeEventDispatcher eventDispatcher
+  ) {
     this.eventDispatcher = eventDispatcher;
     outputWidth = width;
     outputHeight = height;
+    this.maxLongSide = maxLongSide;
     mainHandler.post(() -> {
       if (released) {
         return;
@@ -93,14 +103,20 @@ public class VideoPlayer {
             if (!isInitialized) {
               isInitialized = true;
               duration = player.getDuration();
+              // Unknown (0x0) until the first frame is decoded: then
+              // updated by onVideoSizeChanged.
               VideoSize videoSize = player.getVideoSize();
-;
               videoHeight = videoSize.height;
               videoWidth = videoSize.width;
               if (glFrameExtractor != null) {
                 player.setVideoSurface(glFrameExtractor.getSurface());
               }
-              handleReady();
+              updateCurrentPosition();
+              if (videoWidth > 0 && videoHeight > 0) {
+                dispatchReady();
+              } else {
+                readyPending = true;
+              }
             }
             if (isSeeking) {
               isSeeking = false;
@@ -112,6 +128,20 @@ public class VideoPlayer {
 
           if (playbackState != Player.STATE_BUFFERING) {
             setBuffering(false);
+          }
+        }
+
+        @Override
+        public void onVideoSizeChanged(@NonNull VideoSize videoSize) {
+          // The player can be ready before it knows the size of the video:
+          // no frame would be decoded with the size read then (0x0).
+          if (videoSize.width > 0 && videoSize.height > 0) {
+            videoWidth = videoSize.width;
+            videoHeight = videoSize.height;
+            if (readyPending) {
+              readyPending = false;
+              dispatchReady();
+            }
           }
         }
 
@@ -142,8 +172,7 @@ public class VideoPlayer {
 
   long previousBufferedPosition = 0;
 
-  private void handleReady() {
-    updateCurrentPosition();
+  private void dispatchReady() {
     dispatchEventIfNoReleased("ready", new int[]{videoWidth, videoHeight, 0});
   }
 
@@ -189,12 +218,11 @@ public class VideoPlayer {
     mainHandler.post(() -> player.seekTo(location));
   }
 
-  public void setupGL() {
+  public synchronized void setupGL() {
     if (Looper.myLooper() != Looper.getMainLooper()) {
       throw new RuntimeException("setupGL should be called on UI Thread");
     }
-    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
-    eglResourcesHolder = EGLResourcesHolder.createWithPBBufferSurface(sharedContext);
+    eglResourcesHolder = EGLResourcesHolder.createWithPBBufferSurface();
     eglResourcesHolder.makeCurrent();
     glFrameExtractor = new GLFrameExtractor();
     if (player != null) {
@@ -283,20 +311,30 @@ public class VideoPlayer {
    *
    * @return whether the frame was decoded successfully
    */
-  public VideoFrame decodeNextFrame() {
+  public synchronized VideoFrame decodeNextFrame() {
     if (Looper.myLooper() != Looper.getMainLooper()) {
       throw new RuntimeException("decodeNextFrame should be called on UI Thread");
     }
-    if (eglResourcesHolder == null && glFrameExtractor != null) {
+    if (released || eglResourcesHolder == null || glFrameExtractor == null) {
       return null;
     }
     eglResourcesHolder.makeCurrent();
     boolean downscale = outputWidth > 0 && outputHeight > 0;
     int width = downscale ? outputWidth : videoWidth;
     int height = downscale ? outputHeight : videoHeight;
+    if (!downscale && maxLongSide > 0) {
+      // The long side does not depend on the orientation: the size the player
+      // reports (already rotated) is scaled as is.
+      int longSide = Math.max(width, height);
+      if (longSide > maxLongSide) {
+        double scale = maxLongSide / longSide;
+        width = (int) Math.round(width * scale);
+        height = (int) Math.round(height * scale);
+      }
+    }
     if (width > 0 && height > 0 && glFrameExtractor.decodeNextFrame(width, height)) {
       return new VideoFrame(
-        glFrameExtractor.getOutputTexId(),
+        glFrameExtractor.getOutputBuffer(),
         width,
         height,
         0,
@@ -309,15 +347,20 @@ public class VideoPlayer {
   /**
    * Release the video player and its resources
    */
-  public void release() {
+  public synchronized void release() {
     released = true;
+    // The GL deletes below require the player's context to be current on the
+    // calling thread.
+    if (eglResourcesHolder != null) {
+      eglResourcesHolder.makeCurrent();
+    }
     if (glFrameExtractor != null) {
       glFrameExtractor.release();
       glFrameExtractor = null;
     }
     if (eglResourcesHolder != null) {
       eglResourcesHolder.release();
-      glFrameExtractor = null;
+      eglResourcesHolder = null;
     }
     mainHandler.post(() -> {
       if (player != null) {

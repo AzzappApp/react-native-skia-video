@@ -51,7 +51,8 @@ type VideoCompositionItem = VideoCompositionVideoItem | VideoCompositionAudioIte
 | Field | Type | Description |
 | --- | --- | --- |
 | `kind` | `'video'` (default) | Produces frames for `drawFrame`. |
-| `resolution` | `{ width, height }?` | Decode at this resolution (downscaling improves performance). |
+| `resolution` | `{ width, height }?` | Decode at this resolution (downscaling improves performance). Read in the file's ENCODED orientation: a portrait phone clip is a 1920×1080 file with a 90° rotation. |
+| `maxLongSide` | `number?` | Cap the long side of the decoded frames, keeping the aspect ratio (only scales down). Resolved against the track itself: safe for rotated videos. Ignored when `resolution` is set. |
 | `audio` | `boolean \| { volume?: number }` | Also play/mix the file's audio track. Defaults to `false`. |
 
 ### VideoCompositionAudioItem
@@ -79,7 +80,8 @@ type FrameDrawer<T = undefined> = (args: {
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `texture` | `unknown` | Native GPU texture — wrap with `Skia.Image.MakeImageFromNativeTextureUnstable(texture, width, height)`. |
+| `image` | `SkImage` | The frame, backed by a GPU texture of Skia's device. Owned by the player and only valid until the next frame is produced. |
+| `texture` | `GPUTexture` | The texture `image` samples, for a WebGPU pass that reads the frame without a copy (unrotated). Same lifetime as `image`; never destroy it. |
 | `width` / `height` | `number` | Frame size in pixels, as stored. |
 | `rotation` | `number` | Display rotation in degrees (0, 90, 180, 270). |
 
@@ -92,7 +94,7 @@ playback subset).
 | --- | --- |
 | `play()` / `pause()` | Control playback. |
 | `seekTo(seconds)` | Seek; emits `seekComplete`. |
-| `decodeNextFrame()` | UI-thread only: decode and return the next `VideoFrame`. |
+| `decodeNextFrame()` | Low level, used by `useVideoPlayer`: the next decoded frame as a native buffer (`DecodedFrame`), or `null`. Draw the hook's `currentFrame` instead. |
 | `currentTime` / `duration` | Seconds, read-only. |
 | `isPlaying` / `isLooping` | Playback state. |
 | `volume` / `playbackSpeed` | Audio volume (0–1) and speed (1 = normal). |

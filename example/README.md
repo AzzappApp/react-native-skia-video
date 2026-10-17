@@ -1,5 +1,31 @@
 This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
 
+# Benchmark
+
+The **Benchmark** screen measures the library on the device, with reproducible
+scenarios, to compare branches or devices:
+
+- **Test clips** (1080p30, 1080p60, 2160p30, 12 s) are generated on the device
+  the first time (a synthetic animation exported by the library itself), so
+  every run decodes the same files, without network.
+- **Export** scenarios measure the export time, the frames per second and, per
+  frame on the export thread, the decoding time (`decodeMs`) and the drawing +
+  encoding time (`renderEncodeMs`).
+- **Composition preview** and **video player** scenarios measure, after a
+  warm-up, the UI frame intervals, the frames missed by the display, the cost
+  of a composition frame on the UI thread and the rate of the decoded frames.
+- Each run records the memory of the process before and after it (iOS:
+  physical footprint, Android: total PSS): it should stay stable over
+  repeated runs.
+
+Set a label (e.g. `pr63-iphone15`), a number of runs per scenario, run, then
+**Share JSON** to keep the report. Measure in a Release build:
+
+```bash
+yarn ios --mode Release
+yarn android --mode release
+```
+
 # Getting Started
 
 >**Note**: Make sure you have completed the [React Native - Environment Setup](https://reactnative.dev/docs/environment-setup) instructions till "Creating a new application" step, before proceeding.

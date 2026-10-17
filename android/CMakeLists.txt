@@ -25,8 +25,9 @@ add_library(${PACKAGE_NAME}
         cpp/cpp-adapter.cpp
         cpp/NativeEventDispatcher.h
         cpp/NativeEventDispatcher.cpp
-        cpp/SkiaContextHolder.h
-        cpp/SkiaContextHolder.cpp
+        cpp/EGLContextGuard.h
+        cpp/HardwareBufferGL.h
+        cpp/HardwareBufferGL.cpp
         cpp/VideoCapabilities.h
         cpp/VideoCapabilities.cpp
         cpp/VideoComposition.h
@@ -79,6 +80,7 @@ target_link_libraries(
         -lGLESv2
         -lEGL
         -landroid
+        -lnativewindow
 )
 
 

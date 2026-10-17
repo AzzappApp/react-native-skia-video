@@ -5,6 +5,7 @@
 #import "RNSVJSIUtils.h"
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
+#import <algorithm>
 #import <future>
 
 namespace RNSkiaVideo {
@@ -36,6 +37,7 @@ VideoCompositionFramesExtractorHostObject::getPropertyNames(jsi::Runtime& rt) {
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("currentTime")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("isLooping")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("isPlaying")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("volume")));
   return result;
 }
 
@@ -155,6 +157,8 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
     return jsi::Value(released.test() ? 0 : CMTimeGetSeconds(getCurrentTime()));
   } else if (propName == "isLooping") {
     return jsi::Value(!released.test() && isLooping);
+  } else if (propName == "volume") {
+    return jsi::Value(released.test() ? 0 : (double)volume);
   } else if (propName == "isPlaying") {
     return jsi::Value(!released.test() && isPlaying);
   }
@@ -170,6 +174,13 @@ void VideoCompositionFramesExtractorHostObject::set(
   auto propName = propNameId.utf8(runtime);
   if (propName == "isLooping") {
     isLooping = value.asBool();
+  } else if (propName == "volume") {
+    volume = (float)std::max(0.0, std::min(1.0, value.asNumber()));
+    @synchronized(lock) {
+      if (audioPlayer) {
+        audioPlayer.volume = volume;
+      }
+    }
   }
 }
 
@@ -261,11 +272,24 @@ void VideoCompositionFramesExtractorHostObject::init() {
           audioPlayer = [AVPlayer playerWithPlayerItem:playerItem];
           audioPlayer.actionAtItemEnd = AVPlayerActionAtItemEndNone;
           audioPlayer.automaticallyWaitsToMinimizeStalling = NO;
+          // a volume set before init applies from the first sample
+          audioPlayer.volume = volume;
           if (CMTimeCompare(pausePosition, kCMTimeZero) > 0) {
             [audioPlayer seekToTime:pausePosition
                     toleranceBefore:kCMTimeZero
                      toleranceAfter:kCMTimeZero];
           }
+        }
+      }
+      // A seek issued before init (a player positioned right after it is
+      // created, as when a change of the composition rebuilds it) only
+      // reached `pausePosition` and, above, the audio player: the item
+      // decoders still read from zero and caught up with the clock by
+      // decoding every frame in between, visibly a fast-forward from the
+      // start of the clip. Position them where the clock starts.
+      if (CMTimeCompare(pausePosition, kCMTimeZero) > 0) {
+        for (const auto& entry : itemDecoders) {
+          entry.second->seekTo(pausePosition);
         }
       }
     } catch (NSError* error) {
@@ -285,6 +309,12 @@ void VideoCompositionFramesExtractorHostObject::init() {
 }
 
 void VideoCompositionFramesExtractorHostObject::play() {
+  // Already playing: nothing to do. Without an audio player, the clock would
+  // restart from a zero pausePosition: a seek followed by play would land at
+  // the beginning instead.
+  if (isPlaying) {
+    return;
+  }
   if (audioPlayer) {
     if (CMTimeGetSeconds(audioPlayer.currentTime) >= composition->duration) {
       [audioPlayer seekToTime:kCMTimeZero

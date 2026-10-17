@@ -1,11 +1,11 @@
 buildscript {
     ext {
-        buildToolsVersion = "36.0.0"
+        buildToolsVersion = "37.0.0"
         minSdkVersion = 28
-        compileSdkVersion = 36
+        compileSdkVersion = 37
         targetSdkVersion = 36
         ndkVersion = "27.1.12297006"
-        kotlinVersion = "2.1.20"
+        kotlinVersion = "2.2.0"
     }
     repositories {
         google()
@@ -19,3 +19,15 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// react-native-webgpu does not set its NDK version, so AGP builds it with its
+// default NDK (28.2), whose <android/data_space.h> no longer defines the
+// STANDARD_* / TRANSFER_* / RANGE_* constants AndroidColorSpace.h uses (0.15.0).
+// Build it with the app's NDK, like the other native modules.
+subprojects { subproject ->
+    subproject.plugins.withId("com.android.library") {
+        if (subproject.name == "react-native-webgpu") {
+            subproject.android.ndkVersion = rootProject.ext.ndkVersion
+        }
+    }
+}

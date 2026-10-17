@@ -1,14 +1,15 @@
 #include "VideoPlayerHostObject.h"
+#include "EGLContextGuard.h"
 #include "JNIHelpers.h"
 
 namespace RNSkiaVideo {
 VideoPlayerHostObject::VideoPlayerHostObject(jsi::Runtime& runtime,
                                              const std::string& uri, int width,
-                                             int height)
+                                             int height, double maxLongSide)
     : EventEmitter(runtime, JNIHelpers::getCallInvoker()) {
   jEventDispatcher = make_global(NativeEventDispatcher::create(this));
-  player =
-      make_global(VideoPlayer::create(uri, width, height, jEventDispatcher));
+  player = make_global(
+      VideoPlayer::create(uri, width, height, maxLongSide, jEventDispatcher));
 }
 
 VideoPlayerHostObject::~VideoPlayerHostObject() {
@@ -46,13 +47,14 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
             return jsi::Value::null();
           }
 
-          if (skiaContextHolder == nullptr) {
-            skiaContextHolder = std::make_shared<SkiaContextHolder>();
+          // The player renders the frames with its own EGL context.
+          EGLContextGuard contextGuard;
+          if (!glSetup) {
+            glSetup = true;
             player->setupGL();
           }
 
           auto frame = player->decodeNextFrame();
-          skiaContextHolder->makeCurrent();
           if (!frame) {
             return jsi::Value::null();
           }

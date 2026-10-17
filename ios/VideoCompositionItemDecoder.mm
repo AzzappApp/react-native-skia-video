@@ -1,5 +1,4 @@
 #include "VideoCompositionItemDecoder.h"
-#include "MTLTextureUtils.h"
 
 #import "AVAssetTrackUtils.h"
 #import <AVFoundation/AVFoundation.h>
@@ -35,16 +34,6 @@ VideoCompositionItemDecoder::VideoCompositionItemDecoder(
   rotation = AVAssetTrackUtils::GetTrackRotationInDegree(videoTrack);
   currentFrame = nullptr;
   this->setupReader(kCMTimeZero);
-
-  CGSize resolution = item->resolution;
-  if (resolution.width <= 0 || resolution.height <= 0) {
-    resolution.width = width;
-    resolution.height = height;
-  }
-  mtlTexture = [MTLTextureUtils createMTLTextureForVideoOutput:resolution];
-  if (!mtlTexture) {
-    throw std::runtime_error("Failed to create persistent Metal texture!");
-  }
 }
 
 void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
@@ -63,12 +52,33 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
       CMTimeSubtract(CMTimeMakeWithSeconds(item->duration, NSEC_PER_SEC),
                      position));
 
+  // NV12 is the decoder's native output: requesting BGRA would make
+  // VideoToolbox convert every frame. The YUV to RGB conversion happens on the
+  // GPU when the frame is copied into a texture (React Native WebGPU's
+  // copyExternalImageToTexture), which needs IOSurface-backed buffers.
   NSDictionary* pixBuffAttributes = @{
-    (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
+    (id)kCVPixelBufferPixelFormatTypeKey :
+        @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
     (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
     (id)kCVPixelBufferMetalCompatibilityKey : @YES
   };
   CGSize resolution = item->resolution;
+  if ((resolution.width <= 0 || resolution.height <= 0) &&
+      item->maxLongSide > 0) {
+    // Resolved HERE and nowhere else: `naturalSize` is the file's encoded
+    // frame, and the output settings below are read in that same orientation.
+    // A caller capping the size itself would have to pass encoded dimensions,
+    // the ones it cannot know, since every API hands it display dimensions
+    // (a portrait phone clip is a 1920x1080 file with a 90° transform). Ask
+    // it for the long side and there is nothing left to get wrong.
+    CGSize natural = videoTrack.naturalSize;
+    double longSide = MAX(natural.width, natural.height);
+    if (longSide > item->maxLongSide) {
+      double scale = item->maxLongSide / longSide;
+      resolution = CGSizeMake(round(natural.width * scale),
+                              round(natural.height * scale));
+    }
+  }
   if (resolution.width > 0 && resolution.height > 0) {
     pixBuffAttributes =
         [NSMutableDictionary dictionaryWithDictionary:pixBuffAttributes];
@@ -83,6 +93,9 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
   AVAssetReaderOutput* assetReaderOutput =
       [[AVAssetReaderTrackOutput alloc] initWithTrack:videoTrack
                                        outputSettings:pixBuffAttributes];
+  // The decoded buffers are handed to the GPU as is, never modified: no need
+  // for the reader to copy them.
+  assetReaderOutput.alwaysCopiesSampleData = NO;
   [assetReader addOutput:assetReaderOutput];
   [assetReader startReading];
 }
@@ -145,26 +158,61 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
     CMTime duration = CMTimeMakeWithSeconds(item->duration, NSEC_PER_SEC);
     CMTime endTime = CMTimeAdd(startTime, duration);
 
-    if (realTime && CMTimeCompare(endTime, inputPosition) < 0 && !hasLooped) {
+    bool looped;
+    {
+      std::lock_guard<std::mutex> frames(framesMutex);
+      looped = hasLooped;
+    }
+    if (realTime && CMTimeCompare(endTime, inputPosition) < 0 && !looped) {
       setupReader(kCMTimeZero);
-      hasLooped = true;
+      {
+        std::lock_guard<std::mutex> frames(framesMutex);
+        hasLooped = true;
+      }
       // we will loop so we want to decode the first frames of the next loop
       inputPosition =
           CMTimeAdd(position, CMTimeMakeWithSeconds(DECODER_INPUT_TIME_ADVANCE,
                                                     NSEC_PER_SEC));
     }
 
-    auto framesQueue = hasLooped ? &nextLoopFrames : &decodedFrames;
     CMTime latestSampleTime = kCMTimeInvalid;
-    if (framesQueue->size() > 0) {
-      latestSampleTime =
-          CMTimeMakeWithSeconds(framesQueue->back().first, NSEC_PER_SEC);
+    {
+      std::lock_guard<std::mutex> frames(framesMutex);
+      auto framesQueue = hasLooped ? &nextLoopFrames : &decodedFrames;
+      if (framesQueue->size() > 0) {
+        latestSampleTime =
+            CMTimeMakeWithSeconds(framesQueue->back().first, NSEC_PER_SEC);
+      }
     }
 
+    bool recovered = false;
     while (!CMTIME_IS_VALID(latestSampleTime) ||
            (CMTimeCompare(latestSampleTime, inputPosition) < 0 &&
             CMTimeCompare(endTime, inputPosition) >= 0)) {
       if (assetReader.status != AVAssetReaderStatusReading) {
+        // An AVAssetReader interrupted by the system (app sent to the
+        // background, media services reset) ends up Failed and never delivers
+        // a frame again: the composition clock keeps running and the video
+        // stays frozen. Rebuild it once, where the reader that died was (the
+        // start of the next loop if it was decoding it ahead, otherwise the
+        // current composition time), and keep decoding.
+        if (!recovered &&
+            (assetReader == nil ||
+             assetReader.status == AVAssetReaderStatusFailed ||
+             assetReader.status == AVAssetReaderStatusCancelled)) {
+          recovered = true;
+          bool aheadOfLoop;
+          {
+            std::lock_guard<std::mutex> frames(framesMutex);
+            aheadOfLoop = hasLooped;
+          }
+          try {
+            setupReader(aheadOfLoop ? kCMTimeZero : currentTime);
+          } catch (...) {
+            break;
+          }
+          continue;
+        }
         break;
       }
       AVAssetReaderOutput* assetReaderOutput =
@@ -181,6 +229,11 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
       double targetSeconds = this->mapSourceTimeToTarget(timeStamp);
       auto buffer = CMSampleBufferGetImageBuffer(sampleBuffer);
       if (buffer) {
+        // The list is picked again for each frame: acquireFrameForTime may
+        // have promoted the next loop's frames in between, and a frame
+        // appended to the list it just emptied would never be shown.
+        std::lock_guard<std::mutex> frames(framesMutex);
+        auto framesQueue = hasLooped ? &nextLoopFrames : &decodedFrames;
         framesQueue->push_back(std::make_pair(targetSeconds, sampleBuffer));
       } else {
         CFRelease(sampleBuffer);
@@ -194,17 +247,6 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
 std::shared_ptr<VideoFrame>
 VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
                                                  bool force) {
-  if (hasLooped && CMTIME_IS_VALID(lastRequestedTime) &&
-      CMTimeCompare(currentTime, lastRequestedTime) < 0) {
-    hasLooped = false;
-    for (const auto& frame : decodedFrames) {
-      CFRelease(frame.second);
-    }
-    decodedFrames = nextLoopFrames;
-    nextLoopFrames.clear();
-  }
-  lastRequestedTime = currentTime;
-
   CMTime position = CMTimeAdd(
       CMTimeMakeWithSeconds(item->startTime, NSEC_PER_SEC),
       CMTimeMakeWithSeconds(
@@ -212,25 +254,40 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
           NSEC_PER_SEC));
 
   CMSampleBufferRef nextFrame = nil;
-  auto it = decodedFrames.begin();
-  while (it != decodedFrames.end()) {
-    auto timestamp = CMTimeMakeWithSeconds(it->first, NSEC_PER_SEC);
-    if (CMTimeCompare(timestamp, position) <= 0 ||
-        (force && nextFrame == nullptr)) {
-      if (nextFrame != nullptr) {
-        CFRelease(nextFrame);
+  {
+    std::lock_guard<std::mutex> frames(framesMutex);
+    if (hasLooped && CMTIME_IS_VALID(lastRequestedTime) &&
+        CMTimeCompare(currentTime, lastRequestedTime) < 0) {
+      hasLooped = false;
+      for (const auto& frame : decodedFrames) {
+        CFRelease(frame.second);
       }
-      nextFrame = it->second;
-      it = decodedFrames.erase(it);
-    } else {
-      break;
+      decodedFrames = std::move(nextLoopFrames);
+      nextLoopFrames.clear();
+    }
+    lastRequestedTime = currentTime;
+
+    auto it = decodedFrames.begin();
+    while (it != decodedFrames.end()) {
+      auto timestamp = CMTimeMakeWithSeconds(it->first, NSEC_PER_SEC);
+      if (CMTimeCompare(timestamp, position) <= 0 ||
+          (force && nextFrame == nullptr)) {
+        if (nextFrame != nullptr) {
+          CFRelease(nextFrame);
+        }
+        nextFrame = it->second;
+        it = decodedFrames.erase(it);
+      } else {
+        break;
+      }
     }
   }
   if (nextFrame) {
-    CVPixelBufferRef buffer = CMSampleBufferGetImageBuffer(nextFrame);
-    [MTLTextureUtils updateTexture:mtlTexture with:buffer];
+    // The frame retains the decoded buffer itself (no copy).
+    auto frame = std::make_shared<VideoFrame>(
+        CMSampleBufferGetImageBuffer(nextFrame), width, height, rotation);
     CFRelease(nextFrame);
-    return std::make_shared<VideoFrame>(mtlTexture, width, height, rotation);
+    return frame;
   }
   return nullptr;
 }
@@ -248,26 +305,27 @@ void VideoCompositionItemDecoder::release() {
       [assetReader cancelReading];
       assetReader = nullptr;
     }
-    for (const auto& frame : decodedFrames) {
-      CFRelease(frame.second);
+    {
+      std::lock_guard<std::mutex> frames(framesMutex);
+      releaseFrames();
+      hasLooped = false;
+      lastRequestedTime = kCMTimeInvalid;
     }
-    decodedFrames.clear();
-    for (const auto& frame : nextLoopFrames) {
-      CFRelease(frame.second);
-    }
-    nextLoopFrames.clear();
-    hasLooped = false;
-    lastRequestedTime = kCMTimeInvalid;
     currentFrame = nullptr;
   }
-  [MTLTextureUtils flushTextureCache];
 }
 
-VideoCompositionItemDecoder::~VideoCompositionItemDecoder() {
-  @synchronized(lock) {
-    [mtlTexture setPurgeableState:MTLPurgeableStateEmpty];
-    mtlTexture = nil;
+void VideoCompositionItemDecoder::releaseFrames() {
+  for (const auto& frame : decodedFrames) {
+    CFRelease(frame.second);
   }
+  decodedFrames.clear();
+  for (const auto& frame : nextLoopFrames) {
+    CFRelease(frame.second);
+  }
+  nextLoopFrames.clear();
 }
+
+VideoCompositionItemDecoder::~VideoCompositionItemDecoder() {}
 
 } // namespace RNSkiaVideo

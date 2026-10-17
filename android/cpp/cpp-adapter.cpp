@@ -11,6 +11,39 @@
 using namespace facebook;
 using namespace RNSkiaVideo;
 
+namespace {
+struct MemoryUsage : jni::JavaClass<MemoryUsage> {
+  static constexpr auto kJavaDescriptor = "Lcom/azzapp/rnskv/MemoryUsage;";
+
+  static jlong getFootprint() {
+    static const auto cls = javaClassStatic();
+    static const auto getFootprintMethod =
+        cls->getStaticMethod<jlong()>("getFootprint");
+    return getFootprintMethod(cls);
+  }
+};
+
+struct VideoCompositionDecoderClass
+    : jni::JavaClass<VideoCompositionDecoderClass> {
+  static constexpr auto kJavaDescriptor =
+      "Lcom/azzapp/rnskv/VideoCompositionDecoder;";
+
+  static void setYUVFramesSupported(bool supported) {
+    static const auto cls = javaClassStatic();
+    static const auto setYUVFramesSupportedMethod =
+        cls->getStaticMethod<void(jboolean)>("setYUVFramesSupported");
+    setYUVFramesSupportedMethod(cls, supported);
+  }
+
+  static void setYUVFramesEnabled(bool enabled) {
+    static const auto cls = javaClassStatic();
+    static const auto setYUVFramesEnabledMethod =
+        cls->getStaticMethod<void(jboolean)>("setYUVFramesEnabled");
+    setYUVFramesEnabledMethod(cls, enabled);
+  }
+};
+} // namespace
+
 void install(jsi::Runtime& jsiRuntime) {
 
   auto RNSVModule = jsi::Object(jsiRuntime);
@@ -31,9 +64,13 @@ void install(jsi::Runtime& jsiRuntime) {
           width = (int)res.getProperty(runtime, "width").asNumber();
           height = (int)res.getProperty(runtime, "height").asNumber();
         }
+        double maxLongSide = 0;
+        if (count >= 3 && arguments[2].isNumber()) {
+          maxLongSide = arguments[2].asNumber();
+        }
         auto instance = std::make_shared<VideoPlayerHostObject>(
             runtime, arguments[0].asString(runtime).utf8(runtime), width,
-            height);
+            height, maxLongSide);
 
         return jsi::Object::createFromHostObject(runtime, instance);
       });
@@ -220,6 +257,48 @@ void install(jsi::Runtime& jsiRuntime) {
 
   RNSVModule.setProperty(jsiRuntime, "getValidEncoderConfigurations",
                          std::move(getValidEncoderConfigurations));
+
+  auto getMemoryFootprint = jsi::Function::createFromHostFunction(
+      jsiRuntime, jsi::PropNameID::forAscii(jsiRuntime, "getMemoryFootprint"),
+      0,
+      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+         const jsi::Value* arguments, size_t count) -> jsi::Value {
+        return jsi::Value(static_cast<double>(MemoryUsage::getFootprint()));
+      });
+  RNSVModule.setProperty(jsiRuntime, "getMemoryFootprint",
+                         std::move(getMemoryFootprint));
+
+  auto setYUVFramesEnabled = jsi::Function::createFromHostFunction(
+      jsiRuntime, jsi::PropNameID::forAscii(jsiRuntime, "setYUVFramesEnabled"),
+      1,
+      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+         const jsi::Value* arguments, size_t count) -> jsi::Value {
+        if (count < 1 || !arguments[0].isBool()) {
+          throw jsi::JSError(runtime, "setYUVFramesEnabled(..) expects a "
+                                      "boolean!");
+        }
+        VideoCompositionDecoderClass::setYUVFramesEnabled(
+            arguments[0].getBool());
+        return jsi::Value::undefined();
+      });
+  RNSVModule.setProperty(jsiRuntime, "setYUVFramesEnabled",
+                         std::move(setYUVFramesEnabled));
+
+  auto setYUVFramesSupported = jsi::Function::createFromHostFunction(
+      jsiRuntime,
+      jsi::PropNameID::forAscii(jsiRuntime, "setYUVFramesSupported"), 1,
+      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+         const jsi::Value* arguments, size_t count) -> jsi::Value {
+        if (count < 1 || !arguments[0].isBool()) {
+          throw jsi::JSError(runtime, "setYUVFramesSupported(..) expects a "
+                                      "boolean!");
+        }
+        VideoCompositionDecoderClass::setYUVFramesSupported(
+            arguments[0].getBool());
+        return jsi::Value::undefined();
+      });
+  RNSVModule.setProperty(jsiRuntime, "setYUVFramesSupported",
+                         std::move(setYUVFramesSupported));
 
   jsiRuntime.global().setProperty(jsiRuntime, "RNSkiaVideo",
                                   std::move(RNSVModule));

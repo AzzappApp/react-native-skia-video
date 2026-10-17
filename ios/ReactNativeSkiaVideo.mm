@@ -6,6 +6,7 @@
 #import <React/RCTUtils.h>
 #import <ReactCommon/RCTTurboModule.h>
 #import <jsi/jsi.h>
+#import <mach/mach.h>
 
 #import "RNSVJSIUtils.h"
 #import "VideoComposition.h"
@@ -68,15 +69,36 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
           resolution.width = res.getProperty(runtime, "width").asNumber();
           resolution.height = res.getProperty(runtime, "height").asNumber();
         }
+        double maxLongSide = 0;
+        if (count >= 3 && arguments[2].isNumber()) {
+          maxLongSide = arguments[2].asNumber();
+        }
 
         NSURL* url = [NSURL URLWithString:urlStr];
 
         auto instance = std::make_shared<VideoPlayerHostObject>(
-            runtime, jsCallInvoker, url, resolution);
+            runtime, jsCallInvoker, url, resolution, maxLongSide);
         return jsi::Object::createFromHostObject(runtime, instance);
       });
   RNSVModule.setProperty(runtime, "createVideoPlayer",
                          std::move(createVideoPlayer));
+
+  // The memory footprint of the process (what Xcode's memory gauge shows),
+  // which includes the IOSurfaces backing the video buffers.
+  auto getMemoryFootprint = jsi::Function::createFromHostFunction(
+      runtime, jsi::PropNameID::forAscii(runtime, "getMemoryFootprint"), 0,
+      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+         const jsi::Value* arguments, size_t count) -> jsi::Value {
+        task_vm_info_data_t info;
+        mach_msg_type_number_t infoCount = TASK_VM_INFO_COUNT;
+        if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&info,
+                      &infoCount) != KERN_SUCCESS) {
+          return jsi::Value::null();
+        }
+        return jsi::Value(static_cast<double>(info.phys_footprint));
+      });
+  RNSVModule.setProperty(runtime, "getMemoryFootprint",
+                         std::move(getMemoryFootprint));
 
   runtime.global().setProperty(runtime, "RNSkiaVideo", RNSVModule);
 

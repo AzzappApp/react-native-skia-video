@@ -1,6 +1,8 @@
 package com.azzapp.rnskv;
 
 import android.media.MediaCodec;
+import android.media.MediaCodecInfo;
+import android.media.MediaCodecList;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.view.Surface;
@@ -87,14 +89,37 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     if (mime == null) {
       throw new IOException("Could not determine file mime type");
     }
+    videoWidth = format.getInteger(MediaFormat.KEY_WIDTH);
+    videoHeight = format.getInteger(MediaFormat.KEY_HEIGHT);
+    // createDecoderByType always returns the first decoder for the mime type
+    // (usually the hardware one) even when it can't handle the stream, e.g. a
+    // 1080x2048 portrait video on a decoder capped at 1920x1088. Only then,
+    // pick one that supports the actual format: hardware decoders often
+    // under-report the frame rates and levels they decode, for which
+    // findDecoderForFormat would pick a (much slower) software decoder.
     codec = MediaCodec.createDecoderByType(mime);
+    boolean sizeSupported = true;
+    try {
+      MediaCodecInfo.VideoCapabilities capabilities =
+        codec.getCodecInfo().getCapabilitiesForType(mime).getVideoCapabilities();
+      sizeSupported = capabilities == null
+        || capabilities.isSizeSupported(videoWidth, videoHeight);
+    } catch (IllegalArgumentException e) {
+      // Unknown capabilities: keep the default decoder.
+    }
+    if (!sizeSupported) {
+      String decoderName = new MediaCodecList(MediaCodecList.REGULAR_CODECS)
+        .findDecoderForFormat(format);
+      if (decoderName != null) {
+        codec.release();
+        codec = MediaCodec.createByCodecName(decoderName);
+      }
+    }
     extractor.selectTrack(trackIndex);
     if (item.getStartTime() != 0) {
       extractor.seekTo(
         TimeHelpers.secToUs(item.getStartTime()), MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
     }
-    videoWidth = format.getInteger(MediaFormat.KEY_WIDTH);
-    videoHeight = format.getInteger(MediaFormat.KEY_HEIGHT);
     rotation = format.containsKey(MediaFormat.KEY_ROTATION) ? format.getInteger(MediaFormat.KEY_ROTATION) : 0;
     prepared = true;
     configure();
@@ -284,9 +309,13 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     if (framesToRenders.isEmpty()) {
       return null;
     }
+    // Only the latest frame is rendered to the surface, the earlier ones are
+    // dropped: they are already outdated, and the frame extractor would still
+    // draw each of them into a frame buffer.
+    Frame latestFrame = framesToRenders.get(framesToRenders.size() - 1);
     framesToRenders.forEach(frame -> {
       try {
-        codec.releaseOutputBuffer(frame.outputBufferIndex, true);
+        codec.releaseOutputBuffer(frame.outputBufferIndex, frame == latestFrame);
       } catch (Throwable e) {
         return;
       }
@@ -294,7 +323,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     freeFrames.addAll(framesToRenders);
     pendingFrames.removeAll(framesToRenders);
 
-    return framesToRenders.get(framesToRenders.size() - 1).presentationTimeUs;
+    return latestFrame.presentationTimeUs;
   }
 
   /**

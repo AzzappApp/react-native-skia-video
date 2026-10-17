@@ -1,7 +1,6 @@
 #pragma once
 
 #include "NativeEventDispatcher.h"
-#include "SkiaContextHolder.h"
 #include "VideoCompositionFramesExtractor.h"
 #include <fbjni/fbjni.h>
 #include <jsi/jsi.h>
@@ -27,7 +26,6 @@ public:
 private:
   global_ref<NativeEventDispatcher> jEventDispatcher;
   global_ref<VideoCompositionFramesExtractor> player;
-  std::shared_ptr<SkiaContextHolder> skiaContextHolder;
   std::atomic_flag prepared = ATOMIC_FLAG_INIT;
   std::atomic_flag released = ATOMIC_FLAG_INIT;
   void release();
