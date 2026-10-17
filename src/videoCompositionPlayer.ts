@@ -11,6 +11,7 @@ import type {
   FrameDrawer,
   VideoComposition,
   VideoCompositionFramesExtractor,
+  VideoFrame,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
 import { checkYUVFramesSupport } from './yuvFrames';
@@ -90,6 +91,31 @@ type UseVideoCompositionPlayerReturnType = {
    * The video player controller.
    */
   player: VideoCompositionPlayerController | null;
+};
+
+/**
+ * Reports an error of the frame callback once per message: the callback runs
+ * on every frame, and the same failure would otherwise be logged 60 times a
+ * second.
+ */
+const reportFrameError = (stage: string, error: unknown) => {
+  'worklet';
+  const global = globalThis as unknown as {
+    __rnskvReportedFrameErrors?: Record<string, true>;
+  };
+  if (global.__rnskvReportedFrameErrors == null) {
+    global.__rnskvReportedFrameErrors = {};
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  const key = `${stage}: ${message}`;
+  if (global.__rnskvReportedFrameErrors[key]) {
+    return;
+  }
+  global.__rnskvReportedFrameErrors[key] = true;
+  console.error(
+    `[react-native-skia-video] ${key}`,
+    error instanceof Error ? error.stack : ''
+  );
 };
 
 /**
@@ -206,20 +232,41 @@ export const useVideoCompositionPlayer = <T = undefined>({
     }
 
     const canvas = surface.getCanvas();
-    const context = beforeDrawFrame?.() as T;
-    drawFrame({
-      canvas,
-      context,
-      videoComposition: composition!,
-      currentTime: framesExtractor.currentTime,
-      frames: makeVideoFrames(
+    // An exception thrown by a frame callback is fatal: in release builds,
+    // Worklets does not catch it and the app aborts. Frames that cannot be
+    // turned into images are left out (the frame is drawn without them), a
+    // frame that cannot be drawn is skipped, and each error is reported once.
+    let frames: Record<string, VideoFrame> = {};
+    try {
+      frames = makeVideoFrames(
         frameImageContext,
         framesKey,
         framesExtractor.decodeCompositionFrames()
-      ),
-      width: width * pixelRatio,
-      height: height * pixelRatio,
-    });
+      );
+    } catch (error) {
+      reportFrameError('failed to turn the decoded frames into images', error);
+    }
+    // The surface, hence its canvas, is kept from frame to frame: a drawing
+    // interrupted by an exception must not leave its save() calls behind.
+    const saveCount = canvas.save();
+    let context: T;
+    try {
+      context = beforeDrawFrame?.() as T;
+      drawFrame({
+        canvas,
+        context,
+        videoComposition: composition!,
+        currentTime: framesExtractor.currentTime,
+        frames,
+        width: width * pixelRatio,
+        height: height * pixelRatio,
+      });
+    } catch (error) {
+      canvas.restoreToCount(saveCount);
+      reportFrameError('failed to draw the composition frame', error);
+      return;
+    }
+    canvas.restoreToCount(saveCount);
     try {
       // Submits the frame's recording: the image shares the texture of the
       // surface (no copy), so a canvas drawing it shows this frame once the
@@ -236,7 +283,11 @@ export const useVideoCompositionPlayer = <T = undefined>({
       console.warn('Failed to flush the composition frame', error);
       return;
     }
-    afterDrawFrame?.(context);
+    try {
+      afterDrawFrame?.(context);
+    } catch (error) {
+      reportFrameError('afterDrawFrame failed', error);
+    }
   }, true);
 
   return {
