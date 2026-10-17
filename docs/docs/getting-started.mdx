@@ -49,11 +49,33 @@ version of it is installed (`yarn why react-native-webgpu-dawn`), and upgrade
 the two packages together (see the
 [compatibility table](https://wcandillon.github.io/react-native-webgpu/docs/integrations/react-native-skia#compatibility)).
 
-It ships native code for **iOS** (Metal, AVFoundation) and **Android**
-(OpenGL, MediaCodec, API level 28 or above). With Expo, use a
+It ships native code for **iOS** (AVFoundation) and **Android** (MediaCodec,
+API level 28 or above). The decoded frames stay on the GPU and are drawn by
+Skia's GPU device (Metal on iOS, Vulkan on Android): on Android 10 and above,
+when the GPU supports it, it reads the decoders' own YUV buffers, with an
+OpenGL conversion as a fallback otherwise. With Expo, use a
 [development build](https://docs.expo.dev/develop/development-builds/introduction/)
 (`npx expo prebuild && npx expo run:ios`) — Expo Go can't load custom native
 modules.
+
+### Android NDK
+
+React Native WebGPU (0.15 and above) must be built with NDK 27: it doesn't set
+its NDK version, so the Android Gradle Plugin builds it with its own default
+(NDK 28), which no longer defines the `STANDARD_*` / `TRANSFER_*` / `RANGE_*`
+constants of `<android/data_space.h>` it uses, and the build fails. Build it
+with your app's NDK (`ndkVersion` in `android/build.gradle`, 27.1 in the
+React Native template), at the end of `android/build.gradle`:
+
+```gradle
+subprojects { subproject ->
+    subproject.plugins.withId("com.android.library") {
+        if (subproject.name == "react-native-webgpu") {
+            subproject.android.ndkVersion = rootProject.ext.ndkVersion
+        }
+    }
+}
+```
 
 ## Three building blocks
 

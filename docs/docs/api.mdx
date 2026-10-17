@@ -94,7 +94,7 @@ playback subset).
 | --- | --- |
 | `play()` / `pause()` | Control playback. |
 | `seekTo(seconds)` | Seek; emits `seekComplete`. |
-| `decodeNextFrame()` | UI-thread only: decode and return the next `VideoFrame`. |
+| `decodeNextFrame()` | Low level, used by `useVideoPlayer`: the next decoded frame as a native buffer (`DecodedFrame`), or `null`. Draw the hook's `currentFrame` instead. |
 | `currentTime` / `duration` | Seconds, read-only. |
 | `isPlaying` / `isLooping` | Playback state. |
 | `volume` / `playbackSpeed` | Audio volume (0–1) and speed (1 = normal). |

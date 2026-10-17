@@ -16,7 +16,9 @@ This library requires [React Native Skia](https://wcandillon.github.io/react-nat
 (`react-native-skia` 3.6.1 or above, Graphite backend),
 [React Native WebGPU](https://wcandillon.github.io/react-native-webgpu/) 0.16.0 or above (built
 against the same Dawn release as React Native Skia), [Reanimated](https://docs.swmansion.com/react-native-reanimated/) 4
-and [Worklets](https://docs.swmansion.com/react-native-worklets/). On Android the minimum API level is 28.
+and [Worklets](https://docs.swmansion.com/react-native-worklets/). On Android the minimum API level is 28,
+and React Native WebGPU must be built with NDK 27 (see
+[Android NDK](https://azzappapp.github.io/react-native-skia-video/docs/getting-started#android-ndk)).
 
 Video frames are handed to Skia as images: the library copies each decoded frame on the GPU into
 a texture of Skia's device with React Native WebGPU, without going through the CPU.
@@ -65,7 +67,9 @@ const videoComposition = {
     path: '/local/path/to/video.mp4',
     compositionStartTime: 0,
     startTime: 0,
-    duration: 5
+    duration: 5,
+    // decodes at most 1280 pixels on the long side (only scales down)
+    maxLongSide: 1280
   }, {
     id: 'video2',
     path: '/local/path/to/video2.mp4',
@@ -198,13 +202,17 @@ WebGPU.
 - Replace `@shopify/react-native-skia` with `react-native-skia` (v3), see
   [the React Native Skia migration guide](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/),
   and install `react-native-webgpu`.
-- `VideoFrame.texture` is replaced by `VideoFrame.image`, an `SkImage` ready
-  to be drawn:
+- `VideoFrame.texture` (a native texture) is replaced by `VideoFrame.image`,
+  an `SkImage` ready to be drawn:
 
   ```diff
   - Skia.Image.MakeImageFromNativeTextureUnstable(frame.texture, frame.width, frame.height)
   + frame.image
   ```
+
+  `VideoFrame.texture` still exists, but it is now the WebGPU `GPUTexture` the
+  image samples (for a WebGPU pass that reads the frame): it can no longer be
+  wrapped into an image.
 
 - The images are owned by the player: an image only shows its frame until the
   next one is produced, so draw it instead of keeping it around (use

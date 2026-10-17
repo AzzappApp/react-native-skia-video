@@ -88,7 +88,7 @@ A few rules of thumb:
 - **It must be a worklet** (`'worklet'` directive) and only call
   worklet-compatible code. Define helper worklets *before* the worklets that
   call them — closures are captured at the definition site.
-- `frames` maps item ids to `VideoFrame`s (`{ image, width, height, rotation }`).
+- `frames` maps item ids to `VideoFrame`s (`{ image, texture, width, height, rotation }`).
   The images are owned by the player: don't dispose them, and don't keep them
   after the call.
   A frame's `rotation` is the display rotation in degrees of the source
