@@ -379,6 +379,12 @@ export type VideoCompositionFramesExtractor = {
    */
   isLooping: boolean;
   /**
+   * The master volume (0 to 1) of the composition's audio, on top of the
+   * volume of each item. Set it rather than rebuilding the composition to
+   * mute it: a new composition is a new player.
+   */
+  volume: number;
+  /**
    * Events dispatched by the video composition frames extractor when the extraction is ready.
    */
   on(name: 'ready', listener: () => void): () => void;

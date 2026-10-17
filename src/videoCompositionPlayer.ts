@@ -79,7 +79,7 @@ type UseVideoCompositionPlayerOptions<T = undefined> = {
 
 type VideoCompositionPlayerController = Pick<
   VideoCompositionFramesExtractor,
-  'currentTime' | 'play' | 'pause' | 'seekTo' | 'isPlaying'
+  'currentTime' | 'play' | 'pause' | 'seekTo' | 'isPlaying' | 'volume'
 >;
 
 type UseVideoCompositionPlayerReturnType = {

@@ -59,6 +59,9 @@ public class AudioCompositionPlayer {
 
   private boolean released = false;
 
+  // Master volume (0..1), multiplied with each item's own volume.
+  private float volume = 1f;
+
   public AudioCompositionPlayer(VideoComposition composition) {
     this.composition = composition;
   }
@@ -72,7 +75,21 @@ public class AudioCompositionPlayer {
       if (!item.isAudioEnabled()) {
         continue;
       }
-      itemPlayers.add(new ItemPlayer(item, this::dispatchError));
+      itemPlayers.add(new ItemPlayer(item, volume, this::dispatchError));
+    }
+  }
+
+  /**
+   * Sets the master volume, applied on top of the items' own volumes.
+   * Must be called on the playback thread, like every other method.
+   */
+  public void setVolume(float value) {
+    volume = Math.max(0f, Math.min(1f, value));
+    if (released) {
+      return;
+    }
+    for (ItemPlayer itemPlayer : itemPlayers) {
+      itemPlayer.setMasterVolume(volume);
     }
   }
 
@@ -127,6 +144,7 @@ public class AudioCompositionPlayer {
     private final ExoPlayer player;
     private final long compositionStartTimeUs;
     private final long durationUs;
+    private final float itemVolume;
 
     // Learned seek/startup latency: seeking lands the player behind the
     // composition clock by the time the audio pipeline takes to resume,
@@ -139,9 +157,10 @@ public class AudioCompositionPlayer {
 
     private float currentSpeed = 1f;
 
-    ItemPlayer(VideoComposition.Item item, OnErrorListener onErrorListener) {
+    ItemPlayer(VideoComposition.Item item, float masterVolume, OnErrorListener onErrorListener) {
       compositionStartTimeUs = TimeHelpers.secToUs(item.getCompositionStartTime());
       durationUs = TimeHelpers.secToUs(item.getDuration());
+      itemVolume = (float) Math.max(0, Math.min(1, item.getAudioVolume()));
 
       player = new ExoPlayer.Builder(
         ReactNativeSkiaVideoModule.currentReactApplicationContext()
@@ -191,7 +210,7 @@ public class AudioCompositionPlayer {
           .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
           .build()
       );
-      player.setVolume((float) Math.max(0, Math.min(1, item.getAudioVolume())));
+      player.setVolume(itemVolume * masterVolume);
       player.setPlayWhenReady(false);
       player.prepare();
     }
@@ -270,6 +289,10 @@ public class AudioCompositionPlayer {
 
     void pause() {
       player.setPlayWhenReady(false);
+    }
+
+    void setMasterVolume(float masterVolume) {
+      player.setVolume(itemVolume * masterVolume);
     }
 
     void release() {

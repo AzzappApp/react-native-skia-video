@@ -49,6 +49,9 @@ private:
   bool playWhenReady = false;
   bool isPlaying = false;
   bool isLooping = false;
+  // Master volume (0..1) of the audio player, settable from JS: applied by
+  // init to the player it creates, and to the live one when it changes.
+  float volume = 1;
   bool initialized = false;
   bool completeEmitted = false;
   // Plays the audio of the composition; when present it is also the master

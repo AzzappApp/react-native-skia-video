@@ -57,7 +57,9 @@ const CompositionPlayer = ({ composition, width, height }) => {
   for every frame, a live view of the player's surface: draw it, don't keep it
   around or dispose it (use `makeRasterImageSync()` for a lasting copy).
 - **`player`** — a controller with `play()`, `pause()`, `seekTo(seconds)`,
-  `currentTime` and `isPlaying`.
+  `currentTime`, `isPlaying` and `volume` (0–1, the master volume of the
+  composition's audio, on top of each item's own: set it to mute the player
+  rather than rebuilding the composition).
 
 ## Performance notes
 

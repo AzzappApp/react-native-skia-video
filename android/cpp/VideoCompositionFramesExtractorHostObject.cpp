@@ -2,6 +2,8 @@
 #include "EGLContextGuard.h"
 #include "JNIHelpers.h"
 
+#include <algorithm>
+
 namespace RNSkiaVideo {
 
 VideoCompositionFramesExtractorHostObject::
@@ -33,6 +35,7 @@ VideoCompositionFramesExtractorHostObject::getPropertyNames(jsi::Runtime& rt) {
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("currentTime")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("isLooping")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("isPlaying")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("volume")));
   return result;
 }
 
@@ -141,6 +144,8 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
     return {!released.test() && player->getIsLooping()};
   } else if (propName == "isPlaying") {
     return {!released.test() && player->getIsPlaying()};
+  } else if (propName == "volume") {
+    return {released.test() ? 0.0 : (double)player->getVolume()};
   }
   return jsi::Value::undefined();
 }
@@ -155,6 +160,8 @@ void VideoCompositionFramesExtractorHostObject::set(
   auto propName = propNameId.utf8(runtime);
   if (propName == "isLooping") {
     player->setIsLooping(value.asBool());
+  } else if (propName == "volume") {
+    player->setVolume((jfloat)std::max(0.0, std::min(1.0, value.asNumber())));
   }
 }
 
