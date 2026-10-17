@@ -31,8 +31,19 @@ type UseVideoPlayerOptions = {
    * If not provided, the original resolution of the video will be used.
    * Downscaling the video can improve performance.
    * Changing the resolution after the video player will lead to re-creating the video player.
+   *
+   * CAREFUL: on iOS, it is read in the file's ENCODED orientation: a clip
+   * filmed in portrait on a phone is a 1920x1080 file with a 90° rotation. To
+   * simply bound the decoded size, use {@link maxLongSide}.
    */
   resolution?: { width: number; height: number } | null;
+  /**
+   * If provided, caps the LONG SIDE of the decoded frames: the video is
+   * scaled down, keeping its aspect ratio, so that neither side exceeds this
+   * many pixels. A smaller video is decoded as is. Ignored when
+   * {@link resolution} is set. Changing it re-creates the video player.
+   */
+  maxLongSide?: number | null;
   /**
    * Whether the video should start playing automatically.
    */
@@ -114,6 +125,7 @@ type UseVideoPlayerReturnType = {
 export const useVideoPlayer = ({
   uri,
   resolution,
+  maxLongSide,
   autoPlay = false,
   isLooping = false,
   volume = 1,
@@ -130,11 +142,11 @@ export const useVideoPlayer = ({
   const [isErrored, setIsErrored] = useState(false);
   const player = useMemo(() => {
     if (uri && !isErrored) {
-      return RNSkiaVideoModule.createVideoPlayer(uri, resolution);
+      return RNSkiaVideoModule.createVideoPlayer(uri, resolution, maxLongSide);
     }
     return null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isErrored, resolution?.width, resolution?.height, uri]);
+  }, [isErrored, resolution?.width, resolution?.height, maxLongSide, uri]);
 
   const frameImageContext = useMemo(() => getFrameImageContext(), []);
   const framesKey = useMemo(() => createFrameImagesKey(), []);

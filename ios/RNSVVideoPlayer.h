@@ -30,7 +30,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (instancetype)initWithURL:(NSURL*)url
                    delegate:(id<RNSVVideoPlayerDelegate>)delegate
-                 resolution:(CGSize)resolution;
+                 resolution:(CGSize)resolution
+                maxLongSide:(double)maxLongSide;
 /**
  * Returns the frame to display at `time` if a new one is available: the
  * decoder's own NV12 buffer, retained (release it with CVPixelBufferRelease).

@@ -22,6 +22,7 @@ const MyVideoPlayer = ({ uri, width, height }) => {
     uri,
     autoPlay: true,
     isLooping: true,
+    maxLongSide: 1280, // decode at most 1280 pixels on the long side
     onReadyToPlay: ({ width, height, rotation }) =>
       console.log(`video is ${width}x${height}, rotated ${rotation}°`),
   });
@@ -41,7 +42,8 @@ const MyVideoPlayer = ({ uri, width, height }) => {
 | Option | Type | Description |
 | --- | --- | --- |
 | `uri` | `string \| null` | The video to play. Pass `null` to skip creating the player. |
-| `resolution` | `{ width, height }` | Decode at a lower resolution — a big performance win when the display size is small. Changing it re-creates the player. |
+| `maxLongSide` | `number` | Cap the long side of the decoded frames, keeping the aspect ratio (only scales down) — a big performance win when the display size is small. Safe for rotated videos. Changing it re-creates the player. |
+| `resolution` | `{ width, height }` | Decode at this exact size instead (`maxLongSide` is then ignored). On iOS it is read in the file's encoded orientation: a portrait phone clip is a 1920×1080 file with a 90° rotation. Changing it re-creates the player. |
 | `autoPlay` | `boolean` | Start playback as soon as the video is ready. |
 | `isLooping` | `boolean` | Restart from the beginning when playback completes. |
 | `volume` | `number` | Volume of the video's audio track (0–1). |

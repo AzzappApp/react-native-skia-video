@@ -52,6 +52,7 @@ public class VideoPlayer {
 
   private final int outputWidth;
   private final int outputHeight;
+  private final double maxLongSide;
 
   private volatile boolean released = false;
 
@@ -61,10 +62,17 @@ public class VideoPlayer {
    * Create a new VideoPlayer with the given URI
    */
   @UnstableApi
-  public VideoPlayer(String uriStr, int width, int height, NativeEventDispatcher eventDispatcher) {
+  public VideoPlayer(
+    String uriStr,
+    int width,
+    int height,
+    double maxLongSide,
+    NativeEventDispatcher eventDispatcher
+  ) {
     this.eventDispatcher = eventDispatcher;
     outputWidth = width;
     outputHeight = height;
+    this.maxLongSide = maxLongSide;
     mainHandler.post(() -> {
       if (released) {
         return;
@@ -314,6 +322,16 @@ public class VideoPlayer {
     boolean downscale = outputWidth > 0 && outputHeight > 0;
     int width = downscale ? outputWidth : videoWidth;
     int height = downscale ? outputHeight : videoHeight;
+    if (!downscale && maxLongSide > 0) {
+      // The long side does not depend on the orientation: the size the player
+      // reports (already rotated) is scaled as is.
+      int longSide = Math.max(width, height);
+      if (longSide > maxLongSide) {
+        double scale = maxLongSide / longSide;
+        width = (int) Math.round(width * scale);
+        height = (int) Math.round(height * scale);
+      }
+    }
     if (width > 0 && height > 0 && glFrameExtractor.decodeNextFrame(width, height)) {
       return new VideoFrame(
         glFrameExtractor.getOutputBuffer(),

@@ -5,11 +5,11 @@
 namespace RNSkiaVideo {
 VideoPlayerHostObject::VideoPlayerHostObject(jsi::Runtime& runtime,
                                              const std::string& uri, int width,
-                                             int height)
+                                             int height, double maxLongSide)
     : EventEmitter(runtime, JNIHelpers::getCallInvoker()) {
   jEventDispatcher = make_global(NativeEventDispatcher::create(this));
-  player =
-      make_global(VideoPlayer::create(uri, width, height, jEventDispatcher));
+  player = make_global(
+      VideoPlayer::create(uri, width, height, maxLongSide, jEventDispatcher));
 }
 
 VideoPlayerHostObject::~VideoPlayerHostObject() {

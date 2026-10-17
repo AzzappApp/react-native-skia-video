@@ -13,14 +13,15 @@ using namespace facebook;
 
 VideoPlayerHostObject::VideoPlayerHostObject(
     jsi::Runtime& runtime, std::shared_ptr<react::CallInvoker> callInvoker,
-    NSURL* url, CGSize resolution)
+    NSURL* url, CGSize resolution, double maxLongSide)
     : EventEmitter(runtime, callInvoker) {
   playerDelegate =
       [[RNSVSkiaVideoPlayerDelegateImpl alloc] initWithHost:this
                                                     runtime:&runtime];
   player = [[RNSVVideoPlayer alloc] initWithURL:url
                                        delegate:playerDelegate
-                                     resolution:resolution];
+                                     resolution:resolution
+                                    maxLongSide:maxLongSide];
 }
 
 VideoPlayerHostObject::~VideoPlayerHostObject() {

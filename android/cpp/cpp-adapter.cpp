@@ -64,9 +64,13 @@ void install(jsi::Runtime& jsiRuntime) {
           width = (int)res.getProperty(runtime, "width").asNumber();
           height = (int)res.getProperty(runtime, "height").asNumber();
         }
+        double maxLongSide = 0;
+        if (count >= 3 && arguments[2].isNumber()) {
+          maxLongSide = arguments[2].asNumber();
+        }
         auto instance = std::make_shared<VideoPlayerHostObject>(
             runtime, arguments[0].asString(runtime).utf8(runtime), width,
-            height);
+            height, maxLongSide);
 
         return jsi::Object::createFromHostObject(runtime, instance);
       });

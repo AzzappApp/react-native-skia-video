@@ -546,11 +546,14 @@ export type RNSkiaVideoModule = {
    * @param resolution If provided, the resolution to scale the video to.
    * If not provided, the original resolution of the video will be used.
    * Downscaling the video can improve performance.
+   * @param maxLongSide If provided (and `resolution` isn't), caps the long
+   * side of the decoded frames, keeping the aspect ratio.
    * @returns The video player.
    */
   createVideoPlayer: (
     uri: string,
-    resolution?: { width: number; height: number } | null
+    resolution?: { width: number; height: number } | null,
+    maxLongSide?: number | null
   ) => VideoPlayer;
   /**
    * Creates a video composition frames extractor for the specified video composition.

@@ -4,8 +4,9 @@ namespace RNSkiaVideo {
 
 jni::local_ref<VideoPlayer>
 VideoPlayer::create(const std::string& uri, int width, int height,
+                    double maxLongSide,
                     alias_ref<NativeEventDispatcher> dispatcher) {
-  return newInstance(uri, width, height, dispatcher);
+  return newInstance(uri, width, height, maxLongSide, dispatcher);
 }
 
 void VideoPlayer::play() {

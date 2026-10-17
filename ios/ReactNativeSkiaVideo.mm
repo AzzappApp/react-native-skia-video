@@ -69,11 +69,15 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
           resolution.width = res.getProperty(runtime, "width").asNumber();
           resolution.height = res.getProperty(runtime, "height").asNumber();
         }
+        double maxLongSide = 0;
+        if (count >= 3 && arguments[2].isNumber()) {
+          maxLongSide = arguments[2].asNumber();
+        }
 
         NSURL* url = [NSURL URLWithString:urlStr];
 
         auto instance = std::make_shared<VideoPlayerHostObject>(
-            runtime, jsCallInvoker, url, resolution);
+            runtime, jsCallInvoker, url, resolution, maxLongSide);
         return jsi::Object::createFromHostObject(runtime, instance);
       });
   RNSVModule.setProperty(runtime, "createVideoPlayer",
