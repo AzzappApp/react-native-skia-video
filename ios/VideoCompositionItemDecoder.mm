@@ -158,10 +158,29 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
           CMTimeMakeWithSeconds(framesQueue->back().first, NSEC_PER_SEC);
     }
 
+    bool recovered = false;
     while (!CMTIME_IS_VALID(latestSampleTime) ||
            (CMTimeCompare(latestSampleTime, inputPosition) < 0 &&
             CMTimeCompare(endTime, inputPosition) >= 0)) {
       if (assetReader.status != AVAssetReaderStatusReading) {
+        // An AVAssetReader interrupted by the system (app sent to the
+        // background, media services reset) ends up Failed and never delivers
+        // a frame again: the composition clock keeps running and the video
+        // stays frozen. Rebuild it once, where the reader that died was (the
+        // start of the next loop if it was decoding it ahead, otherwise the
+        // current composition time), and keep decoding.
+        if (!recovered &&
+            (assetReader == nil ||
+             assetReader.status == AVAssetReaderStatusFailed ||
+             assetReader.status == AVAssetReaderStatusCancelled)) {
+          recovered = true;
+          try {
+            setupReader(hasLooped ? kCMTimeZero : currentTime);
+          } catch (...) {
+            break;
+          }
+          continue;
+        }
         break;
       }
       AVAssetReaderOutput* assetReaderOutput =
