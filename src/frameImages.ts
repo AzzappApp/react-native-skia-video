@@ -37,6 +37,14 @@ export const getFrameImageContext = (): FrameImageContext => {
           'draw video frames with React Native Skia'
       );
     }
+    // No GPU for Skia to render with (no Vulkan 1.1 on Android): there is no
+    // device to copy the frames into, and Skia says why.
+    const { gpu } = Skia;
+    if (!gpu.isAvailable) {
+      throw new Error(
+        `@azzapp/react-native-skia-video can't draw video frames: ${gpu.error}`
+      );
+    }
     frameImageContext = {
       device: importDevice(Skia.getNativeDevice()),
       webgpu: RNWebGPU,

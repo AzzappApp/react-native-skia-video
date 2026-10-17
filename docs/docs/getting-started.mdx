@@ -37,8 +37,8 @@ The library relies on the following peer dependencies:
 
 | Package | Version |
 | --- | --- |
-| `react-native-skia` | `>= 3.6.1` |
-| `react-native-webgpu` | `>= 0.16.0` (same Dawn release as React Native Skia) |
+| `react-native-skia` | `>= 3.6.3` |
+| `react-native-webgpu` | `>= 0.16.1` (same Dawn release as React Native Skia) |
 | `react-native-reanimated` | `>= 4.0.0` |
 | `react-native-worklets` | `>= 0.10.0` |
 
@@ -76,6 +76,17 @@ subprojects { subproject ->
     }
 }
 ```
+
+### Vulkan on Android
+
+React Native Skia renders with Vulkan 1.1 on Android (every 64-bit device
+shipped with Android 10 or later has it), and its manifest declares it as a
+required feature: the Play Store doesn't serve your app to devices without it.
+If you remove that declaration to ship to them anyway (see
+[React Native Skia's installation guide](https://wcandillon.github.io/react-native-skia/docs/getting-started/installation)),
+check `Skia.gpu.isAvailable` before playing or exporting videos: without a
+GPU, the players throw while rendering and `exportVideoComposition` rejects,
+with the reason Skia gives in `Skia.gpu.error`.
 
 ## Three building blocks
 
