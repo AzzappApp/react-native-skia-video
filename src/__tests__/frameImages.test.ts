@@ -73,8 +73,10 @@ describe('makeVideoFrame', () => {
       [WIDTH, HEIGHT]
     );
     expect(frame.release).toHaveBeenCalledTimes(1);
+    // The texture the image is made from, handed out with it.
     expect(videoFrame).toEqual({
       image: expect.anything(),
+      texture,
       width: WIDTH,
       height: HEIGHT,
       rotation: 0,
@@ -91,6 +93,7 @@ describe('makeVideoFrame', () => {
 
     expect(copyExternalImageToTexture).toHaveBeenCalledTimes(1);
     expect(again.image).toBe(first.image);
+    expect(again.texture).toBe(first.texture);
     expect(first.image.dispose).not.toHaveBeenCalled();
     // Android: the frame handed out again carries a ready fence of its own.
     expect(frameAgain.release).toHaveBeenCalledTimes(1);

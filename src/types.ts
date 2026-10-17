@@ -14,6 +14,13 @@ export type VideoFrame = {
    */
   image: SkImage;
   /**
+   * The WebGPU texture the image samples, on Skia's device: for a WebGPU pass
+   * that reads the frame (the same pixels as `image`, unrotated), without a
+   * copy. Owned by the player like the image, and overwritten by the next
+   * frame: sample it in the frame it was handed out with, don't destroy it.
+   */
+  texture: GPUTexture;
+  /**
    * The width in pixels of the frame.
    */
   width: number;

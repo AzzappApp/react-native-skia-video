@@ -708,6 +708,7 @@ export const makeVideoFrame = (
     frame.release?.();
     return {
       image: state.image,
+      texture: state.texture!,
       width: frame.width,
       height: frame.height,
       rotation: frame.rotation,
@@ -734,6 +735,7 @@ export const makeVideoFrame = (
   state.frameId = frameId;
   return {
     image,
+    texture,
     width: frame.width,
     height: frame.height,
     rotation: frame.rotation,

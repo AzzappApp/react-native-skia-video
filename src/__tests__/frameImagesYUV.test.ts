@@ -188,6 +188,7 @@ describe('makeVideoFrame with a YUV frame', () => {
     expect(frame.release).toHaveBeenCalledTimes(1);
     expect(videoFrame).toEqual({
       image: expect.anything(),
+      texture: expect.anything(),
       width: 360,
       height: 640,
       rotation: 0,

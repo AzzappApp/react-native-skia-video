@@ -80,6 +80,7 @@ type FrameDrawer<T = undefined> = (args: {
 | Field | Type | Description |
 | --- | --- | --- |
 | `image` | `SkImage` | The frame, backed by a GPU texture of Skia's device. Owned by the player and only valid until the next frame is produced. |
+| `texture` | `GPUTexture` | The texture `image` samples, for a WebGPU pass that reads the frame without a copy (unrotated). Same lifetime as `image`; never destroy it. |
 | `width` / `height` | `number` | Frame size in pixels, as stored. |
 | `rotation` | `number` | Display rotation in degrees (0, 90, 180, 270). |
 
