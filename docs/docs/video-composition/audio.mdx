@@ -53,6 +53,29 @@ appear in the `frames` map passed to `drawFrame`.
 Overlapping audio (a video's soundtrack + background music, several music
 items…) is mixed together.
 
+## Fades
+
+`fadeIn` and `fadeOut` ramp the volume of an audio item linearly, from 0 at
+its start and to 0 at its end, in seconds, during playback and in the
+export:
+
+```ts
+{
+  id: 'music',
+  kind: 'audio',
+  path: 'path/to/music.m4a',
+  compositionStartTime: 0,
+  startTime: 12,
+  duration: 30,
+  fadeIn: 2,
+  fadeOut: 4,
+}
+```
+
+Use them rather than slicing the track into items of growing volume: each
+slice starts its own decoder, and every joint (and every jump of volume)
+is audible.
+
 ## Looping a track over the composition
 
 Audio items don't loop by themselves. To cover a montage longer than the

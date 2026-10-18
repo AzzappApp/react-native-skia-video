@@ -20,6 +20,9 @@ public:
   bool isVideo = true;
   bool audioEnabled = false;
   double audioVolume = 1.0;
+  // Fades of an audio item, in seconds (see types.ts).
+  double audioFadeIn = 0;
+  double audioFadeOut = 0;
 };
 
 class VideoComposition {
@@ -86,6 +89,18 @@ public:
           auto volumeProp = jsItem.getProperty(runtime, "volume");
           if (volumeProp.isNumber()) {
             item->audioVolume = volumeProp.asNumber();
+          }
+        }
+        if (jsItem.hasProperty(runtime, "fadeIn")) {
+          auto fadeInProp = jsItem.getProperty(runtime, "fadeIn");
+          if (fadeInProp.isNumber()) {
+            item->audioFadeIn = fadeInProp.asNumber();
+          }
+        }
+        if (jsItem.hasProperty(runtime, "fadeOut")) {
+          auto fadeOutProp = jsItem.getProperty(runtime, "fadeOut");
+          if (fadeOutProp.isNumber()) {
+            item->audioFadeOut = fadeOutProp.asNumber();
           }
         }
       } else if (jsItem.hasProperty(runtime, "audio")) {

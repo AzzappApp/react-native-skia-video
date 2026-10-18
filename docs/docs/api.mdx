@@ -61,6 +61,7 @@ type VideoCompositionItem = VideoCompositionVideoItem | VideoCompositionAudioIte
 | --- | --- | --- |
 | `kind` | `'audio'` | Sound only — never appears in `frames`. Source can be an audio or video file. |
 | `volume` | `number?` | 0–1, defaults to 1. |
+| `fadeIn` / `fadeOut` | `number?` | Seconds of a linear volume ramp from 0 at the start of the item / to 0 at its end. Default to 0. |
 
 ## FrameDrawer
 

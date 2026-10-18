@@ -142,9 +142,14 @@ public class AudioCompositionPlayer {
 
   private static class ItemPlayer {
     private final ExoPlayer player;
+    private final VideoComposition.Item item;
     private final long compositionStartTimeUs;
     private final long durationUs;
-    private final float itemVolume;
+    private float masterVolume;
+    // The volume last given to the player: the item's, ramped by its fades
+    // (getAudioVolumeAt), times the master volume. Updated on every tick
+    // (about 10 ms) while a fade plays; the audio track smooths each step.
+    private float appliedVolume = -1f;
 
     // Learned seek/startup latency: seeking lands the player behind the
     // composition clock by the time the audio pipeline takes to resume,
@@ -158,9 +163,10 @@ public class AudioCompositionPlayer {
     private float currentSpeed = 1f;
 
     ItemPlayer(VideoComposition.Item item, float masterVolume, OnErrorListener onErrorListener) {
+      this.item = item;
       compositionStartTimeUs = TimeHelpers.secToUs(item.getCompositionStartTime());
       durationUs = TimeHelpers.secToUs(item.getDuration());
-      itemVolume = (float) Math.max(0, Math.min(1, item.getAudioVolume()));
+      this.masterVolume = masterVolume;
 
       player = new ExoPlayer.Builder(
         ReactNativeSkiaVideoModule.currentReactApplicationContext()
@@ -210,9 +216,18 @@ public class AudioCompositionPlayer {
           .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
           .build()
       );
-      player.setVolume(itemVolume * masterVolume);
+      applyVolume(0);
       player.setPlayWhenReady(false);
       player.prepare();
+    }
+
+    private void applyVolume(long localPositionUs) {
+      float next =
+        (float) item.getAudioVolumeAt(localPositionUs / 1e6) * masterVolume;
+      if (next != appliedVolume) {
+        appliedVolume = next;
+        player.setVolume(next);
+      }
     }
 
     void update(long positionUs, boolean isPlaying) {
@@ -225,6 +240,7 @@ public class AudioCompositionPlayer {
         }
         return;
       }
+      applyVolume(localPositionUs);
       if (!player.getPlayWhenReady()) {
         // The player is usually already primed at the target position
         // (prepare, user seek, loop restart): starting it without seeking
@@ -279,6 +295,7 @@ public class AudioCompositionPlayer {
     void seekTo(long positionUs) {
       long localPositionUs =
         Math.max(0, Math.min(positionUs - compositionStartTimeUs, durationUs));
+      applyVolume(localPositionUs);
       syncTo(localPositionUs);
     }
 
@@ -292,7 +309,9 @@ public class AudioCompositionPlayer {
     }
 
     void setMasterVolume(float masterVolume) {
-      player.setVolume(itemVolume * masterVolume);
+      this.masterVolume = masterVolume;
+      long localPositionUs = player.getCurrentPosition() * 1000;
+      applyVolume(Math.max(0, Math.min(localPositionUs, durationUs)));
     }
 
     void release() {

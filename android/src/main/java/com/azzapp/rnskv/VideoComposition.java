@@ -51,6 +51,9 @@ public class VideoComposition {
     private boolean isVideo = true;
     private boolean audioEnabled = false;
     private double audioVolume = 1.0;
+    // Fades of an audio item, in seconds (see types.ts).
+    private double audioFadeIn = 0;
+    private double audioFadeOut = 0;
 
     public Item() {
     }
@@ -111,6 +114,25 @@ public class VideoComposition {
 
     public double getAudioVolume() {
       return audioVolume;
+    }
+
+    /**
+     * The volume of the item at a time of the item (seconds from its start):
+     * its volume, ramped by its fades. The fades are clamped to the item, the
+     * fade out to what the fade in leaves of it.
+     */
+    public double getAudioVolumeAt(double localTime) {
+      double volume = Math.max(0, Math.min(1, audioVolume));
+      double fadeIn = Math.max(0, Math.min(audioFadeIn, duration));
+      double fadeOut = Math.max(0, Math.min(audioFadeOut, duration - fadeIn));
+      double gain = 1;
+      if (fadeIn > 0) {
+        gain = Math.min(gain, localTime / fadeIn);
+      }
+      if (fadeOut > 0) {
+        gain = Math.min(gain, (duration - localTime) / fadeOut);
+      }
+      return volume * Math.max(0, Math.min(1, gain));
     }
   }
 }

@@ -95,12 +95,26 @@ VideoComposition::fromJSIObject(jsi::Runtime& runtime,
     }
     bool audioEnabled = false;
     double audioVolume = 1.0;
+    double audioFadeIn = 0;
+    double audioFadeOut = 0;
     if (!isVideo) {
       audioEnabled = true;
       if (jsItem.hasProperty(runtime, "volume")) {
         auto volumeProp = jsItem.getProperty(runtime, "volume");
         if (volumeProp.isNumber()) {
           audioVolume = volumeProp.asNumber();
+        }
+      }
+      if (jsItem.hasProperty(runtime, "fadeIn")) {
+        auto fadeInProp = jsItem.getProperty(runtime, "fadeIn");
+        if (fadeInProp.isNumber()) {
+          audioFadeIn = fadeInProp.asNumber();
+        }
+      }
+      if (jsItem.hasProperty(runtime, "fadeOut")) {
+        auto fadeOutProp = jsItem.getProperty(runtime, "fadeOut");
+        if (fadeOutProp.isNumber()) {
+          audioFadeOut = fadeOutProp.asNumber();
         }
       }
     } else if (jsItem.hasProperty(runtime, "audio")) {
@@ -130,6 +144,9 @@ VideoComposition::fromJSIObject(jsi::Runtime& runtime,
     item->setFieldValue(itemCls->getField<jboolean>("audioEnabled"),
                         (jboolean)audioEnabled);
     item->setFieldValue(itemCls->getField<jdouble>("audioVolume"), audioVolume);
+    item->setFieldValue(itemCls->getField<jdouble>("audioFadeIn"), audioFadeIn);
+    item->setFieldValue(itemCls->getField<jdouble>("audioFadeOut"),
+                        audioFadeOut);
 
     items->add(item);
   }

@@ -316,6 +316,17 @@ export type VideoCompositionAudioItem = VideoCompositionItemBase & {
    * Defaults to 1.
    */
   volume?: number;
+  /**
+   * A fade in, in seconds from the start of the item: its volume ramps
+   * linearly from 0 to `volume`, during playback and in the export.
+   * Defaults to 0 (no fade).
+   */
+  fadeIn?: number;
+  /**
+   * A fade out, in seconds before the end of the item: its volume ramps
+   * linearly from `volume` to 0. Defaults to 0 (no fade).
+   */
+  fadeOut?: number;
 };
 
 export type VideoCompositionItem =
