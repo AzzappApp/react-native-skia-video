@@ -23,6 +23,9 @@ Pod::Spec.new do |s|
     "CLANG_CXX_LANGUAGE_STANDARD" => "c++20"
   }
 
+  # VTPixelTransferSession (the iOS encoder's NV12 frames)
+  s.frameworks = "VideoToolbox"
+
   s.dependency "React-callinvoker"
 
   # Install the React Native dependencies (React-Core, TurboModules, codegen, etc.)

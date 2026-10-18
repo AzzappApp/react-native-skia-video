@@ -135,7 +135,14 @@ void VideoEncoderHostObject::prepare() {
       AVVideoAverageBitRateKey : @(bitRate),
       AVVideoMaxKeyFrameIntervalKey : @(frameRate),
       AVVideoProfileLevelKey : AVVideoProfileLevelH264HighAutoLevel,
-    }
+    },
+    // The NV12 frames of endFrame() are converted and tagged with these (see
+    // convertFrameBuffer()): the encoder takes them as they are.
+    AVVideoColorPropertiesKey : @{
+      AVVideoColorPrimariesKey : AVVideoColorPrimaries_ITU_R_709_2,
+      AVVideoTransferFunctionKey : AVVideoTransferFunction_ITU_R_709_2,
+      AVVideoYCbCrMatrixKey : AVVideoYCbCrMatrix_ITU_R_709_2,
+    },
   };
 
   assetWriterInput =
@@ -172,12 +179,12 @@ void VideoEncoderHostObject::prepare() {
     (NSString*)kCVPixelBufferIOSurfacePropertiesKey : @{},
     (NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
   };
-  // Allocate a fresh buffer per frame from this pool instead of reusing a
-  // single CVPixelBuffer. AVAssetWriter encodes appended buffers
-  // asynchronously, so a reused buffer could be overwritten by the next frame
-  // while the encoder is still reading it, producing torn frames on fast
-  // motion. The pool only recycles a buffer once every reference to it (the
-  // encoder's included) is gone, which also keeps the memory used bounded.
+  // Each appended frame is a fresh buffer of a pool, never a reused
+  // CVPixelBuffer. AVAssetWriter encodes appended buffers asynchronously, so a
+  // reused buffer could be overwritten by the next frame while the encoder is
+  // still reading it, producing torn frames on fast motion. A pool only
+  // recycles a buffer once every reference to it (the encoder's included) is
+  // gone, which also keeps the memory used bounded.
   if (pixelBufferPool) {
     CVPixelBufferPoolRelease(pixelBufferPool);
     pixelBufferPool = NULL;
@@ -188,12 +195,48 @@ void VideoEncoderHostObject::prepare() {
   if (status != kCVReturnSuccess) {
     throw createErrorWithMessage(@"Could not create pixel buffer pool");
   }
+
+  // NV12, the encoder's own input format: a 1080x1920 frame is 3.1 MB
+  // instead of 8.3 MB in BGRA, and AVAssetWriter keeps dozens of them.
+  // VTPixelTransferSession needs iOS 16.
+  if (@available(iOS 16.0, *)) {
+    NSDictionary* encoderAttributes = @{
+      (NSString*)kCVPixelBufferPixelFormatTypeKey :
+          @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+      (NSString*)kCVPixelBufferWidthKey : @(width),
+      (NSString*)kCVPixelBufferHeightKey : @(height),
+      (NSString*)kCVPixelBufferIOSurfacePropertiesKey : @{},
+    };
+    if (encoderBufferPool) {
+      CVPixelBufferPoolRelease(encoderBufferPool);
+      encoderBufferPool = NULL;
+    }
+    status = CVPixelBufferPoolCreate(
+        kCFAllocatorDefault, NULL, (__bridge CFDictionaryRef)encoderAttributes,
+        &encoderBufferPool);
+    if (status != kCVReturnSuccess) {
+      throw createErrorWithMessage(@"Could not create pixel buffer pool");
+    }
+    if (pixelTransferSession == NULL) {
+      VTPixelTransferSessionRef session = NULL;
+      if (VTPixelTransferSessionCreate(kCFAllocatorDefault, &session) !=
+          noErr) {
+        throw createErrorWithMessage(
+            @"Could not create pixel transfer session");
+      }
+      VTSessionSetProperty(session,
+                           kVTPixelTransferPropertyKey_DestinationYCbCrMatrix,
+                           kCVImageBufferYCbCrMatrix_ITU_R_709_2);
+      pixelTransferSession = session;
+    }
+  }
 }
 
-CVPixelBufferRef VideoEncoderHostObject::createFrameBuffer() {
+CVPixelBufferRef
+VideoEncoderHostObject::createPoolBuffer(CVPixelBufferPoolRef pool) {
   CVPixelBufferRef pixelBuffer = NULL;
-  CVReturn status = CVPixelBufferPoolCreatePixelBuffer(
-      kCFAllocatorDefault, pixelBufferPool, &pixelBuffer);
+  CVReturn status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault,
+                                                       pool, &pixelBuffer);
   if (status != kCVReturnSuccess || pixelBuffer == NULL) {
     throw createErrorWithMessage(@"Could not allocate pixel buffer from pool");
   }
@@ -258,7 +301,7 @@ void VideoEncoderHostObject::encodeFrame(const uint8_t* pixels, size_t size,
         @"The frame dimensions do not match the export dimensions");
   }
 
-  CVPixelBufferRef pixelBuffer = createFrameBuffer();
+  CVPixelBufferRef pixelBuffer = createPoolBuffer(pixelBufferPool);
   CVPixelBufferLockBaseAddress(pixelBuffer, 0);
   uint8_t* dst = (uint8_t*)CVPixelBufferGetBaseAddress(pixelBuffer);
   if (dst == NULL) {
@@ -313,13 +356,41 @@ void VideoEncoderHostObject::copyFrameBuffer(CVPixelBufferRef source,
   }
 }
 
+// Converts the BGRA frame drawn into to NV12, the format the encoder
+// converts it to anyway, with VideoToolbox's hardware. The source carries no
+// color tags, so only the BT.709 matrix is applied (no color matching); the
+// result is then tagged BT.709, like the video (see prepare()).
+void VideoEncoderHostObject::convertFrameBuffer(CVPixelBufferRef source,
+                                                CVPixelBufferRef destination) {
+  // A recycled buffer of the pool may keep the tags of its previous frame.
+  CVBufferRemoveAllAttachments(destination);
+  OSStatus status = kVTParameterErr;
+  if (@available(iOS 16.0, *)) {
+    status = VTPixelTransferSessionTransferImage(
+        (VTPixelTransferSessionRef)pixelTransferSession, source, destination);
+  }
+  if (status != noErr) {
+    throw createErrorWithMessage([NSString
+        stringWithFormat:@"Could not convert the frame (%d)", (int)status]);
+  }
+  CVBufferSetAttachment(destination, kCVImageBufferYCbCrMatrixKey,
+                        kCVImageBufferYCbCrMatrix_ITU_R_709_2,
+                        kCVAttachmentMode_ShouldPropagate);
+  CVBufferSetAttachment(destination, kCVImageBufferColorPrimariesKey,
+                        kCVImageBufferColorPrimaries_ITU_R_709_2,
+                        kCVAttachmentMode_ShouldPropagate);
+  CVBufferSetAttachment(destination, kCVImageBufferTransferFunctionKey,
+                        kCVImageBufferTransferFunction_ITU_R_709_2,
+                        kCVAttachmentMode_ShouldPropagate);
+}
+
 IOSurfaceRef VideoEncoderHostObject::beginFrame() {
   // The same buffer every frame: JS imports it into Skia's device once (an
   // imported IOSurface stays in use until its JS object is garbage
   // collected). It is never appended (see endFrame()), so it can be drawn
   // into again as soon as a frame has ended.
   if (frameBuffer == NULL) {
-    frameBuffer = createFrameBuffer();
+    frameBuffer = createPoolBuffer(pixelBufferPool);
   }
   IOSurfaceRef surface = CVPixelBufferGetIOSurface(frameBuffer);
   if (surface == NULL) {
@@ -340,12 +411,19 @@ void VideoEncoderHostObject::endFrame(CMTime time) {
   // process tells when it is done: the IOSurface's use count is per process.
   // Handed out again, the buffer was drawn into while being encoded, and the
   // export showed the next frame in place of this one (that frame lost), or
-  // a cleared one. The frame is copied into a fresh buffer of the pool
-  // instead, as encodeFrame() does: the pool recycles a buffer only once its
-  // IOSurface is used by no process. One copy in memory, no GPU readback.
-  CVPixelBufferRef pixelBuffer = createFrameBuffer();
+  // a cleared one. The frame is converted into a fresh NV12 buffer of a pool
+  // instead (see convertFrameBuffer()), or copied into a BGRA one before iOS
+  // 16: a pool recycles a buffer only once its IOSurface is used by no
+  // process. One conversion (or copy), no GPU readback.
+  const bool convert = pixelTransferSession != NULL;
+  CVPixelBufferRef pixelBuffer =
+      createPoolBuffer(convert ? encoderBufferPool : pixelBufferPool);
   try {
-    copyFrameBuffer(frameBuffer, pixelBuffer);
+    if (convert) {
+      convertFrameBuffer(frameBuffer, pixelBuffer);
+    } else {
+      copyFrameBuffer(frameBuffer, pixelBuffer);
+    }
     appendFrameBuffer(pixelBuffer, time);
   } catch (...) {
     CVPixelBufferRelease(pixelBuffer);
@@ -541,6 +619,18 @@ void VideoEncoderHostObject::release() {
   if (pixelBufferPool) {
     CVPixelBufferPoolRelease(pixelBufferPool);
     pixelBufferPool = NULL;
+  }
+  if (encoderBufferPool) {
+    CVPixelBufferPoolRelease(encoderBufferPool);
+    encoderBufferPool = NULL;
+  }
+  if (pixelTransferSession) {
+    if (@available(iOS 16.0, *)) {
+      VTPixelTransferSessionInvalidate(
+          (VTPixelTransferSessionRef)pixelTransferSession);
+    }
+    CFRelease(pixelTransferSession);
+    pixelTransferSession = NULL;
   }
 }
 

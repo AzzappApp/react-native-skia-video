@@ -3,6 +3,7 @@
 #import "VideoComposition.h"
 #import <AVFoundation/AVFoundation.h>
 #import <IOSurface/IOSurfaceRef.h>
+#import <VideoToolbox/VideoToolbox.h>
 #import <jsi/jsi.h>
 #import <vector>
 
@@ -30,10 +31,16 @@ private:
   std::shared_ptr<VideoComposition> composition;
   AVAssetWriter* assetWriter;
   AVAssetWriterInput* assetWriterInput;
+  // BGRA buffers: the one beginFrame() hands out, and the frames of
+  // encodeFrame().
   CVPixelBufferPoolRef pixelBufferPool = NULL;
   // The buffer beginFrame() hands out, the same every frame; endFrame()
-  // appends a copy of it (see endFrame()).
+  // appends an NV12 conversion of it (see endFrame()).
   CVPixelBufferRef frameBuffer = NULL;
+  // iOS 16+: the NV12 buffers endFrame() appends, and the conversion into
+  // them (a VTPixelTransferSessionRef). Before, endFrame() appends a BGRA copy.
+  CVPixelBufferPoolRef encoderBufferPool = NULL;
+  CFTypeRef pixelTransferSession = NULL;
   // Between beginFrame() and endFrame().
   bool framePending = false;
 
@@ -45,8 +52,10 @@ private:
   NSMutableArray<NSError*>* audioErrorHolder;
 
   void prepare();
-  CVPixelBufferRef createFrameBuffer();
+  CVPixelBufferRef createPoolBuffer(CVPixelBufferPoolRef pool);
   void copyFrameBuffer(CVPixelBufferRef source, CVPixelBufferRef destination);
+  void convertFrameBuffer(CVPixelBufferRef source,
+                          CVPixelBufferRef destination);
   void appendFrameBuffer(CVPixelBufferRef pixelBuffer, CMTime time);
   void encodeFrame(const uint8_t* pixels, size_t size, CMTime time);
   IOSurfaceRef beginFrame();
