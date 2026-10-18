@@ -142,7 +142,7 @@ void VideoEncoderHostObject::prepare() {
       [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo
                                          outputSettings:videoSettings];
   // Not real time, the encoder kept about 55 frames ahead (the frame
-  // buffers, see acquireFrameBuffer: ~480 MB at 1080×1920, 1.8 GB in 4K).
+  // buffers of the pool: ~480 MB at 1080×1920, 1.8 GB in 4K).
   // In real time, it should only keep a few.
   assetWriterInput.expectsMediaDataInRealTime = YES;
   assetWriterInput.performsMultiPassEncodingIfSupported = NO;
@@ -172,7 +172,6 @@ void VideoEncoderHostObject::prepare() {
     (NSString*)kCVPixelBufferIOSurfacePropertiesKey : @{},
     (NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
   };
-  frameBufferAttributes = attributes;
   // Allocate a fresh buffer per frame from this pool instead of reusing a
   // single CVPixelBuffer. AVAssetWriter encodes appended buffers
   // asynchronously, so a reused buffer could be overwritten by the next frame
@@ -288,116 +287,79 @@ void VideoEncoderHostObject::encodeFrame(const uint8_t* pixels, size_t size,
   CVPixelBufferRelease(pixelBuffer);
 }
 
-// The buffers handed out by beginFrame(): AVAssetWriter only keeps a few
-// frames while encoding them. Past that count, a new buffer is only allocated
-// if none is released within kFrameBufferWaitTime (seconds).
-static const size_t kMaxFrameBuffers = 8;
-static const CFTimeInterval kFrameBufferWaitTime = 0.1;
-
-bool VideoEncoderHostObject::isFrameBufferIdle(CVPixelBufferRef buffer) {
-  // Only referenced by this encoder: AVAssetWriter has released it.
-  if (CFGetRetainCount(buffer) != 1) {
-    return false;
-  }
-  // That is not enough: in real time (see prepare()), AVAssetWriter releases
-  // the buffer while the video encoder (out of process on a device) still
-  // reads its IOSurface. Handed out again, the buffer was cleared and drawn
-  // into while being encoded: isolated black frames in the export, never on
-  // the simulator. The encoder holds the IOSurface's use count while it
-  // reads it, as CVPixelBufferPool expects before recycling a buffer: the
-  // buffer is idle once its use count is back to what it was when it was
-  // appended.
-  auto idle = idleUseCounts.find(buffer);
-  if (idle == idleUseCounts.end()) {
-    // Never appended: the encoder has not seen it.
-    return true;
-  }
-  IOSurfaceRef surface = CVPixelBufferGetIOSurface(buffer);
-  return surface == NULL || IOSurfaceGetUseCount(surface) <= idle->second;
-}
-
-CVPixelBufferRef VideoEncoderHostObject::acquireFrameBuffer() {
-  // The buffers handed out by beginFrame() are reused, rather than taken
-  // from the pool: JS imports each one into Skia's device once, and an
-  // imported IOSurface stays in use (Dawn keeps a Metal texture over it)
-  // until the JS object is garbage collected, so that the pool could not
-  // recycle it and would allocate a new buffer for (almost) every frame.
-  const CFAbsoluteTime deadline =
-      CFAbsoluteTimeGetCurrent() + kFrameBufferWaitTime;
-  while (true) {
-    for (CVPixelBufferRef buffer : frameBuffers) {
-      if (isFrameBufferIdle(buffer)) {
-        return CVPixelBufferRetain(buffer);
+void VideoEncoderHostObject::copyFrameBuffer(CVPixelBufferRef source,
+                                             CVPixelBufferRef destination) {
+  CVPixelBufferLockBaseAddress(source, kCVPixelBufferLock_ReadOnly);
+  CVPixelBufferLockBaseAddress(destination, 0);
+  const uint8_t* src = (const uint8_t*)CVPixelBufferGetBaseAddress(source);
+  uint8_t* dst = (uint8_t*)CVPixelBufferGetBaseAddress(destination);
+  if (src != NULL && dst != NULL) {
+    // The pixel buffer rows may be padded, not always alike.
+    const size_t rowBytes = (size_t)width * 4;
+    const size_t srcBytesPerRow = CVPixelBufferGetBytesPerRow(source);
+    const size_t dstBytesPerRow = CVPixelBufferGetBytesPerRow(destination);
+    if (srcBytesPerRow == dstBytesPerRow) {
+      memcpy(dst, src, srcBytesPerRow * height);
+    } else {
+      for (int y = 0; y < height; y++) {
+        memcpy(dst + y * dstBytesPerRow, src + y * srcBytesPerRow, rowBytes);
       }
     }
-    if (frameBuffers.size() < kMaxFrameBuffers ||
-        CFAbsoluteTimeGetCurrent() > deadline) {
-      CVPixelBufferRef buffer = NULL;
-      CVReturn status = CVPixelBufferCreate(
-          kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
-          (__bridge CFDictionaryRef)frameBufferAttributes, &buffer);
-      if (status != kCVReturnSuccess || buffer == NULL) {
-        throw createErrorWithMessage(@"Could not allocate a frame buffer");
-      }
-      frameBuffers.push_back(buffer);
-      return CVPixelBufferRetain(buffer);
-    }
-    if (assetWriter.status == AVAssetWriterStatusFailed) {
-      throw assetWriter.error
-          ?: createErrorWithMessage(@"AVAssetWriter failed");
-    }
-    usleep(1000);
   }
-}
-
-void VideoEncoderHostObject::releaseFrameBuffers() {
-  for (CVPixelBufferRef buffer : frameBuffers) {
-    CVPixelBufferRelease(buffer);
+  CVPixelBufferUnlockBaseAddress(destination, 0);
+  CVPixelBufferUnlockBaseAddress(source, kCVPixelBufferLock_ReadOnly);
+  if (src == NULL || dst == NULL) {
+    throw createErrorWithMessage(@"Could not copy the frame pixels");
   }
-  frameBuffers.clear();
-  idleUseCounts.clear();
 }
 
 IOSurfaceRef VideoEncoderHostObject::beginFrame() {
-  releasePendingFrameBuffer();
-  pendingFrameBuffer = acquireFrameBuffer();
-  IOSurfaceRef surface = CVPixelBufferGetIOSurface(pendingFrameBuffer);
+  // The same buffer every frame: JS imports it into Skia's device once (an
+  // imported IOSurface stays in use until its JS object is garbage
+  // collected). It is never appended (see endFrame()), so it can be drawn
+  // into again as soon as a frame has ended.
+  if (frameBuffer == NULL) {
+    frameBuffer = createFrameBuffer();
+  }
+  IOSurfaceRef surface = CVPixelBufferGetIOSurface(frameBuffer);
   if (surface == NULL) {
-    releasePendingFrameBuffer();
     throw createErrorWithMessage(@"The frame buffer has no IOSurface");
   }
+  framePending = true;
   return surface;
 }
 
 void VideoEncoderHostObject::endFrame(CMTime time) {
-  if (pendingFrameBuffer == NULL) {
+  if (!framePending) {
     throw createErrorWithMessage(@"endFrame called without beginFrame");
   }
-  // The use count of the IOSurface before the encoder reads it (the texture
-  // imported over it holds some), see isFrameBufferIdle(). The lowest one
-  // seen: a use still pending when a frame ends would raise it for good.
-  IOSurfaceRef surface = CVPixelBufferGetIOSurface(pendingFrameBuffer);
-  if (surface != NULL) {
-    int32_t useCount = IOSurfaceGetUseCount(surface);
-    auto known = idleUseCounts.find(pendingFrameBuffer);
-    idleUseCounts[pendingFrameBuffer] = known == idleUseCounts.end()
-                                            ? useCount
-                                            : std::min(known->second, useCount);
-  }
+  framePending = false;
+  // The buffer drawn into is not appended itself. In real time (see
+  // prepare()), AVAssetWriter releases a buffer while the video encoder, out
+  // of process on a device, still reads its IOSurface, and nothing in this
+  // process tells when it is done: the IOSurface's use count is per process.
+  // Handed out again, the buffer was drawn into while being encoded, and the
+  // export showed the next frame in place of this one (that frame lost), or
+  // a cleared one. The frame is copied into a fresh buffer of the pool
+  // instead, as encodeFrame() does: the pool recycles a buffer only once its
+  // IOSurface is used by no process. One copy in memory, no GPU readback.
+  CVPixelBufferRef pixelBuffer = createFrameBuffer();
   try {
-    appendFrameBuffer(pendingFrameBuffer, time);
+    copyFrameBuffer(frameBuffer, pixelBuffer);
+    appendFrameBuffer(pixelBuffer, time);
   } catch (...) {
-    releasePendingFrameBuffer();
+    CVPixelBufferRelease(pixelBuffer);
     throw;
   }
-  releasePendingFrameBuffer();
+  CVPixelBufferRelease(pixelBuffer);
 }
 
-void VideoEncoderHostObject::releasePendingFrameBuffer() {
-  if (pendingFrameBuffer) {
-    CVPixelBufferRelease(pendingFrameBuffer);
-    pendingFrameBuffer = NULL;
+void VideoEncoderHostObject::releaseFrameBuffer() {
+  if (frameBuffer) {
+    CVPixelBufferRelease(frameBuffer);
+    frameBuffer = NULL;
   }
+  framePending = false;
 }
 
 void VideoEncoderHostObject::setupAudio() {
@@ -575,8 +537,7 @@ void VideoEncoderHostObject::release() {
   }
   assetWriter = nil;
   assetWriterInput = nil;
-  releasePendingFrameBuffer();
-  releaseFrameBuffers();
+  releaseFrameBuffer();
   if (pixelBufferPool) {
     CVPixelBufferPoolRelease(pixelBufferPool);
     pixelBufferPool = NULL;

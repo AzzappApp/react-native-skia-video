@@ -4,7 +4,6 @@
 #import <AVFoundation/AVFoundation.h>
 #import <IOSurface/IOSurfaceRef.h>
 #import <jsi/jsi.h>
-#import <map>
 #import <vector>
 
 namespace RNSkiaVideo {
@@ -32,14 +31,11 @@ private:
   AVAssetWriter* assetWriter;
   AVAssetWriterInput* assetWriterInput;
   CVPixelBufferPoolRef pixelBufferPool = NULL;
-  // The buffers handed out by beginFrame() (see acquireFrameBuffer()).
-  std::vector<CVPixelBufferRef> frameBuffers;
-  // The use count of each buffer's IOSurface when it was appended, the
-  // encoder not reading it yet (see isFrameBufferIdle()).
-  std::map<CVPixelBufferRef, int32_t> idleUseCounts;
-  NSDictionary* frameBufferAttributes;
-  // The buffer handed out by beginFrame(), appended by endFrame().
-  CVPixelBufferRef pendingFrameBuffer = NULL;
+  // The buffer beginFrame() hands out, the same every frame; endFrame()
+  // appends a copy of it (see endFrame()).
+  CVPixelBufferRef frameBuffer = NULL;
+  // Between beginFrame() and endFrame().
+  bool framePending = false;
 
   AVAssetWriterInput* audioWriterInput;
   AVAssetReader* audioReader;
@@ -50,14 +46,12 @@ private:
 
   void prepare();
   CVPixelBufferRef createFrameBuffer();
-  bool isFrameBufferIdle(CVPixelBufferRef buffer);
-  CVPixelBufferRef acquireFrameBuffer();
-  void releaseFrameBuffers();
+  void copyFrameBuffer(CVPixelBufferRef source, CVPixelBufferRef destination);
   void appendFrameBuffer(CVPixelBufferRef pixelBuffer, CMTime time);
   void encodeFrame(const uint8_t* pixels, size_t size, CMTime time);
   IOSurfaceRef beginFrame();
   void endFrame(CMTime time);
-  void releasePendingFrameBuffer();
+  void releaseFrameBuffer();
   void setupAudio();
   void startWritingAudio();
   void finish();
