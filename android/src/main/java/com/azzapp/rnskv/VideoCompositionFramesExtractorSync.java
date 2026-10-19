@@ -140,7 +140,8 @@ public class VideoCompositionFramesExtractorSync {
   private void checkIfFrameDecoded() {
     boolean allItemsReady = true;
     for (VideoComposition.Item item : composition.getItems()) {
-      if (!item.isVideo()) {
+      // Only the live items' frames are handed out (see updateVideosFrames).
+      if (!item.isVideo() || !item.isLiveAt(decodingTimeUs)) {
         continue;
       }
       // Before the frame times: an item can end before its first frame.
@@ -199,9 +200,9 @@ public class VideoCompositionFramesExtractorSync {
     if (future == null) {
       return;
     }
-    Map<String, VideoFrame> videoFrames = decoder.updateVideosFrames();
+    Map<String, VideoFrame> videoFrames = decoder.updateVideosFrames(decodingTimeUs);
     for (VideoComposition.Item item : composition.getItems()) {
-      if (!item.isVideo()) {
+      if (!item.isVideo() || !item.isLiveAt(decodingTimeUs)) {
         continue;
       }
       VideoFrame videoFrame = videoFrames.getOrDefault(item.getId(), null);

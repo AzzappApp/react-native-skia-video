@@ -66,6 +66,13 @@ jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
               auto itemId = entry.first;
               auto decoder = entry.second;
 
+              // Only the live items' frames are handed out (see the frames
+              // extractor of the player).
+              if (!decoder->getItem()->isLiveAt(
+                      CMTimeGetSeconds(currentTime))) {
+                currentFrames.erase(itemId);
+                continue;
+              }
               decoder->advanceDecoder(currentTime);
 
               auto previousFrame = currentFrames[itemId];

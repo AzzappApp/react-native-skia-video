@@ -107,7 +107,7 @@ public class VideoCompositionFramesExtractor {
    * @return a map of item id to video frame
    */
   public Map<String, VideoFrame> decodeCompositionFrames() {
-    return decoder.updateVideosFrames();
+    return decoder.updateVideosFrames(getCurrentPosition());
   }
 
   /**

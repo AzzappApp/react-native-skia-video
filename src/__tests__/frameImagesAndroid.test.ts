@@ -1,5 +1,9 @@
 import type { FrameImageContext } from '../frameImages';
-import { makeVideoFrame, releaseFrameImages } from '../frameImages';
+import {
+  makeVideoFrame,
+  makeVideoFrames,
+  releaseFrameImages,
+} from '../frameImages';
 import type { DecodedFrame } from '../types';
 
 jest.mock('react-native', () => ({ Platform: { OS: 'android' } }));
@@ -148,5 +152,35 @@ describe('releaseFrameImages on Android', () => {
       memories[1]!.destroy.mock.invocationCallOrder[0]!
     );
     expect(device.queue.onSubmittedWorkDone).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('makeVideoFrames on Android', () => {
+  it('releases the textures of the items without a frame', () => {
+    const { context, device, memories } = makeContext();
+    const key = makeKey();
+
+    const first = makeVideoFrames(context, key, {
+      a: makeFrame(1n, 1),
+      b: makeFrame(2n, 2),
+    });
+    const textureA = first.a!.texture as unknown as { destroy: jest.Mock };
+    const textureB = first.b!.texture as unknown as { destroy: jest.Mock };
+    // The item `a` is no longer live.
+    const second = makeVideoFrames(context, key, { b: makeFrame(3n, 3) });
+
+    expect(textureA.destroy).toHaveBeenCalledTimes(1);
+    expect(memories[0]!.destroy).toHaveBeenCalledTimes(1);
+    expect(textureB.destroy).not.toHaveBeenCalled();
+    expect(memories[1]!.destroy).not.toHaveBeenCalled();
+    expect(second.b!.texture).toBe(textureB);
+    expect(device.queue.onSubmittedWorkDone).toHaveBeenCalledTimes(1);
+
+    // Back to life: a texture of its own again.
+    const third = makeVideoFrames(context, key, {
+      a: makeFrame(1n, 4),
+      b: makeFrame(3n, 3),
+    });
+    expect(third.a!.texture).not.toBe(textureA);
   });
 });

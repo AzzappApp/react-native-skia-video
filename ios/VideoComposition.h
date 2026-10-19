@@ -23,6 +23,19 @@ public:
   // Fades of an audio item, in seconds (see types.ts).
   double audioFadeIn = 0;
   double audioFadeOut = 0;
+
+  // How long before it starts and after it ends an item is live, in seconds
+  // (see isLiveAt).
+  static constexpr double liveMargin = 1;
+
+  // Whether the item is live at a time of the composition (seconds): from
+  // liveMargin before it starts to liveMargin after it ends. Its frames are
+  // only handed out then, the resources of the frames of an item that is not
+  // live can be released.
+  bool isLiveAt(double compositionTime) const {
+    return compositionTime >= compositionStartTime - liveMargin &&
+           compositionTime <= compositionStartTime + duration + liveMargin;
+  }
 };
 
 class VideoComposition {

@@ -798,17 +798,17 @@ export const makeVideoFrame = (
 };
 
 /**
- * Releases the textures and the images of the frames of `key` (and of the
- * items of `key`, `${key}:${itemId}`).
- *
- * Must be called on the runtime that drew the frames.
+ * Releases the textures, the images and the imported buffers of the frames of
+ * the texture keys for which `shouldRelease` returns true.
  */
-export const releaseFrameImages = (key: string) => {
+const releaseFrameTextures = (
+  shouldRelease: (textureKey: string) => boolean
+) => {
   'worklet';
   const textures = getFrameTextures();
   let importsDevice: GPUDevice | null = null;
   for (const textureKey of Object.keys(textures)) {
-    if (textureKey !== key && !textureKey.startsWith(`${key}:`)) {
+    if (!shouldRelease(textureKey)) {
       continue;
     }
     const state = textures[textureKey]!;
@@ -838,8 +838,27 @@ export const releaseFrameImages = (key: string) => {
 };
 
 /**
+ * Releases the textures and the images of the frames of `key` (and of the
+ * items of `key`, `${key}:${itemId}`).
+ *
+ * Must be called on the runtime that drew the frames.
+ */
+export const releaseFrameImages = (key: string) => {
+  'worklet';
+  releaseFrameTextures(
+    (textureKey) => textureKey === key || textureKey.startsWith(`${key}:`)
+  );
+};
+
+/**
  * `makeVideoFrame` for the frames of the items of a composition, keyed by
  * item id.
+ *
+ * The frames of an item are only handed out around its time in the
+ * composition (see isLiveAt in the native code): the textures of the items
+ * without a frame are released, rather than kept for the whole composition
+ * (a 1080p texture is 8 MB, a 4K one 33 MB, and the buffers imported with
+ * them pin their decoder's).
  */
 export const makeVideoFrames = (
   context: FrameImageContext,
@@ -847,6 +866,12 @@ export const makeVideoFrames = (
   frames: Record<string, DecodedFrame>
 ): Record<string, VideoFrame> => {
   'worklet';
+  const prefix = `${key}:`;
+  releaseFrameTextures(
+    (textureKey) =>
+      textureKey.startsWith(prefix) &&
+      frames[textureKey.slice(prefix.length)] == null
+  );
   const result: Record<string, VideoFrame> = {};
   for (const itemId of Object.keys(frames)) {
     result[itemId] = makeVideoFrame(

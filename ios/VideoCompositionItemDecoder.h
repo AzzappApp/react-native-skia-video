@@ -20,6 +20,9 @@ public:
   std::shared_ptr<VideoFrame> acquireFrameForTime(CMTime currentTime,
                                                   bool force);
   void release();
+  std::shared_ptr<VideoCompositionItem> getItem() const {
+    return item;
+  }
 
 private:
   NSObject* lock;

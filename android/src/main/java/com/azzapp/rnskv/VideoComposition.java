@@ -37,6 +37,11 @@ public class VideoComposition {
   }
 
   public static class Item {
+    /**
+     * How long before it starts and after it ends an item is live (see {@link #isLiveAt}).
+     */
+    public static final long LIVE_MARGIN_US = 1_000_000;
+
     private String id;
     private String path;
     private double compositionStartTime;
@@ -106,6 +111,18 @@ public class VideoComposition {
 
     public boolean isVideo() {
       return isVideo;
+    }
+
+    /**
+     * Whether the item is live at a time of the composition: from {@link #LIVE_MARGIN_US} before
+     * it starts to {@link #LIVE_MARGIN_US} after it ends. Its frames are only handed out then,
+     * the resources of the frames of an item that is not live can be released.
+     */
+    public boolean isLiveAt(long compositionTimeUs) {
+      long startUs = TimeHelpers.secToUs(compositionStartTime);
+      long endUs = TimeHelpers.secToUs(compositionStartTime + duration);
+      return compositionTimeUs >= startUs - LIVE_MARGIN_US
+        && compositionTimeUs <= endUs + LIVE_MARGIN_US;
     }
 
     public boolean isAudioEnabled() {

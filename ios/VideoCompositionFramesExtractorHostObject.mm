@@ -113,6 +113,14 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
               auto itemId = entry.first;
               auto decoder = entry.second;
 
+              // Only the live items' frames are handed out: the last frame of
+              // an item that is not live is dropped, and JS releases what it
+              // made of it.
+              if (!decoder->getItem()->isLiveAt(
+                      CMTimeGetSeconds(currentTime))) {
+                currentFrames.erase(itemId);
+                continue;
+              }
               auto previousFrame = currentFrames[itemId];
               auto frame =
                   decoder->acquireFrameForTime(currentTime, !previousFrame);

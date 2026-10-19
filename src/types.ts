@@ -356,6 +356,9 @@ export type FrameDrawer<T = undefined> = (args: {
   /**
    * The decoded video frames of the composition items.
    * Only video items produce frames; audio items never appear in this map.
+   * An item is in the map around its time in the composition only, from one
+   * second before it starts to one second after it ends: the resources of
+   * its frames are released outside.
    */
   frames: Record<string, VideoFrame>;
   /**

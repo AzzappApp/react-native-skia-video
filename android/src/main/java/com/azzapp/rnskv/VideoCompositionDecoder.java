@@ -198,13 +198,20 @@ public class VideoCompositionDecoder {
   }
 
   /**
-   * Updates the video frames of the composition and return them
+   * Updates the video frames of the items live at the given position (see
+   * {@link VideoComposition.Item#isLiveAt}) and returns them. The last frame of an item that is not
+   * live is dropped: JS releases what it made of it.
    *
-   * @return A map with the updated video frames.
+   * @param currentPositionUs The current position in microseconds.
+   * @return A map with the latest frame of each live item.
    */
-  public synchronized Map<String, VideoFrame> updateVideosFrames() {
+  public synchronized Map<String, VideoFrame> updateVideosFrames(long currentPositionUs) {
     for (VideoComposition.Item item : composition.getItems()) {
       if (!item.isVideo()) {
+        continue;
+      }
+      if (!item.isLiveAt(currentPositionUs)) {
+        videoFrames.remove(item.getId());
         continue;
       }
       VideoCompositionItemDecoder decoder = decoders.get(item);
@@ -268,7 +275,8 @@ public class VideoCompositionDecoder {
       String id = item.getId();
       videoFrames.put(id, nextFrame);
     }
-    return videoFrames;
+    // A copy: the map is updated on the decoding thread while the caller reads it.
+    return new HashMap<>(videoFrames);
   }
 
   /**
