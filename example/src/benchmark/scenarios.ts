@@ -4,6 +4,7 @@ import { exportVideoComposition } from '@azzapp/react-native-skia-video';
 import {
   buildComposition,
   drawItemsGrid,
+  drawSequence,
   drawTestPattern,
   resolveEncoderConfig,
   type EncoderConfig,
@@ -16,6 +17,8 @@ export type ExportScenario = {
   label: string;
   /** The clips played at the same time (none: the test pattern is drawn). */
   clips: string[];
+  /** The clips play one after another instead, see `buildComposition`. */
+  sequence?: boolean;
   duration: number;
   output: EncoderConfig;
 };
@@ -25,6 +28,8 @@ export type PreviewScenario = {
   id: string;
   label: string;
   clips: string[];
+  /** The clips play one after another instead, see `buildComposition`. */
+  sequence?: boolean;
   /** The size the clips are decoded at (their own size by default). */
   resolution?: { width: number; height: number };
   /** Measured duration, after a warm-up. */
@@ -84,6 +89,15 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     kind: 'export',
+    id: 'export-sequence-8x1080p30',
+    label: 'Export 1080×1920@30, 8 clips 1080p30 one after another (3 s each)',
+    clips: Array(8).fill('1080p30'),
+    sequence: true,
+    duration: 24,
+    output: PORTRAIT_1080P,
+  },
+  {
+    kind: 'export',
     id: 'export-1x1080p60',
     label: 'Export 1920×1080@60, 1 clip 1080p60',
     clips: ['1080p60'],
@@ -111,6 +125,14 @@ export const SCENARIOS: Scenario[] = [
     label: 'Composition preview, 3 clips 1080p30 at once',
     clips: ['1080p30', '1080p30', '1080p30'],
     duration: 10,
+  },
+  {
+    kind: 'preview',
+    id: 'preview-sequence-8x1080p30',
+    label: 'Composition preview, 8 clips 1080p30 one after another',
+    clips: Array(8).fill('1080p30'),
+    sequence: true,
+    duration: 20,
   },
   {
     kind: 'preview',
@@ -193,8 +215,17 @@ export const runExportScenario = async (
 
   const start = performance.now();
   await exportVideoComposition<number>({
-    videoComposition: buildComposition(scenario.clips, scenario.duration),
-    drawFrame: scenario.clips.length > 0 ? drawItemsGrid : drawTestPattern,
+    videoComposition: buildComposition(
+      scenario.clips,
+      scenario.duration,
+      undefined,
+      scenario.sequence
+    ),
+    drawFrame: scenario.sequence
+      ? drawSequence
+      : scenario.clips.length > 0
+        ? drawItemsGrid
+        : drawTestPattern,
     beforeDrawFrame: () => {
       'worklet';
       return performance.now();

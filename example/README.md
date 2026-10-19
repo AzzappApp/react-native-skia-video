@@ -14,6 +14,10 @@ scenarios, to compare branches or devices:
 - **Composition preview** and **video player** scenarios measure, after a
   warm-up, the UI frame intervals, the frames missed by the display, the cost
   of a composition frame on the UI thread and the rate of the decoded frames.
+- The **sequence** scenarios play 8 clips one after another: only the clips
+  around the current time have a decoder and textures, so their memory peak
+  should stay close to that of a single clip, and the frames missed by the
+  display show the cost of opening the next clip's decoder.
 - The **color check** exports color bars (grays over the whole range, then
   mid saturated colors), decodes the exported video and reads a frame back:
   `maxError` is the largest change of a channel (0-255) over the encoding and

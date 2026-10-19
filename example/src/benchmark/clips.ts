@@ -6,6 +6,7 @@ import {
   getValidEncoderConfigurations,
   type FrameDrawer,
   type VideoComposition,
+  type VideoFrame,
 } from '@azzapp/react-native-skia-video';
 
 /**
@@ -206,6 +207,27 @@ export const drawTestPattern: FrameDrawer<any> = ({
 };
 
 /**
+ * The region of `frame` cropped to the aspect ratio of the region it is drawn
+ * into, centered.
+ */
+const coverSource = (frame: VideoFrame, aspectRatio: number) => {
+  'worklet';
+  return frame.width / frame.height > aspectRatio
+    ? {
+        x: (frame.width - frame.height * aspectRatio) / 2,
+        y: 0,
+        width: frame.height * aspectRatio,
+        height: frame.height,
+      }
+    : {
+        x: 0,
+        y: (frame.height - frame.width / aspectRatio) / 2,
+        width: frame.width,
+        height: frame.width / aspectRatio,
+      };
+};
+
+/**
  * Draws the frames of the composition items side by side (each one cropped
  * to fill its column).
  */
@@ -220,31 +242,15 @@ export const drawItemsGrid: FrameDrawer<any> = ({
   canvas.drawColor(Skia.Color('black'));
   const { items } = videoComposition;
   const columnWidth = width / items.length;
-  const columnAspectRatio = columnWidth / height;
   const paint = Skia.Paint();
   for (let i = 0; i < items.length; i++) {
     const frame = frames[items[i]!.id];
     if (!frame) {
       continue;
     }
-    const frameAspectRatio = frame.width / frame.height;
-    const source =
-      frameAspectRatio > columnAspectRatio
-        ? {
-            x: (frame.width - frame.height * columnAspectRatio) / 2,
-            y: 0,
-            width: frame.height * columnAspectRatio,
-            height: frame.height,
-          }
-        : {
-            x: 0,
-            y: (frame.height - frame.width / columnAspectRatio) / 2,
-            width: frame.width,
-            height: frame.width / columnAspectRatio,
-          };
     canvas.drawImageRect(
       frame.image,
-      source,
+      coverSource(frame, columnWidth / height),
       { x: i * columnWidth, y: 0, width: columnWidth, height },
       paint
     );
@@ -252,21 +258,57 @@ export const drawItemsGrid: FrameDrawer<any> = ({
 };
 
 /**
- * A composition playing the clips at the same time, from their start,
+ * Draws the frame of the item playing at the current time over the whole
+ * frame (cropped to fill it): the clips of a sequence.
+ */
+export const drawSequence: FrameDrawer<any> = ({
+  canvas,
+  videoComposition,
+  currentTime,
+  frames,
+  width,
+  height,
+}) => {
+  'worklet';
+  canvas.drawColor(Skia.Color('black'));
+  const item = videoComposition.items.find(
+    (candidate) =>
+      currentTime >= candidate.compositionStartTime &&
+      currentTime < candidate.compositionStartTime + candidate.duration
+  );
+  const frame = item != null ? frames[item.id] : undefined;
+  if (!frame) {
+    return;
+  }
+  canvas.drawImageRect(
+    frame.image,
+    coverSource(frame, width / height),
+    { x: 0, y: 0, width, height },
+    Skia.Paint()
+  );
+};
+
+/**
+ * A composition playing the clips at the same time, from their start, or one
+ * after another (`sequence`, each one for an equal part of `duration`),
  * decoded at `resolution` if given.
  */
 export const buildComposition = (
   clipIds: string[],
   duration: number,
-  resolution?: { width: number; height: number }
-): VideoComposition => ({
-  duration,
-  items: clipIds.map((clipId, index) => ({
-    id: `item-${index}`,
-    path: getClipPath(getClip(clipId)),
-    compositionStartTime: 0,
-    startTime: 0,
+  resolution?: { width: number; height: number },
+  sequence = false
+): VideoComposition => {
+  const itemDuration = sequence ? duration / clipIds.length : duration;
+  return {
     duration,
-    resolution,
-  })),
-});
+    items: clipIds.map((clipId, index) => ({
+      id: `item-${index}`,
+      path: getClipPath(getClip(clipId)),
+      compositionStartTime: sequence ? index * itemDuration : 0,
+      startTime: 0,
+      duration: itemDuration,
+      resolution,
+    })),
+  };
+};

@@ -11,7 +11,13 @@ import {
   useVideoCompositionPlayer,
   useVideoPlayer,
 } from '@azzapp/react-native-skia-video';
-import { buildComposition, drawItemsGrid, getClip, getClipPath } from './clips';
+import {
+  buildComposition,
+  drawItemsGrid,
+  drawSequence,
+  getClip,
+  getClipPath,
+} from './clips';
 import type { Metrics, PlayerScenario, PreviewScenario } from './scenarios';
 import { countDroppedFrames, summarize } from './stats';
 
@@ -173,8 +179,11 @@ export const PreviewRun = ({
     () =>
       buildComposition(
         scenario.clips,
-        getClip(scenario.clips[0]!).duration,
-        scenario.resolution
+        scenario.sequence
+          ? (WARM_UP_MS / 1000 + scenario.duration) * 1.1
+          : getClip(scenario.clips[0]!).duration,
+        scenario.resolution,
+        scenario.sequence
       ),
     [scenario]
   );
@@ -193,7 +202,7 @@ export const PreviewRun = ({
 
   const { currentFrame } = useVideoCompositionPlayer<number>({
     composition,
-    drawFrame: drawItemsGrid,
+    drawFrame: scenario.sequence ? drawSequence : drawItemsGrid,
     beforeDrawFrame: () => {
       'worklet';
       return performance.now();
