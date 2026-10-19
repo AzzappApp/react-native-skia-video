@@ -8,8 +8,16 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class VideoCompositionFramesExtractorSync {
+  /**
+   * How long preparing the decoders or decoding the frames of a time may take: a decoder that
+   * stops producing frames fails the export instead of blocking it for good.
+   */
+  private static final long TIMEOUT_SECONDS = 30;
+
   private final VideoComposition composition;
 
   private final VideoCompositionDecoder decoder;
@@ -27,7 +35,11 @@ public class VideoCompositionFramesExtractorSync {
 
   private Handler handler;
 
-  private CompletableFuture<Map<String, VideoFrame>> future;
+  private volatile CompletableFuture<Map<String, VideoFrame>> future;
+
+  // A decoder error reported while no frames were being decoded, thrown by the next
+  // decodeCompositionFrames. Accessed on the export thread only.
+  private Exception pendingError;
 
   public VideoCompositionFramesExtractorSync(VideoComposition composition) {
     this.composition = composition;
@@ -54,7 +66,16 @@ public class VideoCompositionFramesExtractorSync {
       future.complete(null);
     });
 
-    future.get();
+    await(future, "prepare the decoders");
+  }
+
+  private static <T> T await(CompletableFuture<T> future, String what) throws Exception {
+    try {
+      return future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    } catch (TimeoutException e) {
+      future.cancel(true);
+      throw new Exception("Could not " + what + " in " + TIMEOUT_SECONDS + " seconds", e);
+    }
   }
 
   /**
@@ -64,13 +85,19 @@ public class VideoCompositionFramesExtractorSync {
    */
   public Map<String, VideoFrame> decodeCompositionFrames(double time) throws Exception {
     decodingTimeUs = TimeHelpers.secToUs(time);
-    future = new CompletableFuture<>();
+    CompletableFuture<Map<String, VideoFrame>> future = new CompletableFuture<>();
+    this.future = future;
     handler.post(() -> {
+      if (pendingError != null) {
+        future.completeExceptionally(pendingError);
+        pendingError = null;
+        return;
+      }
       decoding = true;
       renderedTimes.clear();
       checkIfFrameDecoded();
     });
-    return future.get();
+    return await(future, "decode the frames at " + time + " s");
   }
 
   public void release() {
@@ -116,11 +143,12 @@ public class VideoCompositionFramesExtractorSync {
       if (!item.isVideo()) {
         continue;
       }
-      if (!itemsTimes.containsKey(item)) {
-        allItemsReady = false;
+      // Before the frame times: an item can end before its first frame.
+      if (itemsEnded.contains(item)) {
         continue;
       }
-      if (itemsEnded.contains(item)) {
+      if (!itemsTimes.containsKey(item)) {
+        allItemsReady = false;
         continue;
       }
       Long itemTime = itemsTimes.get(item);
@@ -154,10 +182,23 @@ public class VideoCompositionFramesExtractorSync {
   }
 
   private void handleError(Exception e) {
+    CompletableFuture<Map<String, VideoFrame>> future = this.future;
+    if (future == null || future.isDone()) {
+      // No frames are being decoded: thrown by the next decodeCompositionFrames.
+      if (pendingError == null) {
+        pendingError = e;
+      }
+      return;
+    }
     future.completeExceptionally(e);
   }
 
   private void resolveIfReady() {
+    CompletableFuture<Map<String, VideoFrame>> future = this.future;
+    // An image can be available before the first decodeCompositionFrames.
+    if (future == null) {
+      return;
+    }
     Map<String, VideoFrame> videoFrames = decoder.updateVideosFrames();
     for (VideoComposition.Item item : composition.getItems()) {
       if (!item.isVideo()) {
@@ -165,6 +206,10 @@ public class VideoCompositionFramesExtractorSync {
       }
       VideoFrame videoFrame = videoFrames.getOrDefault(item.getId(), null);
       if (videoFrame == null) {
+        // An item that ended without a frame has none to wait for.
+        if (itemsEnded.contains(item)) {
+          continue;
+        }
         return;
       }
       Long itemFrameTime = renderedTimes.getOrDefault(item.getId(), null);
