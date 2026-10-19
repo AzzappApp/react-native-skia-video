@@ -40,7 +40,15 @@ export type PlayerScenario = {
   duration: number;
 };
 
-export type Scenario = ExportScenario | PreviewScenario | PlayerScenario;
+/** Exports color bars and reads them back from the decoded video. */
+export type ColorScenario = {
+  kind: 'color';
+  id: string;
+  label: string;
+};
+
+export type Scenario =
+  ExportScenario | PreviewScenario | PlayerScenario | ColorScenario;
 
 const PORTRAIT_1080P: EncoderConfig = {
   width: 1080,
@@ -133,10 +141,19 @@ export const SCENARIOS: Scenario[] = [
     clip: '2160p30',
     duration: 10,
   },
+  {
+    kind: 'color',
+    id: 'color-check',
+    label: 'Colors: export color bars, decode them, compare (max error)',
+  },
 ];
 
-export const getScenarioClips = (scenario: Scenario) =>
-  scenario.kind === 'player' ? [scenario.clip] : scenario.clips;
+export const getScenarioClips = (scenario: Scenario): string[] =>
+  scenario.kind === 'player'
+    ? [scenario.clip]
+    : scenario.kind === 'color'
+      ? []
+      : scenario.clips;
 
 export type Metrics = Record<string, number | string | Summary | null>;
 

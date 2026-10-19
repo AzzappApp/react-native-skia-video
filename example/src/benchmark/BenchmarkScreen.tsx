@@ -18,6 +18,7 @@ import { Skia } from 'react-native-skia';
 import { importDevice } from 'react-native-webgpu';
 import { __RNSkiaVideoPrivateAPI } from '@azzapp/react-native-skia-video';
 import { CLIPS, generateClip, getClip, isClipReady } from './clips';
+import { runColorCheck } from './colorCheck';
 import { PlayerRun, PreviewRun } from './LiveRuns';
 import {
   getScenarioClips,
@@ -175,6 +176,11 @@ const BenchmarkScreen = () => {
   const runScenario = (scenario: Scenario, signal: AbortSignal) => {
     if (scenario.kind === 'export') {
       return runExportScenario(scenario, signal, (progress) =>
+        setStatus(`${scenario.label}… ${Math.round(progress * 100)}%`)
+      );
+    }
+    if (scenario.kind === 'color') {
+      return runColorCheck(signal, (progress) =>
         setStatus(`${scenario.label}… ${Math.round(progress * 100)}%`)
       );
     }

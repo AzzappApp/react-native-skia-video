@@ -14,6 +14,10 @@ scenarios, to compare branches or devices:
 - **Composition preview** and **video player** scenarios measure, after a
   warm-up, the UI frame intervals, the frames missed by the display, the cost
   of a composition frame on the UI thread and the rate of the decoded frames.
+- The **color check** exports color bars (grays over the whole range, then
+  mid saturated colors), decodes the exported video and reads a frame back:
+  `maxError` is the largest change of a channel (0-255) over the encoding and
+  the decoding, a few levels at most when the colors are kept.
 - Each run records the memory of the process before and after it (iOS:
   physical footprint, Android: total PSS): it should stay stable over
   repeated runs.
