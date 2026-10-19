@@ -46,6 +46,10 @@ static void* rateContext = &rateContext;
   _displayLink =
       [CADisplayLink displayLinkWithTarget:self
                                   selector:@selector(displayLinkFired:)];
+  // Every frame of a 60 fps video: the system may otherwise run a display
+  // link that drives no animation at a lower rate. No more, so that it never
+  // raises the refresh rate of a ProMotion display for a player.
+  _displayLink.preferredFrameRateRange = CAFrameRateRangeMake(30, 60, 60);
   [_displayLink addToRunLoop:[NSRunLoop currentRunLoop]
                      forMode:NSRunLoopCommonModes];
 
@@ -227,8 +231,12 @@ static void* rateContext = &rateContext;
 }
 
 - (void)displayLinkFired:(CADisplayLink*)sender {
+  // The frame due when the next frame is displayed, as Apple's samples ask
+  // for it: the time this callback runs at varies from one vsync to the next,
+  // and a 60 fps video on a 60 Hz display then misses frames whose time falls
+  // in between.
   CMTime outputItemTime =
-      [_videoOutput itemTimeForHostTime:CACurrentMediaTime()];
+      [_videoOutput itemTimeForHostTime:sender.targetTimestamp];
   if ([_videoOutput hasNewPixelBufferForItemTime:outputItemTime]) {
     [_delegate frameAvailable:outputItemTime];
     if (_waitingForFrame) {
