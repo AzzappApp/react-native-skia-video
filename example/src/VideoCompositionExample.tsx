@@ -518,7 +518,7 @@ const VideoCompositionPreview = ({
                 width: windowWidth,
                 height: windowWidth,
               }}
-              opaque
+              android={{ backingView: 'SurfaceView' }}
             >
               <ImageSkia
                 image={currentFrame}
@@ -674,7 +674,10 @@ const ExportedVideo = ({ path }: { path: string }) => {
   });
   const image = useDerivedValue(() => currentFrame.value?.image ?? null);
   return (
-    <Canvas style={{ width, height: width }} opaque>
+    <Canvas
+      style={{ width, height: width }}
+      android={{ backingView: 'SurfaceView' }}
+    >
       <ImageSkia
         image={image}
         x={0}

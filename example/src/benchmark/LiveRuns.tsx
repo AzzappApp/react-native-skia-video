@@ -213,7 +213,10 @@ export const PreviewRun = ({
   });
 
   return (
-    <Canvas style={{ width, height: width }} opaque>
+    <Canvas
+      style={{ width, height: width }}
+      android={{ backingView: 'SurfaceView' }}
+    >
       <Image
         image={currentFrame}
         x={0}
@@ -277,7 +280,7 @@ export const PlayerRun = ({
   const image = useDerivedValue(() => currentFrame.value?.image ?? null);
   const height = (width * clip.height) / clip.width;
   return (
-    <Canvas style={{ width, height }} opaque>
+    <Canvas style={{ width, height }} android={{ backingView: 'SurfaceView' }}>
       <Image image={image} x={0} y={0} width={width} height={height} />
     </Canvas>
   );

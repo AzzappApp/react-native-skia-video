@@ -132,7 +132,7 @@ const VideoPlayerExample = () => {
   // for things like play/pause button change
   const canvas = useMemo(
     () => (
-      <Canvas style={canvasDimensions} opaque>
+      <Canvas style={canvasDimensions} android={{ backingView: 'SurfaceView' }}>
         <Rect
           x={0}
           y={0}
