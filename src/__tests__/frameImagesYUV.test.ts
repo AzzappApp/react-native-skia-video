@@ -154,9 +154,13 @@ describe('makeVideoFrame with a YUV frame', () => {
     const videoFrame = makeVideoFrame(context, makeKey(), frame);
 
     expect(webgpu.createVideoFrameFromNativeBuffer).toHaveBeenCalledWith(1n);
+    // Only the frame's YCbCr matrix is applied, not its transfer function.
     expect(device.createNativeBufferExternalTexture).toHaveBeenCalledWith(
       nativeFrames[0],
-      { rotation: 90 }
+      {
+        rotation: 90,
+        sourceColorSpace: { primaries: 'srgb', transfer: 'srgb' },
+      }
     );
     expect(device.createTexture).toHaveBeenCalledWith(
       expect.objectContaining({ size: [360, 640], format: 'rgba8unorm' })

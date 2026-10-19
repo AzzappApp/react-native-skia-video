@@ -64,13 +64,20 @@ static void* rateContext = &rateContext;
 - (AVPlayerItemVideoOutput*)makeVideoOutput {
   // NV12 is the decoder's native output: requesting BGRA would make
   // VideoToolbox convert every frame. The YUV to RGB conversion happens on the
-  // GPU when the frame is copied into a texture (React Native WebGPU's
-  // copyExternalImageToTexture), which needs IOSurface-backed buffers.
+  // GPU when the frame is drawn into a texture (React Native WebGPU's
+  // importExternalTexture), which needs IOSurface-backed buffers. The frames
+  // are SDR BT.709, HDR video (an iPhone's HLG) tone mapped by VideoToolbox:
+  // the GPU conversion applies the BT.709 matrix only (see frameImages.ts).
   NSDictionary* pixBuffAttributes = @{
     (id)kCVPixelBufferPixelFormatTypeKey :
         @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
     (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
-    (id)kCVPixelBufferMetalCompatibilityKey : @YES
+    (id)kCVPixelBufferMetalCompatibilityKey : @YES,
+    AVVideoColorPropertiesKey : @{
+      AVVideoColorPrimariesKey : AVVideoColorPrimaries_ITU_R_709_2,
+      AVVideoTransferFunctionKey : AVVideoTransferFunction_ITU_R_709_2,
+      AVVideoYCbCrMatrixKey : AVVideoYCbCrMatrix_ITU_R_709_2,
+    },
   };
   CGSize resolution = self.resolution;
   if (!CGSizeEqualToSize(CGSizeZero, resolution)) {
@@ -81,8 +88,10 @@ static void* rateContext = &rateContext;
     [pixBuffAttributes setValue:@(resolution.height)
                          forKey:(id)kCVPixelBufferHeightKey];
   }
+  // Output settings rather than pixel buffer attributes: they also take the
+  // color properties.
   return [[AVPlayerItemVideoOutput alloc]
-      initWithPixelBufferAttributes:pixBuffAttributes];
+      initWithOutputSettings:pixBuffAttributes];
 }
 
 // Caps the long side of the frames of `item` to maxLongSide. Resolved against

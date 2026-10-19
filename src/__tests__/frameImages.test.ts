@@ -12,7 +12,9 @@ jest.mock('react-native-skia', () => ({
 }));
 
 jest.mock('react-native-webgpu', () => ({
-  GPUTextureUsage: { RENDER_ATTACHMENT: 16, TEXTURE_BINDING: 4 },
+  GPUBufferUsage: { UNIFORM: 64, COPY_DST: 8 },
+  GPUShaderStage: { VERTEX: 1, FRAGMENT: 2 },
+  GPUTextureUsage: { RENDER_ATTACHMENT: 16, TEXTURE_BINDING: 4, COPY_DST: 2 },
   importDevice: jest.fn(),
 }));
 
@@ -20,12 +22,13 @@ const WIDTH = 16;
 const HEIGHT = 8;
 
 const makeContext = () => {
-  const copyExternalImageToTexture = jest.fn();
+  const importExternalTexture = jest.fn(() => ({ destroy: jest.fn() }));
   const createTexture = jest.fn(
     ({ size: [width, height] }: { size: [number, number] }) => ({
       width,
       height,
       destroy: jest.fn(),
+      createView: jest.fn(() => ({})),
     })
   );
   const createVideoFrameFromNativeBuffer = jest.fn(() => ({
@@ -33,13 +36,37 @@ const makeContext = () => {
     height: HEIGHT,
     release: jest.fn(),
   }));
+  const pass = {
+    setPipeline: jest.fn(),
+    setBindGroup: jest.fn(),
+    draw: jest.fn(),
+    end: jest.fn(),
+  };
+  const device = {
+    createShaderModule: jest.fn(() => ({})),
+    createBindGroupLayout: jest.fn(() => ({})),
+    createPipelineLayout: jest.fn(() => ({})),
+    createSampler: jest.fn(() => ({})),
+    createRenderPipeline: jest.fn(() => ({})),
+    createBindGroup: jest.fn(() => ({})),
+    createBuffer: jest.fn(() => ({ destroy: jest.fn() })),
+    createCommandEncoder: jest.fn(() => ({
+      beginRenderPass: jest.fn(() => pass),
+      finish: jest.fn(() => ({})),
+    })),
+    createTexture,
+    importExternalTexture,
+    queue: { writeBuffer: jest.fn(), submit: jest.fn() },
+  };
   const context = {
-    device: { createTexture, queue: { copyExternalImageToTexture } },
+    device,
     webgpu: { createVideoFrameFromNativeBuffer },
   } as unknown as FrameImageContext;
   return {
     context,
-    copyExternalImageToTexture,
+    device,
+    pass,
+    importExternalTexture,
     createTexture,
     createVideoFrameFromNativeBuffer,
   };
@@ -58,20 +85,40 @@ let nextKey = 0;
 const makeKey = () => `test-${nextKey++}`;
 
 describe('makeVideoFrame', () => {
-  it('copies the frame into a texture of its key and wraps it', () => {
-    const { context, copyExternalImageToTexture, createTexture } =
-      makeContext();
+  it('converts the frame into a texture of its key and wraps it', () => {
+    const {
+      context,
+      device,
+      pass,
+      importExternalTexture,
+      createTexture,
+      createVideoFrameFromNativeBuffer,
+    } = makeContext();
     const frame = makeFrame(1n, 1);
 
     const videoFrame = makeVideoFrame(context, makeKey(), frame);
 
     expect(createTexture).toHaveBeenCalledTimes(1);
     const texture = createTexture.mock.results[0]!.value;
-    expect(copyExternalImageToTexture).toHaveBeenCalledWith(
-      { source: expect.objectContaining({ width: WIDTH, height: HEIGHT }) },
-      { texture },
-      [WIDTH, HEIGHT]
+    const nativeFrame = createVideoFrameFromNativeBuffer.mock.results[0]!.value;
+    // Only the frame's YCbCr matrix is applied, not its transfer function.
+    expect(importExternalTexture).toHaveBeenCalledWith({
+      source: nativeFrame,
+      sourceColorSpace: { primaries: 'srgb', transfer: 'srgb' },
+    });
+    // The whole frame drawn into the texture.
+    expect(
+      Array.from(device.queue.writeBuffer.mock.calls[0]![2] as Float32Array)
+    ).toEqual([1, 1, 0, 0]);
+    expect(texture.createView).toHaveBeenCalledTimes(1);
+    expect(pass.draw).toHaveBeenCalledWith(3);
+    expect(device.queue.submit).toHaveBeenCalledTimes(1);
+    // Released once the commands sampling it are submitted.
+    const externalTexture = importExternalTexture.mock.results[0]!.value;
+    expect(externalTexture.destroy.mock.invocationCallOrder[0]).toBeGreaterThan(
+      device.queue.submit.mock.invocationCallOrder[0]!
     );
+    expect(nativeFrame.release).toHaveBeenCalledTimes(1);
     expect(frame.release).toHaveBeenCalledTimes(1);
     // The texture the image is made from, handed out with it.
     expect(videoFrame).toEqual({
@@ -84,14 +131,14 @@ describe('makeVideoFrame', () => {
   });
 
   it('hands out the same image again for a frame handed out again', () => {
-    const { context, copyExternalImageToTexture } = makeContext();
+    const { context, importExternalTexture } = makeContext();
     const key = makeKey();
 
     const first = makeVideoFrame(context, key, makeFrame(1n, 1));
     const frameAgain = makeFrame(1n, 1);
     const again = makeVideoFrame(context, key, frameAgain);
 
-    expect(copyExternalImageToTexture).toHaveBeenCalledTimes(1);
+    expect(importExternalTexture).toHaveBeenCalledTimes(1);
     expect(again.image).toBe(first.image);
     expect(again.texture).toBe(first.texture);
     expect(first.image.dispose).not.toHaveBeenCalled();
@@ -100,8 +147,7 @@ describe('makeVideoFrame', () => {
   });
 
   it('hands out two images of the texture in turn for the new frames of a key', () => {
-    const { context, copyExternalImageToTexture, createTexture } =
-      makeContext();
+    const { context, importExternalTexture, createTexture } = makeContext();
     const makeImage = jest.mocked(Skia.Image.MakeImageFromGPUTexture);
     makeImage.mockClear();
     const key = makeKey();
@@ -112,7 +158,7 @@ describe('makeVideoFrame', () => {
     const second = makeVideoFrame(context, key, makeFrame(1n, 2));
     const third = makeVideoFrame(context, key, makeFrame(1n, 3));
 
-    expect(copyExternalImageToTexture).toHaveBeenCalledTimes(3);
+    expect(importExternalTexture).toHaveBeenCalledTimes(3);
     expect(createTexture).toHaveBeenCalledTimes(1);
     expect(makeImage).toHaveBeenCalledTimes(2);
     expect(second.image).not.toBe(first.image);
@@ -145,18 +191,18 @@ describe('makeVideoFrame', () => {
     expect(resized.image).not.toBe(second.image);
   });
 
-  it('hands out the image again for a frame released after its copy', () => {
-    const { context, copyExternalImageToTexture } = makeContext();
+  it('hands out the image again for a frame released after its conversion', () => {
+    const { context, importExternalTexture } = makeContext();
     const key = makeKey();
 
     const first = makeVideoFrame(context, key, makeFrame(1n));
     const again = makeVideoFrame(context, key, makeFrame(undefined));
 
-    expect(copyExternalImageToTexture).toHaveBeenCalledTimes(1);
+    expect(importExternalTexture).toHaveBeenCalledTimes(1);
     expect(again.image).toBe(first.image);
   });
 
-  it('throws for a released frame that was never copied', () => {
+  it('throws for a released frame that was never converted', () => {
     const { context } = makeContext();
 
     expect(() =>
@@ -167,8 +213,7 @@ describe('makeVideoFrame', () => {
 
 describe('releaseFrameImages', () => {
   it('disposes the images and the textures of the key and of its items', () => {
-    const { context, copyExternalImageToTexture, createTexture } =
-      makeContext();
+    const { context, importExternalTexture, createTexture } = makeContext();
     const key = makeKey();
     const other = makeKey();
 
@@ -189,9 +234,9 @@ describe('releaseFrameImages', () => {
     expect(itemTexture.destroy).toHaveBeenCalledTimes(1);
     expect(otherTexture.destroy).not.toHaveBeenCalled();
 
-    // The same frame handed out again is copied into a new texture.
+    // The same frame handed out again is converted into a new texture.
     makeVideoFrame(context, key, makeFrame(1n, 4));
-    expect(copyExternalImageToTexture).toHaveBeenCalledTimes(5);
+    expect(importExternalTexture).toHaveBeenCalledTimes(5);
     expect(createTexture).toHaveBeenCalledTimes(4);
   });
 });

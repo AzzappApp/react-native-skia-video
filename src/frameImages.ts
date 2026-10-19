@@ -185,38 +185,6 @@ const getTexture = (
 };
 
 /**
- * iOS: copies the frame (a `CVPixelBuffer`, converting YUV to RGB) into the
- * texture of `state` with React Native WebGPU's
- * `queue.copyExternalImageToTexture`, submitted on Skia's queue: the copy is
- * complete when Skia samples the texture.
- */
-const copyNativeFrame = (
-  device: GPUDevice,
-  webgpu: FrameImageContext['webgpu'],
-  state: FrameTexture,
-  buffer: bigint,
-  frame: DecodedFrame
-): GPUTexture => {
-  'worklet';
-  const nativeFrame = webgpu.createVideoFrameFromNativeBuffer(buffer);
-  try {
-    const { width, height } = nativeFrame;
-    const texture = getTexture(device, state, width, height);
-    device.queue.copyExternalImageToTexture(
-      { source: nativeFrame },
-      { texture },
-      [width, height]
-    );
-    return texture;
-  } finally {
-    nativeFrame.release();
-    // Hand the buffer back to the decoder now rather than when the JS
-    // wrapper is garbage collected.
-    frame.release?.();
-  }
-};
-
-/**
  * Begins the access to an imported buffer in a validation error scope, and
  * logs Dawn's error if it fails. Returns whether the access began.
  */
@@ -401,7 +369,7 @@ export const uprightCrop = (
 
 // Draws a region of a YUV frame (an external texture) into a whole texture:
 // the external texture converts the frame to RGB while sampling it, with the
-// frame's color space.
+// frame's YCbCr matrix and range (see VIDEO_COLOR_SPACE).
 const YUV_CONVERSION_SHADER = `
 struct Uniforms {
   // The region of the upright frame drawn: uv = position01 * uvScale + uvOffset.
@@ -435,6 +403,16 @@ struct VertexOutput {
 `;
 
 const YUV_UNIFORMS_SIZE = 4 * Float32Array.BYTES_PER_ELEMENT;
+
+// The primaries and transfer function the decoded frames are taken in: those
+// of Skia's textures, so that the external textures only apply the frame's
+// YCbCr matrix and range, like the OpenGL path (Android) and the encoders,
+// and an exported clip keeps its colors. Otherwise React Native WebGPU (0.15
+// and later) also converts a frame's transfer function (SMPTE 170M for BT.601
+// and BT.709 video) to sRGB: midtones come out brighter (about 12 levels at
+// 50% gray), more so with each export of an export. iOS decodes HDR video to
+// SDR BT.709 (see VideoCompositionItemDecoder.mm).
+const VIDEO_COLOR_SPACE = { primaries: 'srgb', transfer: 'srgb' } as const;
 
 type YUVConversion = {
   device: GPUDevice;
@@ -506,6 +484,84 @@ const getYUVUniformBuffer = (device: GPUDevice, state: FrameTexture) => {
 };
 
 /**
+ * Draws the external texture of `bindGroup` into the whole of `texture`
+ * (see YUV_CONVERSION_SHADER), on Skia's queue.
+ */
+const drawConversion = (
+  device: GPUDevice,
+  bindGroup: GPUBindGroup,
+  texture: GPUTexture
+) => {
+  'worklet';
+  const encoder = device.createCommandEncoder();
+  const pass = encoder.beginRenderPass({
+    colorAttachments: [
+      { view: texture.createView(), loadOp: 'clear', storeOp: 'store' },
+    ],
+  });
+  pass.setPipeline(getYUVConversion(device).pipeline);
+  pass.setBindGroup(0, bindGroup);
+  pass.draw(3);
+  pass.end();
+  device.queue.submit([encoder.finish()]);
+};
+
+/**
+ * iOS: converts the frame (a `CVPixelBuffer` of its decoder, in NV12) to RGB
+ * into the texture of `state`, on Skia's queue: the frame is imported as an
+ * external texture (React Native WebGPU's importExternalTexture, the color
+ * conversion included, see VIDEO_COLOR_SPACE) and drawn whole. The decoders'
+ * pools hand out fresh buffers: each frame is imported.
+ */
+const convertNativeFrame = (
+  device: GPUDevice,
+  webgpu: FrameImageContext['webgpu'],
+  state: FrameTexture,
+  buffer: bigint,
+  frame: DecodedFrame
+): GPUTexture => {
+  'worklet';
+  const nativeFrame = webgpu.createVideoFrameFromNativeBuffer(buffer);
+  let externalTexture: GPUExternalTexture | null = null;
+  try {
+    const texture = getTexture(
+      device,
+      state,
+      nativeFrame.width,
+      nativeFrame.height
+    );
+    externalTexture = device.importExternalTexture({
+      source: nativeFrame,
+      sourceColorSpace: VIDEO_COLOR_SPACE,
+    });
+    const uniformBuffer = getYUVUniformBuffer(device, state);
+    // The whole frame.
+    device.queue.writeBuffer(uniformBuffer, 0, new Float32Array([1, 1, 0, 0]));
+    const conversion = getYUVConversion(device);
+    drawConversion(
+      device,
+      device.createBindGroup({
+        layout: conversion.bindGroupLayout,
+        entries: [
+          { binding: 0, resource: externalTexture },
+          { binding: 1, resource: conversion.sampler },
+          { binding: 2, resource: { buffer: uniformBuffer } },
+        ],
+      }),
+      texture
+    );
+    return texture;
+  } finally {
+    // Once the commands sampling the frame are submitted, never before.
+    externalTexture?.destroy();
+    nativeFrame.release();
+    // Hand the buffer back to the decoder now rather than when the JS
+    // wrapper is garbage collected.
+    frame.release?.();
+  }
+};
+
+/**
  * Releases a YUV buffer imported by `getYUVBuffer`.
  */
 const releaseYUVBuffer = (yuvBuffer: YUVBuffer) => {
@@ -567,6 +623,7 @@ const getYUVBuffer = (
   try {
     wrapper = device.createNativeBufferExternalTexture(nativeFrame, {
       rotation: rotation as 0 | 90 | 180 | 270,
+      sourceColorSpace: VIDEO_COLOR_SPACE,
     });
   } catch (error) {
     nativeFrame.release();
@@ -604,7 +661,8 @@ const getYUVBuffer = (
  *
  * A decoder renders into the same buffers in turn: each one is imported into
  * Skia's device once, as an external texture (React Native WebGPU's
- * createNativeBufferExternalTexture, the color conversion included), and only
+ * createNativeBufferExternalTexture, the color conversion included, see
+ * VIDEO_COLOR_SPACE), and only
  * the access to it begins and ends with each frame. Imported for each frame,
  * a 1080p buffer cost about 8 ms a frame on a Qualcomm device.
  *
@@ -639,7 +697,6 @@ const convertYUVFrame = (
     }
     try {
       const texture = getTexture(device, state, frame.width, frame.height);
-      const conversion = getYUVConversion(device);
       const swapped = layout.rotation === 90 || layout.rotation === 270;
       const uprightWidth = swapped ? yuvBuffer.height : yuvBuffer.width;
       const uprightHeight = swapped ? yuvBuffer.width : yuvBuffer.height;
@@ -651,17 +708,7 @@ const convertYUVFrame = (
         crop.y / uprightHeight,
       ]);
       device.queue.writeBuffer(getYUVUniformBuffer(device, state), 0, uniforms);
-      const encoder = device.createCommandEncoder();
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [
-          { view: texture.createView(), loadOp: 'clear', storeOp: 'store' },
-        ],
-      });
-      pass.setPipeline(conversion.pipeline);
-      pass.setBindGroup(0, yuvBuffer.bindGroup);
-      pass.draw(3);
-      pass.end();
-      device.queue.submit([encoder.finish()]);
+      drawConversion(device, yuvBuffer.bindGroup, texture);
       return texture;
     } finally {
       // Once the commands sampling the buffer are submitted, never before.
@@ -675,7 +722,7 @@ const convertYUVFrame = (
 /**
  * Turns a decoded frame into a `VideoFrame` whose image can be drawn by Skia.
  *
- * The frame is copied on the GPU (see `copyNativeFrame`, `copySharedBuffer`
+ * The frame is copied on the GPU (see `convertNativeFrame`, `copySharedBuffer`
  * and `convertYUVFrame`) into a texture of Skia's device that is reused for
  * every frame of the same `key`, and the texture is wrapped into an SkImage
  * without copy. The images of a key show its latest frame: frames are only
@@ -727,7 +774,7 @@ export const makeVideoFrame = (
   }
   let texture: GPUTexture;
   if (!IS_ANDROID) {
-    texture = copyNativeFrame(device, webgpu, state, buffer, frame);
+    texture = convertNativeFrame(device, webgpu, state, buffer, frame);
   } else if (frame.yuv != null) {
     texture = convertYUVFrame(device, webgpu, state, buffer, frame);
   } else {
