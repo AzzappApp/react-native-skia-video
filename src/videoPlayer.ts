@@ -6,6 +6,7 @@ import {
 } from 'react-native-reanimated';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import useEventListener from './utils/useEventListener';
+import reportFrameError from './utils/reportFrameError';
 import type {
   BufferingRange,
   VideoDimensions,
@@ -210,13 +211,20 @@ export const useVideoPlayer = ({
     if (!player || (!player.isPlaying && currentFrame.value)) {
       return;
     }
-    const decodedFrame = player.decodeNextFrame();
-    if (decodedFrame) {
-      currentFrame.value = makeVideoFrame(
-        frameImageContext,
-        framesKey,
-        decodedFrame
-      );
+    // An exception thrown by a frame callback is fatal: in release builds,
+    // Worklets does not catch it and the app aborts. A frame that cannot be
+    // shown is skipped.
+    try {
+      const decodedFrame = player.decodeNextFrame();
+      if (decodedFrame) {
+        currentFrame.value = makeVideoFrame(
+          frameImageContext,
+          framesKey,
+          decodedFrame
+        );
+      }
+    } catch (error) {
+      reportFrameError('failed to show the video frame', error);
     }
   }, true);
 
