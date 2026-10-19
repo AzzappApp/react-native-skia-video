@@ -162,9 +162,13 @@ public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableLi
   }
 
   /**
-   * Closes the acquired frames and the reader. The decoder must be released first.
+   * Closes the acquired frames and frees the reader's free buffers, if it acquired any: while
+   * its item is not live. The frames rendered meanwhile stay queued.
    */
-  public void release() {
+  public void releaseFrames() {
+    if (currentImage == null && retainedImages.isEmpty()) {
+      return;
+    }
     if (currentImage != null) {
       currentImage.close();
       currentImage = null;
@@ -172,6 +176,14 @@ public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableLi
     while (!retainedImages.isEmpty()) {
       retainedImages.removeFirst().close();
     }
+    reader.discardFreeBuffers();
+  }
+
+  /**
+   * Closes the acquired frames and the reader. The decoder must be released first.
+   */
+  public void release() {
+    releaseFrames();
     reader.close();
   }
 

@@ -61,19 +61,27 @@ jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
           auto currentTime =
               CMTimeMakeWithSeconds(arguments[0].asNumber(), NSEC_PER_SEC);
           auto frames = jsi::Object(runtime);
+          std::string pendingError;
           @autoreleasepool {
             for (const auto& entry : itemDecoders) {
               auto itemId = entry.first;
               auto decoder = entry.second;
 
-              // Only the live items' frames are handed out (see the frames
-              // extractor of the player).
+              // Only the live items are decoded and their frames handed out
+              // (see the frames extractor of the player): the readers of the
+              // others are released.
               if (!decoder->getItem()->isLiveAt(
                       CMTimeGetSeconds(currentTime))) {
+                decoder->release();
                 currentFrames.erase(itemId);
                 continue;
               }
-              decoder->advanceDecoder(currentTime);
+              try {
+                decoder->advanceDecoder(currentTime);
+              } catch (NSError* error) {
+                pendingError = describeNSError(error);
+                break;
+              }
 
               auto previousFrame = currentFrames[itemId];
               auto frame =
@@ -89,6 +97,9 @@ jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
                     jsi::Object::createFromHostObject(runtime, frame));
               }
             }
+          }
+          if (!pendingError.empty()) {
+            throw jsi::JSError(runtime, pendingError);
           }
           return frames;
         });

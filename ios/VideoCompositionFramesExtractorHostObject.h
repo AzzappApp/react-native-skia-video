@@ -7,6 +7,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <jsi/jsi.h>
 #import <map>
+#import <optional>
 
 @interface RNSVDisplayLinkWrapper : NSObject
 
@@ -65,6 +66,12 @@ private:
   void pause();
   void seekTo(CMTime time);
   CMTime getCurrentTime();
+  // The time an item is decoded at for the composition time `time`, or none
+  // if its reader is released: while the item is live, and, when the
+  // composition loops, while it is live at the same time of the next loop.
+  // Only the readers of the items around the current time are kept.
+  std::optional<CMTime> getDecodingTime(const VideoCompositionItem& item,
+                                        CMTime time);
   void release();
 };
 

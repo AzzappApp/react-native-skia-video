@@ -93,6 +93,13 @@ public class VideoCompositionFramesExtractorSync {
         pendingError = null;
         return;
       }
+      try {
+        // Opens the decoders of the items that became live, closes the others.
+        decoder.updateDecoders(decodingTimeUs, false);
+      } catch (Exception e) {
+        future.completeExceptionally(e);
+        return;
+      }
       decoding = true;
       renderedTimes.clear();
       checkIfFrameDecoded();

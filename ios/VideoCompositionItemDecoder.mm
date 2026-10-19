@@ -33,7 +33,7 @@ VideoCompositionItemDecoder::VideoCompositionItemDecoder(
   height = videoTrack.naturalSize.height;
   rotation = AVAssetTrackUtils::GetTrackRotationInDegree(videoTrack);
   currentFrame = nullptr;
-  this->setupReader(kCMTimeZero);
+  // The reader is set up by advanceDecoder, while the item is live.
 }
 
 void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
@@ -165,6 +165,21 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
             : position;
     CMTime duration = CMTimeMakeWithSeconds(item->duration, NSEC_PER_SEC);
     CMTime endTime = CMTimeAdd(startTime, duration);
+
+    // Opened where the composition is: on its first call, after a seek or
+    // once the item is live again (see release).
+    if (assetReader == nil) {
+      if (openFailed) {
+        return;
+      }
+      try {
+        setupReader(currentTime);
+      } catch (...) {
+        // Reported once, not with every frame.
+        openFailed = true;
+        throw;
+      }
+    }
 
     bool looped;
     {
@@ -302,8 +317,9 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
 
 void VideoCompositionItemDecoder::seekTo(CMTime currentTime) {
   @synchronized(lock) {
+    // advanceDecoder sets the reader up again, at the time it decodes.
     release();
-    setupReader(currentTime);
+    openFailed = false;
   }
 }
 

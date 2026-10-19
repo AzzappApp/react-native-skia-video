@@ -168,7 +168,7 @@ public class VideoCompositionFramesExtractor {
     handler.sendEmptyMessage(PLAYBACK_RELEASE);
   }
 
-  private void prepareInternal() {
+  private void prepareInternal() throws IOException {
     decoder.start();
     if (composition.hasAudio()) {
       audioPlayer = new AudioCompositionPlayer(composition);
@@ -189,7 +189,7 @@ public class VideoCompositionFramesExtractor {
     }
   }
 
-  private void playInternal() {
+  private void playInternal() throws IOException {
     if (!prepared) {
       playWhenReady = true;
       return;
@@ -239,6 +239,7 @@ public class VideoCompositionFramesExtractor {
     } else {
       completeDispatched = false;
     }
+    decoder.updateDecoders(currentPosition, looping);
     decoder.render(currentPosition);
     if (isEOS && looping) {
       playInternal();
@@ -256,12 +257,12 @@ public class VideoCompositionFramesExtractor {
     }
   }
 
-  private void seekInternal(long position) {
+  private void seekInternal(long position) throws IOException {
     if (!prepared) {
       pendingSeek = position;
       return;
     }
-    decoder.seekTo(position);
+    decoder.seekTo(position, looping);
     if (audioPlayer != null) {
       audioPlayer.seekTo(position);
     }

@@ -241,16 +241,32 @@ void VideoCompositionFramesExtractorHostObject::prepare() {
             }
             for (const auto& entry : itemDecoders) {
               auto decoder = entry.second;
-              if (decoder) {
-                futures.push_back(
-                    std::async(std::launch::async, [decoder, currentTime]() {
-                      decoder->advanceDecoder(currentTime);
-                    }));
+              if (!decoder) {
+                continue;
               }
+              auto decodingTime =
+                  getDecodingTime(*decoder->getItem(), currentTime);
+              if (!decodingTime) {
+                // Not live: the reader and its frames are released.
+                decoder->release();
+                continue;
+              }
+              futures.push_back(std::async(std::launch::async,
+                                           [decoder, time = *decodingTime]() {
+                                             decoder->advanceDecoder(time);
+                                           }));
             }
           }
           for (auto& future : futures) {
-            future.get();
+            try {
+              future.get();
+            } catch (NSError* error) {
+              // A reader that could not be set up (reported once, see
+              // advanceDecoder).
+              emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {
+                return RNSkiaVideo::NSErrorToJSI(runtime, error);
+              });
+            }
           }
         });
       }];
@@ -293,17 +309,10 @@ void VideoCompositionFramesExtractorHostObject::init() {
           }
         }
       }
-      // A seek issued before init (a player positioned right after it is
-      // created, as when a change of the composition rebuilds it) only
-      // reached `pausePosition` and, above, the audio player: the item
-      // decoders still read from zero and caught up with the clock by
-      // decoding every frame in between, visibly a fast-forward from the
-      // start of the clip. Position them where the clock starts.
-      if (CMTimeCompare(pausePosition, kCMTimeZero) > 0) {
-        for (const auto& entry : itemDecoders) {
-          entry.second->seekTo(pausePosition);
-        }
-      }
+      // The item decoders set their readers up where the clock is when they
+      // first decode (see advanceDecoder): a seek issued before init (a
+      // player positioned right after it is created, as when a change of the
+      // composition rebuilds it) applies to them too.
     } catch (NSError* error) {
       itemDecoders.clear();
       audioPlayer = nil;
@@ -368,6 +377,22 @@ void VideoCompositionFramesExtractorHostObject::seekTo(CMTime time) {
       entry.second->seekTo(time);
     }
   }
+}
+
+std::optional<CMTime>
+VideoCompositionFramesExtractorHostObject::getDecodingTime(
+    const VideoCompositionItem& item, CMTime time) {
+  double seconds = CMTimeGetSeconds(time);
+  if (item.isLiveAt(seconds)) {
+    return time;
+  }
+  // The items of the start of a looping composition are opened before it
+  // loops, at the time of the next loop.
+  if (isLooping && item.isLiveAt(seconds - composition->duration)) {
+    return CMTimeSubtract(
+        time, CMTimeMakeWithSeconds(composition->duration, NSEC_PER_SEC));
+  }
+  return std::nullopt;
 }
 
 CMTime VideoCompositionFramesExtractorHostObject::getCurrentTime() {

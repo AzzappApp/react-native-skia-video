@@ -91,9 +91,9 @@ A few rules of thumb:
 - `frames` maps item ids to `VideoFrame`s (`{ image, texture, width, height, rotation }`).
   The images are owned by the player: don't dispose them, and don't keep them
   after the call. An item is only in `frames` from one second before it
-  starts to one second after it ends: outside, its textures are released, so
-  a long composition costs the memory of the items around the current time,
-  not of all of them.
+  starts to one second after it ends: outside, its decoder is closed and its
+  textures are released, so a long composition costs the decoders and the
+  memory of the items around the current time, not of all of them.
   A frame's `rotation` is the display rotation in degrees of the source
   (phone footage is often stored rotated).
 - Skia objects can't hop between worklet runtimes. Decode/cache per runtime

@@ -15,10 +15,14 @@ public:
   VideoCompositionItemDecoder(std::shared_ptr<VideoCompositionItem> item,
                               bool realTime, AVURLAsset* sharedAsset = nil);
   ~VideoCompositionItemDecoder();
+  // Decodes the frames up to `currentTime`, setting the reader up first if it
+  // is not (see release).
   void advanceDecoder(CMTime currentTime);
   void seekTo(CMTime currentTime);
   std::shared_ptr<VideoFrame> acquireFrameForTime(CMTime currentTime,
                                                   bool force);
+  // Releases the reader and the decoded frames: while the item is not live.
+  // The next advanceDecoder sets the reader up again.
   void release();
   std::shared_ptr<VideoCompositionItem> getItem() const {
     return item;
@@ -40,6 +44,9 @@ private:
   std::mutex framesMutex;
   bool realTime = false;
   bool hasLooped = false;
+  // Whether the reader could not be set up: advanceDecoder no longer tries
+  // until the next seek.
+  bool openFailed = false;
   std::shared_ptr<VideoCompositionItem> item;
   double width;
   double height;

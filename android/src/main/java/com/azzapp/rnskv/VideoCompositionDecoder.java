@@ -3,11 +3,17 @@ package com.azzapp.rnskv;
 import android.os.Build;
 import android.view.Surface;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
  * A class to decode a video composition and extract frames from the video items.
+ *
+ * Only the decoders of the items live around the current position are open (see
+ * {@link #updateDecoders}): a long composition costs the decoders, and the buffers, of the items
+ * around its current time, not of all of them, and it can have more items than the device has
+ * decoder instances.
  */
 public class VideoCompositionDecoder {
 
@@ -66,6 +72,8 @@ public class VideoCompositionDecoder {
 
   private OnItemEndReachedListener onItemEndReachedListener;
 
+  private volatile boolean started = false;
+
   /**
    * Creates a new video composition decoder.
    *
@@ -102,7 +110,8 @@ public class VideoCompositionDecoder {
   }
 
   /**
-   * Prepares the items decoders and the image readers.
+   * Reads the format of the items and prepares their image readers. The decoders are opened by
+   * {@link #updateDecoders}.
    */
   public void prepare() {
     boolean yuvFrames = useYUVFrames();
@@ -141,10 +150,52 @@ public class VideoCompositionDecoder {
   }
 
   /**
-   * Starts the decoders.
+   * Lets {@link #updateDecoders} open the decoders.
    */
   public void start() {
-    decoders.values().forEach(VideoCompositionItemDecoder::start);
+    started = true;
+  }
+
+  /**
+   * The position of the composition an item is decoded from at the given position, or null if
+   * its decoder is closed: while the item is live, and, when the composition loops, while it is
+   * live at the same position of the next loop (the items of its start are opened before it loops).
+   */
+  private Long getDecodingPosition(VideoComposition.Item item, long positionUs, boolean looping) {
+    if (item.isLiveAt(positionUs)) {
+      return positionUs;
+    }
+    long durationUs = TimeHelpers.secToUs(composition.getDuration());
+    if (looping && item.isLiveAt(positionUs - durationUs)) {
+      return positionUs - durationUs;
+    }
+    return null;
+  }
+
+  /**
+   * Opens the decoders of the items live at the given position, decoding from it, and closes the
+   * others. Called on the thread the decoders' callbacks run on (the looper of the decoding
+   * thread), outside of the lock of the frames: the frames of the open items are still handed out
+   * while a decoder is created.
+   *
+   * @param positionUs The current position in microseconds.
+   * @param looping    Whether the composition loops.
+   */
+  public void updateDecoders(long positionUs, boolean looping) throws IOException {
+    if (!started) {
+      return;
+    }
+    for (Map.Entry<VideoComposition.Item, VideoCompositionItemDecoder> entry : decoders.entrySet()) {
+      VideoComposition.Item item = entry.getKey();
+      VideoCompositionItemDecoder decoder = entry.getValue();
+      Long decodingPositionUs = getDecodingPosition(item, positionUs, looping);
+      if (decodingPositionUs == null) {
+        // Its last frames are released by updateVideosFrames, on the thread that hands them out.
+        decoder.close();
+      } else {
+        decoder.open(decodingPositionUs);
+      }
+    }
   }
 
   /**
@@ -212,6 +263,12 @@ public class VideoCompositionDecoder {
       }
       if (!item.isLiveAt(currentPositionUs)) {
         videoFrames.remove(item.getId());
+        // Here rather than when the decoder is closed: the frames handed out last are converted
+        // on this thread, after this call.
+        ImageReaderFrameExtractor yuvFrameExtractor = yuvFrameExtractors.get(item);
+        if (yuvFrameExtractor != null) {
+          yuvFrameExtractor.releaseFrames();
+        }
         continue;
       }
       VideoCompositionItemDecoder decoder = decoders.get(item);
@@ -280,12 +337,25 @@ public class VideoCompositionDecoder {
   }
 
   /**
-   * Seeks to the given position.
+   * Seeks to the given position: the open decoders of the items live there seek to it, the others
+   * are opened or closed (see {@link #updateDecoders}).
    *
    * @param position The position to seek to in microseconds.
+   * @param looping  Whether the composition loops.
    */
-  synchronized public void seekTo(long position) {
-    decoders.values().forEach(itemDecoder -> itemDecoder.seekTo(position));
+  public void seekTo(long position, boolean looping) throws IOException {
+    for (Map.Entry<VideoComposition.Item, VideoCompositionItemDecoder> entry : decoders.entrySet()) {
+      VideoComposition.Item item = entry.getKey();
+      VideoCompositionItemDecoder decoder = entry.getValue();
+      Long decodingPositionUs = getDecodingPosition(item, position, looping);
+      if (decodingPositionUs == null) {
+        decoder.close();
+      } else if (decoder.isOpen()) {
+        decoder.seekTo(decodingPositionUs);
+      } else if (started) {
+        decoder.open(decodingPositionUs);
+      }
+    }
   }
 
   /**
