@@ -23,6 +23,7 @@ import {
 } from './frameImages';
 import useEventListener from './utils/useEventListener';
 import reportFrameError from './utils/reportFrameError';
+import disposeCanvas from './utils/disposeCanvas';
 import { PixelRatio } from 'react-native';
 
 type UseVideoCompositionPlayerOptions<T = undefined> = {
@@ -155,7 +156,9 @@ export const useVideoCompositionPlayer = <T = undefined>({
         frame?.dispose();
         const surface = surfaceSharedValue.value;
         surfaceSharedValue.value = null;
+        const canvas = canvasSharedValue.value;
         canvasSharedValue.value = null;
+        disposeCanvas(canvas);
         surface?.dispose();
       })();
     },

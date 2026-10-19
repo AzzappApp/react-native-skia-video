@@ -25,6 +25,7 @@ import type {
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
 import { checkYUVFramesSupport } from './yuvFrames';
+import disposeCanvas from './utils/disposeCanvas';
 import {
   createFrameImagesKey,
   getFrameImageContext,
@@ -234,6 +235,7 @@ export const exportVideoComposition = async <T = undefined>({
               cache.__rnskvExportSurfaceWidth !== width ||
               cache.__rnskvExportSurfaceHeight !== height
             ) {
+              disposeCanvas(cache.__rnskvExportCanvas);
               surface?.dispose();
               cache.__rnskvExportSurface = null;
               cache.__rnskvExportCanvas = null;
@@ -392,6 +394,7 @@ export const exportVideoComposition = async <T = undefined>({
           // Also on cancellation or failure.
           surfaceImage?.dispose();
           for (const target of targets) {
+            disposeCanvas(target.canvas);
             target.surface.dispose();
             target.texture.destroy();
             target.memory.destroy();
