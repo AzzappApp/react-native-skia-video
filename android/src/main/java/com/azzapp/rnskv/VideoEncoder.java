@@ -78,6 +78,8 @@ public class VideoEncoder {
 
   private volatile Exception audioException;
 
+  private static final long AUDIO_TIMEOUT_MS = 30_000;
+
   private final List<PendingSample> pendingVideoSamples = new ArrayList<>();
 
   private final List<PendingSample> pendingAudioSamples = new ArrayList<>();
@@ -166,6 +168,9 @@ public class VideoEncoder {
           @Override
           public void onAudioFormat(MediaFormat format) {
             synchronized (VideoEncoder.this) {
+              if (muxer == null) {
+                return;
+              }
               audioTrackIndex = muxer.addTrack(format);
               maybeStartMuxer();
             }
@@ -281,10 +286,14 @@ public class VideoEncoder {
     drainEncoder(true);
     if (audioThread != null) {
       try {
-        audioThread.join();
+        audioThread.join(AUDIO_TIMEOUT_MS);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new RuntimeException("Interrupted while writing audio", e);
+      }
+      if (audioThread.isAlive()) {
+        // release() cancels it.
+        throw new RuntimeException("Could not encode composition audio in 30 seconds");
       }
       audioThread = null;
       if (audioException != null) {
@@ -323,6 +332,10 @@ public class VideoEncoder {
     ByteBuffer buffer,
     MediaCodec.BufferInfo info
   ) {
+    if (muxer == null) {
+      // Released: an audio thread that outlived release().
+      return;
+    }
     if (muxerStarted) {
       muxer.writeSampleData(isVideo ? trackIndex : audioTrackIndex, buffer, info);
       return;
@@ -451,19 +464,21 @@ public class VideoEncoder {
       inputSurface.release();
       inputSurface = null;
     }
-    if (muxer != null) {
-      try {
-        muxer.stop();
-      } catch (IllegalStateException e) {
-        // the muxer never started or has no sample (failed exports).
-        Log.w(TAG, "Could not stop the muxer", e);
-      }
-      muxer.release();
-      muxer = null;
-    }
-    // Direct ByteBuffers only reclaim their native memory once the Java
-    // object is collected; drop them eagerly.
+    // Under the monitor: the audio thread can outlive the join above, its
+    // samples must not reach a released muxer.
     synchronized (this) {
+      if (muxer != null) {
+        try {
+          muxer.stop();
+        } catch (IllegalStateException e) {
+          // the muxer never started or has no sample (failed exports).
+          Log.w(TAG, "Could not stop the muxer", e);
+        }
+        muxer.release();
+        muxer = null;
+      }
+      // Direct ByteBuffers only reclaim their native memory once the Java
+      // object is collected; drop them eagerly.
       pendingVideoSamples.clear();
       pendingAudioSamples.clear();
     }

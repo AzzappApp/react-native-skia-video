@@ -3,7 +3,6 @@
 #import "RNSVJSIUtils.h"
 #import "RNSVPixelData.h"
 #import <algorithm>
-#import <future>
 
 NS_INLINE NSError* createErrorWithMessage(NSString* message) {
   return [NSError errorWithDomain:@"com.azzapp.rnskv"
@@ -165,7 +164,10 @@ void VideoEncoderHostObject::prepare() {
     setupAudio();
   }
 
-  [assetWriter startWriting];
+  if (![assetWriter startWriting]) {
+    throw assetWriter.error
+        ?: createErrorWithMessage(@"Could not start writing the video");
+  }
   [assetWriter startSessionAtSourceTime:kCMTimeZero];
 
   if (audioWriterInput) {
@@ -567,27 +569,31 @@ void VideoEncoderHostObject::finish() {
   // audio: AVAssetWriter interleaves the two tracks and would keep the
   // audio input not-ready while waiting for more video data (deadlock).
   [assetWriterInput markAsFinished];
+  // Bounded waits: a stalled writer fails the export instead of blocking the
+  // export thread forever.
+  auto timeout = [] {
+    return dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC);
+  };
   if (audioWriterInput) {
-    dispatch_semaphore_wait(audioCompletionSemaphore, DISPATCH_TIME_FOREVER);
+    if (dispatch_semaphore_wait(audioCompletionSemaphore, timeout()) != 0) {
+      throw createErrorWithMessage(@"Could not write the audio in 30 seconds");
+    }
     NSError* audioError = audioErrorHolder.firstObject;
     if (audioError) {
       throw audioError;
     }
   }
 
-  __block std::promise<void> promise;
-  std::future<void> future = promise.get_future();
-  __block NSError* error = nil;
+  // The handler only captures the semaphore: it can run after a timeout.
+  dispatch_semaphore_t finished = dispatch_semaphore_create(0);
   [assetWriter finishWritingWithCompletionHandler:^{
-    if (assetWriter.status == AVAssetWriterStatusFailed) {
-      error = assetWriter.error ?: createErrorWithMessage(@"Failed to export");
-    }
-    promise.set_value();
+    dispatch_semaphore_signal(finished);
   }];
-
-  future.wait();
-  if (error != nil) {
-    throw error;
+  if (dispatch_semaphore_wait(finished, timeout()) != 0) {
+    throw createErrorWithMessage(@"Could not finish the video in 30 seconds");
+  }
+  if (assetWriter.status == AVAssetWriterStatusFailed) {
+    throw assetWriter.error ?: createErrorWithMessage(@"Failed to export");
   }
 }
 
