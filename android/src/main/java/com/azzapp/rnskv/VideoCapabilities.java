@@ -44,7 +44,7 @@ public class VideoCapabilities {
     MediaCodecInfo[] codecInfos = codecList.getCodecInfos();
 
     for (MediaCodecInfo codecInfo : codecInfos) {
-      if (!codecInfo.isEncoder()) {
+      if (codecInfo.isEncoder()) {
         continue;
       }
       MediaCodecInfo.CodecCapabilities capabilities;
