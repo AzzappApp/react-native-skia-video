@@ -284,8 +284,8 @@ export type VideoCompositionVideoItem = VideoCompositionItemBase & {
   /**
    * If provided, caps the LONG SIDE of the decoded frames: the decoder scales
    * the video down, keeping its aspect ratio, so that neither side exceeds
-   * this many pixels. A smaller video is decoded as is. Ignored when
-   * {@link resolution} is set.
+   * this many pixels (the scaled sizes are rounded to even numbers). A
+   * smaller video is decoded as is. Ignored when {@link resolution} is set.
    *
    * This is the orientation-proof way to keep decoders from working bigger
    * than needed: the cap is resolved against the track's own frame size,

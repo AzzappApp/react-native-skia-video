@@ -327,9 +327,10 @@ public class VideoPlayer {
       // reports (already rotated) is scaled as is.
       int longSide = Math.max(width, height);
       if (longSide > maxLongSide) {
+        // Even sizes, as the frames of a composition (4:2:0 video).
         double scale = maxLongSide / longSide;
-        width = (int) Math.round(width * scale);
-        height = (int) Math.round(height * scale);
+        width = Math.max(2, 2 * (int) Math.round(width * scale / 2));
+        height = Math.max(2, 2 * (int) Math.round(height * scale / 2));
       }
     }
     if (width > 0 && height > 0 && glFrameExtractor.decodeNextFrame(width, height)) {

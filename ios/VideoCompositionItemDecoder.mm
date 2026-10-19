@@ -81,9 +81,10 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
     CGSize natural = videoTrack.naturalSize;
     double longSide = MAX(natural.width, natural.height);
     if (longSide > item->maxLongSide) {
+      // Even sizes: the frames are 4:2:0, their chroma planes half the size.
       double scale = item->maxLongSide / longSide;
-      resolution = CGSizeMake(round(natural.width * scale),
-                              round(natural.height * scale));
+      resolution = CGSizeMake(MAX(2, 2 * round(natural.width * scale / 2)),
+                              MAX(2, 2 * round(natural.height * scale / 2)));
     }
   }
   if (resolution.width > 0 && resolution.height > 0) {

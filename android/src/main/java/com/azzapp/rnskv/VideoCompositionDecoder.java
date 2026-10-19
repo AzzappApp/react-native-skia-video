@@ -226,9 +226,10 @@ public class VideoCompositionDecoder {
         // get wrong.
         int longSide = Math.max(frameWidth, frameHeight);
         if (longSide > maxLongSide) {
+          // Even sizes: the frames are 4:2:0, their chroma planes half the size.
           double scale = maxLongSide / longSide;
-          frameWidth = (int) Math.round(frameWidth * scale);
-          frameHeight = (int) Math.round(frameHeight * scale);
+          frameWidth = Math.max(2, 2 * (int) Math.round(frameWidth * scale / 2));
+          frameHeight = Math.max(2, 2 * (int) Math.round(frameHeight * scale / 2));
         }
       }
       if (decoder.getRotation() == 90 || decoder.getRotation() == 270) {

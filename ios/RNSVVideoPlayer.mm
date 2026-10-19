@@ -106,9 +106,11 @@ static void* rateContext = &rateContext;
     CGSize natural = track.naturalSize;
     double longSide = MAX(natural.width, natural.height);
     if (longSide > _maxLongSide) {
+      // Even sizes: the frames are 4:2:0, their chroma planes half the size.
       double scale = _maxLongSide / longSide;
-      self.resolution = CGSizeMake(round(natural.width * scale),
-                                   round(natural.height * scale));
+      self.resolution =
+          CGSizeMake(MAX(2, 2 * round(natural.width * scale / 2)),
+                     MAX(2, 2 * round(natural.height * scale / 2)));
     }
     return;
   }
