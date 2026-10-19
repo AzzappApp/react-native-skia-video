@@ -1,4 +1,4 @@
-import type { SkImage, SkSurface } from 'react-native-skia';
+import type { SkCanvas, SkImage, SkSurface } from 'react-native-skia';
 import { Skia } from 'react-native-skia';
 import {
   useSharedValue,
@@ -137,6 +137,9 @@ export const useVideoCompositionPlayer = <T = undefined>({
   // image (surface.asImage()): the same image for every frame, sharing the
   // texture of the surface.
   const surfaceSharedValue = useSharedValue<SkSurface | null>(null);
+  // The canvas of the surface, made once: each getCanvas() call makes a new
+  // canvas, which keeps the surface alive until the UI runtime collects it.
+  const canvasSharedValue = useSharedValue<SkCanvas | null>(null);
   const currentFrame = useSharedValue<SkImage | null>(null);
   useEffect(
     () => () => {
@@ -152,10 +155,17 @@ export const useVideoCompositionPlayer = <T = undefined>({
         frame?.dispose();
         const surface = surfaceSharedValue.value;
         surfaceSharedValue.value = null;
+        canvasSharedValue.value = null;
         surface?.dispose();
       })();
     },
-    [currentFrame, framesExtractor, framesKey, surfaceSharedValue]
+    [
+      canvasSharedValue,
+      currentFrame,
+      framesExtractor,
+      framesKey,
+      surfaceSharedValue,
+    ]
   );
 
   const retry = useCallback(() => {
@@ -194,20 +204,21 @@ export const useVideoCompositionPlayer = <T = undefined>({
     }
 
     let surface: SkSurface | null = surfaceSharedValue.value;
-
+    let canvas: SkCanvas | null = canvasSharedValue.value;
     if (!surface) {
       surface = Skia.Surface.MakeOffscreen(
         width * pixelRatio,
         height * pixelRatio
       );
       surfaceSharedValue.value = surface;
+      canvas = surface?.getCanvas() ?? null;
+      canvasSharedValue.value = canvas;
     }
-    if (!surface) {
+    if (!surface || !canvas) {
       console.warn('Failed to create surface');
       return;
     }
 
-    const canvas = surface.getCanvas();
     // An exception thrown by a frame callback is fatal: in release builds,
     // Worklets does not catch it and the app aborts. Frames that cannot be
     // turned into images are left out (the frame is drawn without them), a

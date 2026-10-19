@@ -57,6 +57,11 @@ type ExportTarget = {
   memory: GPUSharedTextureMemory;
   texture: GPUTexture;
   surface: SkSurface;
+  /**
+   * The canvas of the surface, made once: each getCanvas() call makes a new
+   * canvas, which keeps the surface alive until the runtime collects it.
+   */
+  canvas: SkCanvas;
 };
 
 // `SkImage.readPixels` also accepts a destination array (4th argument), which
@@ -209,6 +214,7 @@ export const exportVideoComposition = async <T = undefined>({
             currentEncoder.endFrame != null;
 
           let surface: SkSurface | null = null;
+          let offscreenCanvas: SkCanvas | null = null;
           if (!zeroCopy) {
             // Reuse a single offscreen surface across exports (per
             // dimensions). Disposing the surface is not enough to free its
@@ -218,6 +224,7 @@ export const exportVideoComposition = async <T = undefined>({
             // (width × height × 4 bytes) on every run.
             const cache = globalThis as unknown as {
               __rnskvExportSurface?: SkSurface | null;
+              __rnskvExportCanvas?: SkCanvas | null;
               __rnskvExportSurfaceWidth?: number;
               __rnskvExportSurfaceHeight?: number;
             };
@@ -229,14 +236,17 @@ export const exportVideoComposition = async <T = undefined>({
             ) {
               surface?.dispose();
               cache.__rnskvExportSurface = null;
+              cache.__rnskvExportCanvas = null;
               surface = Skia.Surface.MakeOffscreen(width, height);
               if (!surface) {
                 throw new Error('Failed to create Skia surface');
               }
               cache.__rnskvExportSurface = surface;
+              cache.__rnskvExportCanvas = surface.getCanvas();
               cache.__rnskvExportSurfaceWidth = width;
               cache.__rnskvExportSurfaceHeight = height;
             }
+            offscreenCanvas = cache.__rnskvExportCanvas!;
           }
 
           frameExtractor =
@@ -255,6 +265,7 @@ export const exportVideoComposition = async <T = undefined>({
             RNSkiaVideoModule.runWithAutoreleasePool ??
             ((fn: () => void) => fn());
           const currentSurface = surface;
+          const currentCanvas = offscreenCanvas;
           const currentExtractor = frameExtractor;
           const frameInfo: ImageInfo = {
             width,
@@ -300,18 +311,21 @@ export const exportVideoComposition = async <T = undefined>({
                       handle,
                     });
                   const texture = memory.createTexture();
+                  const targetSurface =
+                    Skia.Surface.MakeFromGPUTexture(texture);
                   target = {
                     handle,
                     memory,
                     texture,
-                    surface: Skia.Surface.MakeFromGPUTexture(texture),
+                    surface: targetSurface,
+                    canvas: targetSurface.getCanvas(),
                   };
                   targets.push(target);
                 }
                 target.memory.beginAccess(target.texture, false);
                 let accessState: GPUSharedTextureMemoryEndAccessState;
                 try {
-                  draw(target.surface.getCanvas());
+                  draw(target.canvas);
                   // iOS: the encoder reads the buffer as soon as it is handed
                   // back, wait for the GPU to finish drawing into it. Android:
                   // the encoder waits for it on the GPU (see below).
@@ -351,7 +365,7 @@ export const exportVideoComposition = async <T = undefined>({
                 }
                 currentEncoder.endFrame!(currentTime, fences);
               } else {
-                draw(currentSurface!.getCanvas());
+                draw(currentCanvas!);
                 // Submits the frame's recording, then the frame is read back
                 // from the texture of the surface (no copy) and handed to the
                 // encoder, which copies it into its own video buffers.
