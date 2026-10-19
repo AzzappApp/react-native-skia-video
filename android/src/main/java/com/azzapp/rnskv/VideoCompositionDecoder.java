@@ -158,23 +158,24 @@ public class VideoCompositionDecoder {
 
   /**
    * The position of the composition an item is decoded from at the given position, or null if
-   * its decoder is closed: while the item is live, and, when the composition loops, while it is
-   * live at the same position of the next loop (the items of its start are opened before it loops).
+   * its decoder is closed: while it is open (see {@link VideoComposition.Item#isDecodedAt}), and,
+   * when the composition loops, while it is open at the same position of the next loop (the items
+   * of its start are opened before it loops).
    */
   private Long getDecodingPosition(VideoComposition.Item item, long positionUs, boolean looping) {
-    if (item.isLiveAt(positionUs)) {
+    if (item.isDecodedAt(positionUs)) {
       return positionUs;
     }
     long durationUs = TimeHelpers.secToUs(composition.getDuration());
-    if (looping && item.isLiveAt(positionUs - durationUs)) {
+    if (looping && item.isDecodedAt(positionUs - durationUs)) {
       return positionUs - durationUs;
     }
     return null;
   }
 
   /**
-   * Opens the decoders of the items live at the given position, decoding from it, and closes the
-   * others. Called on the thread the decoders' callbacks run on (the looper of the decoding
+   * Opens the decoders of the items decoded at the given position (see
+   * {@link VideoComposition.Item#isDecodedAt}), decoding from it, and closes the others. Called on the thread the decoders' callbacks run on (the looper of the decoding
    * thread), outside of the lock of the frames: the frames of the open items are still handed out
    * while a decoder is created.
    *
@@ -337,8 +338,8 @@ public class VideoCompositionDecoder {
   }
 
   /**
-   * Seeks to the given position: the open decoders of the items live there seek to it, the others
-   * are opened or closed (see {@link #updateDecoders}).
+   * Seeks to the given position: the open decoders of the items decoded there seek to it, the
+   * others are opened or closed (see {@link #updateDecoders}).
    *
    * @param position The position to seek to in microseconds.
    * @param looping  Whether the composition loops.

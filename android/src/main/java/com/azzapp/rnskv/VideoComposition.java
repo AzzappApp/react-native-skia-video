@@ -42,6 +42,11 @@ public class VideoComposition {
      */
     public static final long LIVE_MARGIN_US = 1_000_000;
 
+    /**
+     * How long before the item is live its decoder is opened (see {@link #isDecodedAt}).
+     */
+    public static final long DECODER_LEAD_US = 1_000_000;
+
     private String id;
     private String path;
     private double compositionStartTime;
@@ -123,6 +128,15 @@ public class VideoComposition {
       long endUs = TimeHelpers.secToUs(compositionStartTime + duration);
       return compositionTimeUs >= startUs - LIVE_MARGIN_US
         && compositionTimeUs <= endUs + LIVE_MARGIN_US;
+    }
+
+    /**
+     * Whether the decoder of the item is open at a time of the composition: while the item is
+     * live, and {@link #DECODER_LEAD_US} before. The decoder has started, and decoded the first
+     * frame, by the time an export waits for it.
+     */
+    public boolean isDecodedAt(long compositionTimeUs) {
+      return isLiveAt(compositionTimeUs) || isLiveAt(compositionTimeUs + DECODER_LEAD_US);
     }
 
     public boolean isAudioEnabled() {

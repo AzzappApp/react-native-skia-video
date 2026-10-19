@@ -67,8 +67,9 @@ private:
   void seekTo(CMTime time);
   CMTime getCurrentTime();
   // The time an item is decoded at for the composition time `time`, or none
-  // if its reader is released: while the item is live, and, when the
-  // composition loops, while it is live at the same time of the next loop.
+  // if its reader is released: while the item is decoded (see isDecodedAt),
+  // and, when the composition loops, while it is decoded at the same time of
+  // the next loop.
   // Only the readers of the items around the current time are kept.
   std::optional<CMTime> getDecodingTime(const VideoCompositionItem& item,
                                         CMTime time);

@@ -383,12 +383,12 @@ std::optional<CMTime>
 VideoCompositionFramesExtractorHostObject::getDecodingTime(
     const VideoCompositionItem& item, CMTime time) {
   double seconds = CMTimeGetSeconds(time);
-  if (item.isLiveAt(seconds)) {
+  if (item.isDecodedAt(seconds)) {
     return time;
   }
   // The items of the start of a looping composition are opened before it
   // loops, at the time of the next loop.
-  if (isLooping && item.isLiveAt(seconds - composition->duration)) {
+  if (isLooping && item.isDecodedAt(seconds - composition->duration)) {
     return CMTimeSubtract(
         time, CMTimeMakeWithSeconds(composition->duration, NSEC_PER_SEC));
   }

@@ -36,6 +36,17 @@ public:
     return compositionTime >= compositionStartTime - liveMargin &&
            compositionTime <= compositionStartTime + duration + liveMargin;
   }
+
+  // How long before the item is live its reader is set up, in seconds (see
+  // isDecodedAt).
+  static constexpr double decoderLead = 1;
+
+  // Whether the item is decoded at a time of the composition: while it is
+  // live, and decoderLead before, so that its first frame is ready when it
+  // is.
+  bool isDecodedAt(double compositionTime) const {
+    return isLiveAt(compositionTime) || isLiveAt(compositionTime + decoderLead);
+  }
 };
 
 class VideoComposition {
