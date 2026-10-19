@@ -198,6 +198,7 @@ void VideoPlayerHostObject::handleEvent(std::string eventName,
 
 void VideoPlayerHostObject::release() {
   if (!released.test_and_set()) {
+    jEventDispatcher->invalidate();
     player->release();
     player = nullptr;
     this->removeAllListeners();

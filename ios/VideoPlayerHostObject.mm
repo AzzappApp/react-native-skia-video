@@ -96,11 +96,12 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (!released.test()) {
             auto time = arguments[0].asNumber();
+            // The delegate outlives this object, the seek can complete after
+            // its release.
+            auto delegate = playerDelegate;
             [player seekTo:CMTimeMakeWithSeconds(time, 600)
                 completionHandler:^(BOOL) {
-                  if (!released.test()) {
-                    this->emit("seekComplete", jsi::Value::null());
-                  }
+                  [delegate seekComplete];
                 }];
           }
           return jsi::Value::undefined();
@@ -231,69 +232,104 @@ using namespace facebook;
   return self;
 }
 
+// Runs `block` with the host, unless it was released. The player calls the
+// delegate on the main thread and the host is released on the JS thread:
+// dispose waits for a call in progress, and drops the calls after it.
+- (void)withHost:(void (^)(RNSkiaVideo::EventEmitter* host))block {
+  @synchronized(self) {
+    if (_host != nullptr) {
+      block(_host);
+    }
+  }
+}
+
 - (void)readyToPlay:(NSDictionary*)assetInfos {
   float width = [(NSNumber*)assetInfos[@"width"] floatValue];
   float height = [(NSNumber*)assetInfos[@"height"] floatValue];
   int rotation = [(NSNumber*)assetInfos[@"rotation"] intValue];
-  ((RNSkiaVideo::VideoPlayerHostObject*)_host)
-      ->readyToPlay(width, height, rotation);
-  _host->emit("ready", [=](jsi::Runtime& runtime) -> jsi::Value {
-    auto res = jsi::Object(runtime);
-    res.setProperty(runtime, "width", jsi::Value(width));
-    res.setProperty(runtime, "height", jsi::Value(height));
-    res.setProperty(runtime, "rotation", jsi::Value(rotation));
-    return res;
-  });
+  [self withHost:^(RNSkiaVideo::EventEmitter* host) {
+    ((RNSkiaVideo::VideoPlayerHostObject*)host)
+        ->readyToPlay(width, height, rotation);
+    host->emit("ready", [=](jsi::Runtime& runtime) -> jsi::Value {
+      auto res = jsi::Object(runtime);
+      res.setProperty(runtime, "width", jsi::Value(width));
+      res.setProperty(runtime, "height", jsi::Value(height));
+      res.setProperty(runtime, "rotation", jsi::Value(rotation));
+      return res;
+    });
+  }];
 }
 
 - (void)frameAvailable:(CMTime)time {
-  ((RNSkiaVideo::VideoPlayerHostObject*)_host)
-      ->frameAvailableEventHandler(time);
+  [self withHost:^(RNSkiaVideo::EventEmitter* host) {
+    ((RNSkiaVideo::VideoPlayerHostObject*)host)
+        ->frameAvailableEventHandler(time);
+  }];
 }
 
 - (void)bufferingStart {
-  _host->emit("bufferingStart");
+  [self withHost:^(RNSkiaVideo::EventEmitter* host) {
+    host->emit("bufferingStart");
+  }];
 }
 
 - (void)bufferingEnd {
-  _host->emit("bufferingEnd");
+  [self withHost:^(RNSkiaVideo::EventEmitter* host) {
+    host->emit("bufferingEnd");
+  }];
 }
 
 - (void)bufferingUpdate:(NSArray<NSValue*>*)loadedTimeRanges {
-  _host->emit("bufferingUpdate", [=](jsi::Runtime& runtime) -> jsi::Value {
-    auto ranges = jsi::Array(runtime, loadedTimeRanges.count);
-    for (size_t i = 0; i < loadedTimeRanges.count; i++) {
-      NSValue* value = loadedTimeRanges[i];
-      CMTimeRange timeRange = [value CMTimeRangeValue];
-      auto range = jsi::Object(runtime);
-      range.setProperty(runtime, "start",
-                        jsi::Value(CMTimeGetSeconds(timeRange.start)));
-      range.setProperty(runtime, "duration",
-                        jsi::Value(CMTimeGetSeconds(timeRange.duration)));
-      ranges.setValueAtIndex(runtime, i, range);
-    };
-    return ranges;
-  });
+  [self withHost:^(RNSkiaVideo::EventEmitter* host) {
+    host->emit("bufferingUpdate", [=](jsi::Runtime& runtime) -> jsi::Value {
+      auto ranges = jsi::Array(runtime, loadedTimeRanges.count);
+      for (size_t i = 0; i < loadedTimeRanges.count; i++) {
+        NSValue* value = loadedTimeRanges[i];
+        CMTimeRange timeRange = [value CMTimeRangeValue];
+        auto range = jsi::Object(runtime);
+        range.setProperty(runtime, "start",
+                          jsi::Value(CMTimeGetSeconds(timeRange.start)));
+        range.setProperty(runtime, "duration",
+                          jsi::Value(CMTimeGetSeconds(timeRange.duration)));
+        ranges.setValueAtIndex(runtime, i, range);
+      };
+      return ranges;
+    });
+  }];
 }
 
 - (void)videoError:(nullable NSError*)error {
-  _host->emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {
-    return RNSkiaVideo::NSErrorToJSI(runtime, error);
-  });
+  [self withHost:^(RNSkiaVideo::EventEmitter* host) {
+    host->emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {
+      return RNSkiaVideo::NSErrorToJSI(runtime, error);
+    });
+  }];
 }
 
 - (void)complete {
-  _host->emit("complete");
+  [self withHost:^(RNSkiaVideo::EventEmitter* host) {
+    host->emit("complete");
+  }];
+}
+
+- (void)seekComplete {
+  [self withHost:^(RNSkiaVideo::EventEmitter* host) {
+    host->emit("seekComplete", jsi::Value::null());
+  }];
 }
 
 - (void)isPlaying:(BOOL)playing {
-  _host->emit("playingStatusChange", [playing](jsi::Runtime&) {
-    return jsi::Value(playing ? true : false);
-  });
+  [self withHost:^(RNSkiaVideo::EventEmitter* host) {
+    host->emit("playingStatusChange", [playing](jsi::Runtime&) {
+      return jsi::Value(playing ? true : false);
+    });
+  }];
 }
 
 - (void)dispose {
-  _host = nil;
+  @synchronized(self) {
+    _host = nullptr;
+  }
 }
 
 @end

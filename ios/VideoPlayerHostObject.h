@@ -10,6 +10,7 @@ using namespace facebook;
 
 - (instancetype)initWithHost:(RNSkiaVideo::EventEmitter*)host
                      runtime:(jsi::Runtime*)runtime;
+- (void)seekComplete;
 - (void)dispose;
 
 @end

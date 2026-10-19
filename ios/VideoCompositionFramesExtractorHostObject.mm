@@ -21,6 +21,10 @@ VideoCompositionFramesExtractorHostObject::
 VideoCompositionFramesExtractorHostObject::
     ~VideoCompositionFramesExtractorHostObject() {
   this->release();
+  // The blocks queued on the decoder queue use this object: wait for them.
+  if (decoderQueue != nullptr) {
+    dispatch_sync_f(decoderQueue, nullptr, [](void*) {});
+  }
 }
 
 std::vector<jsi::PropNameID>

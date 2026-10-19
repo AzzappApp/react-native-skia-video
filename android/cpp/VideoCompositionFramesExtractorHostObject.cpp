@@ -182,6 +182,7 @@ void VideoCompositionFramesExtractorHostObject::handleEvent(
 
 void VideoCompositionFramesExtractorHostObject::release() {
   if (!released.test_and_set()) {
+    jEventDispatcher->invalidate();
     removeAllListeners();
     player->release();
     player = nullptr;

@@ -7,22 +7,22 @@ EventEmitter::EventEmitter(jsi::Runtime& runtime,
     : runtime(&runtime), callInvoker(std::move(callInvoker)) {}
 
 EventEmitter::~EventEmitter() {
-  for (auto& pair : jsListeners) {
-    pair.second.clear();
-  }
-  jsListeners.clear();
+  removeAllListeners();
 }
 
 jsi::Function EventEmitter::on(std::string eventName, jsi::Function listener) {
   auto sharedListener = std::make_shared<jsi::Function>(std::move(listener));
-  jsListeners[eventName].push_back(sharedListener);
+  (*jsListeners)[eventName].push_back(sharedListener);
 
+  std::weak_ptr<Listeners> weakListeners = jsListeners;
   return jsi::Function::createFromHostFunction(
       *runtime, jsi::PropNameID::forAscii(*runtime, "dispose"), 0,
-      [this, eventName,
+      [weakListeners, eventName,
        sharedListener](jsi::Runtime& runtime, const jsi::Value& thisValue,
                        const jsi::Value* arguments, size_t count) {
-        jsListeners[eventName].remove(sharedListener);
+        if (auto listeners = weakListeners.lock()) {
+          (*listeners)[eventName].remove(sharedListener);
+        }
         return jsi::Value::undefined();
       });
 }
@@ -33,19 +33,25 @@ void EventEmitter::emit(std::string eventName) {
 
 void EventEmitter::emit(std::string eventName, jsi::Value data) {
   auto sharedData = std::make_shared<jsi::Value>(std::move(data));
-  emit(eventName,
-       [=](jsi::Runtime&) -> jsi::Value { return sharedData.get(); });
+  emit(eventName, [=](jsi::Runtime& runtime) -> jsi::Value {
+    return jsi::Value(runtime, *sharedData);
+  });
 }
 
 void EventEmitter::emit(std::string eventName,
                         std::function<jsi::Value(jsi::Runtime&)> dataFactory) {
-  callInvoker->invokeAsync([=, this]() {
-    if (jsListeners.count(eventName) != 0) {
-      auto listeners = jsListeners[eventName];
-      auto data = dataFactory(*runtime);
-      for (const auto& listener : listeners) {
-        listener->call(*runtime, data);
-      }
+  std::weak_ptr<Listeners> weakListeners = jsListeners;
+  auto runtime = this->runtime;
+  callInvoker->invokeAsync([=]() {
+    auto listeners = weakListeners.lock();
+    if (listeners == nullptr || listeners->count(eventName) == 0) {
+      return;
+    }
+    // A copy: a listener can add or remove listeners.
+    auto eventListeners = (*listeners)[eventName];
+    auto data = dataFactory(*runtime);
+    for (const auto& listener : eventListeners) {
+      listener->call(*runtime, data);
     }
   });
 }
@@ -55,7 +61,7 @@ jsi::Runtime* EventEmitter::getRuntime() {
 }
 
 void EventEmitter::removeAllListeners() {
-  jsListeners.clear();
+  jsListeners->clear();
 }
 
 } // namespace RNSkiaVideo

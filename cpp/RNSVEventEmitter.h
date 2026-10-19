@@ -25,7 +25,11 @@ protected:
   std::shared_ptr<react::CallInvoker> callInvoker;
 
 private:
-  std::map<std::string, std::list<std::shared_ptr<facebook::jsi::Function>>>
-      jsListeners;
+  using Listeners =
+      std::map<std::string,
+               std::list<std::shared_ptr<facebook::jsi::Function>>>;
+  // The queued events and the dispose functions can outlive the emitter: they
+  // hold the listeners weakly, not the emitter.
+  std::shared_ptr<Listeners> jsListeners = std::make_shared<Listeners>();
 };
 } // namespace RNSkiaVideo
