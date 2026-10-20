@@ -17,6 +17,7 @@ import {
   View,
 } from 'react-native';
 import Slider from '@react-native-community/slider';
+import ReactNativeBlobUtil from 'react-native-blob-util';
 import {
   Canvas,
   Circle,
@@ -43,7 +44,14 @@ import {
   useVideoCompositionPlayer,
   type FrameDrawer,
   type VideoComposition,
+  type VideoFrame,
 } from '@azzapp/react-native-skia-video';
+import {
+  generateClip,
+  getClip,
+  getClipPath,
+  isClipReady,
+} from './benchmark/clips';
 
 /**
  * Tries to reproduce, on iOS, the loss of React Native Skia's GPU device when
@@ -358,13 +366,47 @@ type DrawOptions = {
   device: GPUDevice | null;
 };
 
+/** Draws `frame` over the whole canvas, cropped to fill it. */
+const drawVideoFrame = (
+  canvas: SkCanvas,
+  frame: VideoFrame,
+  width: number,
+  height: number
+) => {
+  'worklet';
+  const aspectRatio = width / height;
+  const source =
+    frame.width / frame.height > aspectRatio
+      ? {
+          x: (frame.width - frame.height * aspectRatio) / 2,
+          y: 0,
+          width: frame.height * aspectRatio,
+          height: frame.height,
+        }
+      : {
+          x: 0,
+          y: (frame.height - frame.width / aspectRatio) / 2,
+          width: frame.width,
+          height: frame.width / aspectRatio,
+        };
+  const paint = Skia.Paint();
+  canvas.drawImageRect(
+    frame.image,
+    source,
+    { x: 0, y: 0, width, height },
+    paint
+  );
+  paint.dispose();
+};
+
 const drawScene = (
   canvas: SkCanvas,
   width: number,
   height: number,
   time: number,
   frame: number,
-  options: DrawOptions
+  options: DrawOptions,
+  video?: VideoFrame
 ) => {
   'worklet';
   const drawn =
@@ -379,6 +421,9 @@ const drawScene = (
     );
   if (!drawn) {
     drawSkiaBackground(canvas, width, height, time, options.iterations);
+  }
+  if (video != null) {
+    drawVideoFrame(canvas, video, width, height);
   }
   drawClock(canvas, width, height, time, frame);
 };
@@ -503,27 +548,75 @@ const OffscreenLoop = ({ size, options, paused }: LoopProps) => {
   );
 };
 
-/** A composition without items: the player is only a clock here. */
-const COMPOSITION: VideoComposition = { duration: 60, items: [] };
+const VIDEO_ID = 'video';
+
+type PlayerLoopProps = LoopProps & {
+  /** A video item (the benchmark's test clip), decoded and drawn. */
+  videoPath: string | null;
+  /** An audio item (a generated tone): the player's clock is then the audio's. */
+  audioPath: string | null;
+};
 
 /**
  * The same drawing through a composition player of this library, which draws
- * into its own offscreen surface at every frame.
+ * into its own offscreen surface at every frame. Without items the player is
+ * only a clock; a video item adds decoders and the conversion of their frames
+ * on Skia's device, an audio item an AVPlayer.
  */
-const PlayerLoop = ({ size, options, paused }: LoopProps) => {
+const PlayerLoop = ({
+  size,
+  options,
+  paused,
+  videoPath,
+  audioPath,
+}: PlayerLoopProps) => {
+  const composition = useMemo<VideoComposition>(() => {
+    const duration = videoPath != null ? getClip('1080p30').duration : 60;
+    const items: VideoComposition['items'] = [];
+    if (videoPath != null) {
+      items.push({
+        id: VIDEO_ID,
+        path: videoPath,
+        compositionStartTime: 0,
+        startTime: 0,
+        duration,
+      });
+    }
+    if (audioPath != null) {
+      items.push({
+        id: 'audio',
+        kind: 'audio',
+        path: audioPath,
+        compositionStartTime: 0,
+        startTime: 0,
+        duration,
+        volume: 0.5,
+      });
+    }
+    return { duration, items };
+  }, [audioPath, videoPath]);
+
   const frame = useSharedValue(0);
   const drawFrame = useCallback<FrameDrawer>(
-    ({ canvas, width, height, currentTime }) => {
+    ({ canvas, width, height, currentTime, frames }) => {
       'worklet';
       frame.value += 1;
-      drawScene(canvas, width, height, currentTime, frame.value, options.value);
+      drawScene(
+        canvas,
+        width,
+        height,
+        currentTime,
+        frame.value,
+        options.value,
+        frames[VIDEO_ID]
+      );
     },
     [frame, options]
   );
   // A paused player still draws at every frame: stopping the GPU work means
   // releasing the player.
   const { currentFrame } = useVideoCompositionPlayer({
-    composition: paused ? null : COMPOSITION,
+    composition: paused ? null : composition,
     drawFrame,
     width: size,
     height: size,
@@ -536,6 +629,70 @@ const PlayerLoop = ({ size, options, paused }: LoopProps) => {
       <ImageSkia image={currentFrame} x={0} y={0} width={size} height={size} />
     </Canvas>
   );
+};
+
+const TONE_SECONDS = 12;
+const TONE_RATE = 22050;
+
+const BASE64 =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+const toBase64 = (bytes: Uint8Array) => {
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i]!;
+    const b = bytes[i + 1] ?? 0;
+    const c = bytes[i + 2] ?? 0;
+    out += BASE64[a >> 2]!;
+    out += BASE64[((a & 3) << 4) | (b >> 4)]!;
+    out += i + 1 < bytes.length ? BASE64[((b & 15) << 2) | (c >> 6)]! : '=';
+    out += i + 2 < bytes.length ? BASE64[c & 63]! : '=';
+  }
+  return out;
+};
+
+/**
+ * A 12 s mono WAV, written once: a soft low tone with a tick every second, so
+ * that the audio is heard going on while the image is frozen.
+ */
+const writeTestTone = async () => {
+  const path = `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/rnskv-background-gpu-loss-tone.wav`;
+  if (await ReactNativeBlobUtil.fs.exists(path)) {
+    return path;
+  }
+  const samples = TONE_SECONDS * TONE_RATE;
+  const bytes = new Uint8Array(44 + samples * 2);
+  const view = new DataView(bytes.buffer);
+  const ascii = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i++) {
+      view.setUint8(offset + i, value.charCodeAt(i));
+    }
+  };
+  ascii(0, 'RIFF');
+  view.setUint32(4, 36 + samples * 2, true);
+  ascii(8, 'WAVE');
+  ascii(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, TONE_RATE, true);
+  view.setUint32(28, TONE_RATE * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  ascii(36, 'data');
+  view.setUint32(40, samples * 2, true);
+  for (let i = 0; i < samples; i++) {
+    const t = i / TONE_RATE;
+    const sinceTick = t % 1;
+    const tick =
+      sinceTick < 0.05
+        ? Math.sin(2 * Math.PI * 880 * t) * (1 - sinceTick / 0.05)
+        : 0;
+    const value = 0.15 * Math.sin(2 * Math.PI * 220 * t) + 0.35 * tick;
+    view.setInt16(44 + i * 2, Math.round(value * 32767), true);
+  }
+  await ReactNativeBlobUtil.fs.writeFile(path, toBase64(bytes), 'base64');
+  return path;
 };
 
 const CIRCLE_COLORS = ['#e63946', '#2a9d8f', '#457b9d'];
@@ -557,6 +714,51 @@ const BackgroundGpuLossExample = () => {
   const [workaround, setWorkaround] = useState(false);
   const [iterations, setIterations] = useState(128);
   const [canvasMount, setCanvasMount] = useState(() => Date.now());
+  const [withVideo, setWithVideo] = useState(false);
+  const [withAudio, setWithAudio] = useState(false);
+  // The test clip of the benchmark, generated on the device (no network):
+  // its path once it exists, the progress while it is generated.
+  const [clipPath, setClipPath] = useState<string | null>(null);
+  const [clipProgress, setClipProgress] = useState<number | null>(null);
+  const [tonePath, setTonePath] = useState<string | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const clip = getClip('1080p30');
+    isClipReady(clip).then(
+      (ready) => {
+        if (ready) {
+          setClipPath(getClipPath(clip));
+        }
+      },
+      () => {}
+    );
+  }, []);
+
+  const generateTestClip = () => {
+    const clip = getClip('1080p30');
+    setClipProgress(0);
+    setMediaError(null);
+    generateClip(clip, new AbortController().signal, setClipProgress).then(
+      () => {
+        setClipProgress(null);
+        setClipPath(getClipPath(clip));
+      },
+      (error) => {
+        setClipProgress(null);
+        setMediaError(String(error?.message ?? error));
+      }
+    );
+  };
+
+  const toggleAudio = (enabled: boolean) => {
+    setWithAudio(enabled);
+    if (enabled && tonePath == null) {
+      writeTestTone().then(setTonePath, (error) =>
+        setMediaError(String(error?.message ?? error))
+      );
+    }
+  };
 
   // Skia's own device, seen by WebGPU: one queue for both.
   const device = useMemo(() => {
@@ -576,7 +778,6 @@ const BackgroundGpuLossExample = () => {
   const paused = !running || (workaround && !active);
   const { gpu, jsSeconds } = useGpuStatus();
 
-  const Loop = throughPlayer ? PlayerLoop : OffscreenLoop;
   const text = { color: 'black' };
 
   return (
@@ -607,7 +808,17 @@ const BackgroundGpuLossExample = () => {
         banner turns red, and a new canvas stays empty. Use a Release build.
       </Text>
 
-      <Loop size={size} options={options} paused={paused} />
+      {throughPlayer ? (
+        <PlayerLoop
+          size={size}
+          options={options}
+          paused={paused}
+          videoPath={withVideo ? clipPath : null}
+          audioPath={withAudio ? tonePath : null}
+        />
+      ) : (
+        <OffscreenLoop size={size} options={options} paused={paused} />
+      )}
 
       <Button
         title={running ? 'Stop' : 'Start'}
@@ -627,6 +838,38 @@ const BackgroundGpuLossExample = () => {
           Through a composition player of this library
         </Text>
       </Row>
+      {throughPlayer && (
+        <View style={{ gap: 10, paddingLeft: 20 }}>
+          <Row>
+            <Switch
+              value={withVideo && clipPath != null}
+              disabled={clipPath == null}
+              onValueChange={setWithVideo}
+            />
+            <Text style={[text, { flex: 1 }]}>
+              Video item (the benchmark&apos;s 1080p30 test clip)
+            </Text>
+          </Row>
+          {clipPath == null &&
+            (clipProgress == null ? (
+              <Button
+                title="Generate the test clip (once)"
+                onPress={generateTestClip}
+              />
+            ) : (
+              <Text style={text}>
+                Generating the test clip… {Math.round(clipProgress * 100)}%
+              </Text>
+            ))}
+          <Row>
+            <Switch value={withAudio} onValueChange={toggleAudio} />
+            <Text style={[text, { flex: 1 }]}>
+              Audio item (a generated tone, ticking every second)
+            </Text>
+          </Row>
+          {mediaError != null && <Text style={text}>{mediaError}</Text>}
+        </View>
+      )}
       <Row>
         <Switch value={workaround} onValueChange={setWorkaround} />
         <Text style={[text, { flex: 1 }]}>

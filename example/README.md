@@ -48,10 +48,13 @@ At every frame, the screen draws a costly animated background with a clock
 over it (hand, seconds, frame number), into an offscreen surface from a frame
 callback (React Native Skia only). Switches draw the background with a WebGPU
 pass on Skia's device instead of a Skia shader, and render through a
-composition player of this library. In a Release build on an iPhone
-(`yarn ios --mode Release`):
+composition player of this library, with a video item (the benchmark's test
+clip, generated on the device) and an audio item (a generated tone). The
+composition player with media reproduces it; the frame callback alone has not
+so far. In a Release build on an iPhone (`yarn ios --mode Release`):
 
-1. **Start**; raise the GPU load if needed.
+1. Turn on the composition player, its video and audio items (generate the
+   test clip once), then **Start**.
 2. Go to the home screen (swipe up) for a few seconds, then come back. Try the
    side (lock) button too.
 3. A loss shows at once: the clock stops, the banner turns red with
