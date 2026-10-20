@@ -695,6 +695,19 @@ const writeTestTone = async () => {
   return path;
 };
 
+/**
+ * The media of the composition, made on the device once and kept: the
+ * benchmark's 1080p30 test clip (encoded by the library, a few seconds) and
+ * the test tone.
+ */
+const prepareTestMedia = async (onClipProgress: (progress: number) => void) => {
+  const clip = getClip('1080p30');
+  if (!(await isClipReady(clip))) {
+    await generateClip(clip, new AbortController().signal, onClipProgress);
+  }
+  return { clipPath: getClipPath(clip), tonePath: await writeTestTone() };
+};
+
 const CIRCLE_COLORS = ['#e63946', '#2a9d8f', '#457b9d'];
 
 const formatTime = (at: number) => new Date(at).toISOString().slice(11, 23);
@@ -709,56 +722,28 @@ const BackgroundGpuLossExample = () => {
   const { width: windowWidth } = useWindowDimensions();
   const size = windowWidth - 40;
   const [running, setRunning] = useState(false);
-  const [throughPlayer, setThroughPlayer] = useState(false);
+  // The defaults reproduce: a composition player playing a video and audio.
+  const [throughPlayer, setThroughPlayer] = useState(true);
   const [withWebGpu, setWithWebGpu] = useState(false);
   const [workaround, setWorkaround] = useState(false);
   const [iterations, setIterations] = useState(128);
   const [canvasMount, setCanvasMount] = useState(() => Date.now());
-  const [withVideo, setWithVideo] = useState(false);
-  const [withAudio, setWithAudio] = useState(false);
-  // The test clip of the benchmark, generated on the device (no network):
-  // its path once it exists, the progress while it is generated.
-  const [clipPath, setClipPath] = useState<string | null>(null);
-  const [clipProgress, setClipProgress] = useState<number | null>(null);
-  const [tonePath, setTonePath] = useState<string | null>(null);
+  const [withVideo, setWithVideo] = useState(true);
+  const [withAudio, setWithAudio] = useState(true);
+  // The test media, prepared when the screen opens (no network).
+  const [media, setMedia] = useState<{
+    clipPath: string;
+    tonePath: string;
+  } | null>(null);
+  const [clipProgress, setClipProgress] = useState(0);
   const [mediaError, setMediaError] = useState<string | null>(null);
-
   useEffect(() => {
-    const clip = getClip('1080p30');
-    isClipReady(clip).then(
-      (ready) => {
-        if (ready) {
-          setClipPath(getClipPath(clip));
-        }
-      },
-      () => {}
+    prepareTestMedia(setClipProgress).then(setMedia, (error) =>
+      setMediaError(String(error?.message ?? error))
     );
   }, []);
-
-  const generateTestClip = () => {
-    const clip = getClip('1080p30');
-    setClipProgress(0);
-    setMediaError(null);
-    generateClip(clip, new AbortController().signal, setClipProgress).then(
-      () => {
-        setClipProgress(null);
-        setClipPath(getClipPath(clip));
-      },
-      (error) => {
-        setClipProgress(null);
-        setMediaError(String(error?.message ?? error));
-      }
-    );
-  };
-
-  const toggleAudio = (enabled: boolean) => {
-    setWithAudio(enabled);
-    if (enabled && tonePath == null) {
-      writeTestTone().then(setTonePath, (error) =>
-        setMediaError(String(error?.message ?? error))
-      );
-    }
-  };
+  const usesMedia = throughPlayer && (withVideo || withAudio);
+  const mediaReady = !usesMedia || media != null;
 
   // Skia's own device, seen by WebGPU: one queue for both.
   const device = useMemo(() => {
@@ -802,78 +787,101 @@ const BackgroundGpuLossExample = () => {
         </Text>
       </View>
 
-      <Text style={text}>
-        Start, go to the home screen (swipe up) for a few seconds and come back;
-        try the side (lock) button too. A loss: the clock below stops, the
-        banner turns red, and a new canvas stays empty. Use a Release build.
-      </Text>
+      <View style={{ gap: 4 }}>
+        <Text style={[text, { fontWeight: 'bold' }]}>
+          To reproduce (iPhone, Release build: yarn ios --mode Release), keep
+          the default settings:
+        </Text>
+        <Text style={text}>
+          1. Wait until the button below the image reads Start: the test clip
+          and the test tone are made once, on this device.
+        </Text>
+        <Text style={text}>
+          2. Tap Start. The clock hand turns, the seconds and the frame number
+          run, and the tone ticks every second.
+        </Text>
+        <Text style={text}>
+          3. Swipe up to the home screen, wait 5 seconds, then come back to the
+          app.
+        </Text>
+        <Text style={text}>
+          4. The bug: the clock is frozen, the banner above is red (GPU DEVICE
+          LOST, with the reason), and Mount a new canvas shows no disc. Only
+          restarting the app brings the rendering back.
+        </Text>
+        <Text style={text}>
+          To check a fix or the workaround: restart the app, turn it on, and do
+          the same. The banner must stay green and the clock run again.
+        </Text>
+      </View>
 
       {throughPlayer ? (
         <PlayerLoop
           size={size}
           options={options}
           paused={paused}
-          videoPath={withVideo ? clipPath : null}
-          audioPath={withAudio ? tonePath : null}
+          videoPath={withVideo ? (media?.clipPath ?? null) : null}
+          audioPath={withAudio ? (media?.tonePath ?? null) : null}
         />
       ) : (
         <OffscreenLoop size={size} options={options} paused={paused} />
       )}
 
+      {mediaError != null && (
+        <Text style={text}>Test media unavailable: {mediaError}</Text>
+      )}
       <Button
-        title={running ? 'Stop' : 'Start'}
+        title={
+          mediaReady
+            ? running
+              ? 'Stop'
+              : 'Start'
+            : `Preparing the test media… ${Math.round(clipProgress * 100)}%`
+        }
+        disabled={!mediaReady}
         onPress={() => setRunning(!running)}
       />
+      <Text style={[text, { fontWeight: 'bold' }]}>
+        Settings (the defaults reproduce)
+      </Text>
 
       <Row>
         <Switch value={withWebGpu} onValueChange={setWithWebGpu} />
         <Text style={[text, { flex: 1 }]}>
-          Background drawn by a WebGPU pass on Skia&apos;s device
+          Background drawn by a WebGPU pass on Skia&apos;s device instead of a
+          Skia shader (off by default)
           {device == null ? ' (unavailable)' : ''}
         </Text>
       </Row>
       <Row>
         <Switch value={throughPlayer} onValueChange={setThroughPlayer} />
         <Text style={[text, { flex: 1 }]}>
-          Through a composition player of this library
+          Through a composition player of this library (on by default; off: a
+          frame callback drawing into an offscreen surface, which has not
+          reproduced so far)
         </Text>
       </Row>
       {throughPlayer && (
         <View style={{ gap: 10, paddingLeft: 20 }}>
           <Row>
-            <Switch
-              value={withVideo && clipPath != null}
-              disabled={clipPath == null}
-              onValueChange={setWithVideo}
-            />
+            <Switch value={withVideo} onValueChange={setWithVideo} />
             <Text style={[text, { flex: 1 }]}>
-              Video item (the benchmark&apos;s 1080p30 test clip)
+              Video item: the benchmark&apos;s 1080p30 test clip (on by default)
             </Text>
           </Row>
-          {clipPath == null &&
-            (clipProgress == null ? (
-              <Button
-                title="Generate the test clip (once)"
-                onPress={generateTestClip}
-              />
-            ) : (
-              <Text style={text}>
-                Generating the test clip… {Math.round(clipProgress * 100)}%
-              </Text>
-            ))}
           <Row>
-            <Switch value={withAudio} onValueChange={toggleAudio} />
+            <Switch value={withAudio} onValueChange={setWithAudio} />
             <Text style={[text, { flex: 1 }]}>
-              Audio item (a generated tone, ticking every second)
+              Audio item: a tone ticking every second (on by default)
             </Text>
           </Row>
-          {mediaError != null && <Text style={text}>{mediaError}</Text>}
         </View>
       )}
       <Row>
         <Switch value={workaround} onValueChange={setWorkaround} />
         <Text style={[text, { flex: 1 }]}>
-          Workaround: stop rendering as soon as the app is not active
+          Workaround: stop rendering as soon as the app is not active, before it
+          reaches the background (off by default)
         </Text>
       </Row>
       <View style={{ gap: 4 }}>

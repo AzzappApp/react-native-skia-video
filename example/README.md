@@ -36,34 +36,36 @@ yarn android --mode release
 
 # Background GPU loss (iOS)
 
-The **Background GPU loss (iOS)** screen tries to reproduce the loss of React
-Native Skia's GPU device when the app goes to the background while GPU work is
-being submitted. iOS refuses GPU work from an app in the background, including
-work still queued when the app gets there. With React Native Skia 3.7
-(Dawn 157) a refused Metal command buffer loses the device, and nothing renders
-again until the app is restarted; React Native Skia 3.6 (Dawn 154) only lost
-the refused frame.
+The **Background GPU loss (iOS)** screen reproduces the loss of React Native
+Skia's GPU device when the app goes to the background while a composition
+player plays media. iOS refuses GPU work from an app in the background
+(`MTLCommandBufferErrorNotPermitted`). With React Native Skia 3.7 (Dawn 157)
+one refused Metal command buffer loses the device, and nothing renders again
+until the app is restarted; React Native Skia 3.6 (Dawn 154) only lost the
+refused frame.
 
-At every frame, the screen draws a costly animated background with a clock
-over it (hand, seconds, frame number), into an offscreen surface from a frame
-callback (React Native Skia only). Switches draw the background with a WebGPU
-pass on Skia's device instead of a Skia shader, and render through a
-composition player of this library, with a video item (the benchmark's test
-clip, generated on the device) and an audio item (a generated tone). The
-composition player with media reproduces it; the frame callback alone has not
-so far. In a Release build on an iPhone (`yarn ios --mode Release`):
+Its default settings reproduce: a composition player of this library playing
+a video item (the benchmark's 1080p30 test clip) and an audio item (a tone
+ticking every second), both made on the device when the screen opens, with a
+clock drawn over the image (hand, seconds, frame number). On an iPhone, in a
+Release build (`yarn ios --mode Release`):
 
-1. Turn on the composition player, its video and audio items (generate the
-   test clip once), then **Start**.
-2. Go to the home screen (swipe up) for a few seconds, then come back. Try the
-   side (lock) button too.
-3. A loss shows at once: the clock stops, the banner turns red with
-   `Skia.gpu.error`, and **Mount a new canvas** shows no disc.
+1. Open **Background GPU loss (iOS)** and wait until the button below the
+   image reads **Start** (the test media are made once).
+2. Tap **Start**: the clock runs and the tone ticks.
+3. Swipe up to the home screen, wait 5 seconds, then come back to the app.
+4. The bug: the clock is frozen, the banner is red (**GPU DEVICE LOST**, with
+   `Skia.gpu.error`), and **Mount a new canvas** shows no disc. Only
+   restarting the app brings the rendering back.
 
 The banner is a React Native view (it keeps working after a loss) and reads
-`Skia.gpu` twice a second. The **Workaround** switch stops rendering as soon as
-the app leaves the `active` state (`inactive` comes before `background`). The
-app state transitions are listed as the JS thread receives them.
+`Skia.gpu` twice a second. The other settings isolate the cause: the video and
+the audio items each have a switch, the player can be replaced by a frame
+callback drawing into an offscreen surface (which has not reproduced so far),
+the background can be drawn by a WebGPU pass on Skia's device, and
+**Workaround** stops rendering as soon as the app is not `active` (to check
+it: restart the app, turn it on, and do the same; the banner must stay green).
+The app state transitions are listed as the JS thread receives them.
 
 # Getting Started
 
