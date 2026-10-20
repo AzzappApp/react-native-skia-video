@@ -43,6 +43,27 @@ export const countDroppedFrames = (intervals: number[]) => {
 };
 
 /**
+ * The share (%) of the intervals between two new frames of a video that are
+ * off by more than 3/4 of a display refresh period from the duration of a
+ * frame: a frame shown a refresh too early or too late (judder). The cadence
+ * a display imposes stays within that: 24 fps on 60 Hz alternates 33 and
+ * 50 ms, half a period from 41.7 ms.
+ */
+export const irregularIntervalsPercent = (
+  intervals: number[],
+  frameMs: number,
+  refreshMs: number | null | undefined
+) => {
+  if (intervals.length === 0 || refreshMs == null || refreshMs <= 0) {
+    return null;
+  }
+  const irregular = intervals.filter(
+    (interval) => Math.abs(interval - frameMs) > 0.75 * refreshMs
+  ).length;
+  return Math.round((irregular / intervals.length) * 1000) / 10;
+};
+
+/**
  * The memory used by the process in bytes (iOS: physical footprint, as shown
  * by Xcode; Android: total PSS, including graphics memory).
  */

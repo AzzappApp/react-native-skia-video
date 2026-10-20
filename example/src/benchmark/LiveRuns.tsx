@@ -10,6 +10,8 @@ import { scheduleOnRN } from 'react-native-worklets';
 import {
   useVideoCompositionPlayer,
   useVideoPlayer,
+  type FrameDrawer,
+  type VideoFrame,
 } from '@azzapp/react-native-skia-video';
 import {
   buildComposition,
@@ -19,7 +21,11 @@ import {
   getClipPath,
 } from './clips';
 import type { Metrics, PlayerScenario, PreviewScenario } from './scenarios';
-import { countDroppedFrames, summarize } from './stats';
+import {
+  countDroppedFrames,
+  irregularIntervalsPercent,
+  summarize,
+} from './stats';
 
 // Samples taken while the decoders start are ignored.
 const WARM_UP_MS = 1500;
@@ -41,6 +47,10 @@ type Samples = {
   uiFrameMs: number[];
   /** Cost of a composition frame (preview). */
   renderMs: number[];
+  /** Intervals between two new frames of a composition item (preview). */
+  itemFrameMs: number[];
+  /** The image and the time of the latest new frame of each item. */
+  lastItemFrames: Record<string, { image: unknown; time: number }>;
   /** Intervals between two decoded frames (player). */
   decodedFrameMs: number[];
   lastDecodedFrame: unknown;
@@ -74,6 +84,8 @@ const getSamples = (runId: number): Samples => {
     startTime: null,
     uiFrameMs: [],
     renderMs: [],
+    itemFrameMs: [],
+    lastItemFrames: {},
     decodedFrameMs: [],
     lastDecodedFrame: null,
     decodedFrames: 0,
@@ -87,6 +99,40 @@ const getSamples = (runId: number): Samples => {
 const isMeasuring = (samples: Samples, now: number) => {
   'worklet';
   return samples.startTime != null && now - samples.startTime >= WARM_UP_MS;
+};
+
+/**
+ * Samples the intervals between two new frames of each item drawn, while it
+ * plays (before it starts, an item shows its first frame): a new frame comes
+ * with another image (see makeVideoFrame in the library).
+ */
+const sampleItemFrames = (
+  samples: Samples,
+  frames: Record<string, VideoFrame>,
+  items: { id: string; compositionStartTime: number; duration: number }[],
+  currentTime: number,
+  now: number
+) => {
+  'worklet';
+  for (const item of items) {
+    const frame = frames[item.id];
+    if (
+      frame == null ||
+      currentTime < item.compositionStartTime ||
+      currentTime >= item.compositionStartTime + item.duration
+    ) {
+      delete samples.lastItemFrames[item.id];
+      continue;
+    }
+    const last = samples.lastItemFrames[item.id];
+    if (last?.image === frame.image) {
+      continue;
+    }
+    if (last != null && isMeasuring(samples, now)) {
+      samples.itemFrameMs.push(now - last.time);
+    }
+    samples.lastItemFrames[item.id] = { image: frame.image, time: now };
+  }
 };
 
 /**
@@ -187,6 +233,7 @@ export const PreviewRun = ({
       ),
     [scenario]
   );
+  const frameMs = 1000 / getClip(scenario.clips[0]!).frameRate;
   const runId = useUIFrameSampling(
     scenario.duration,
     onError,
@@ -197,12 +244,33 @@ export const PreviewRun = ({
         uiFps:
           Math.round((samples.uiFrameMs.length / elapsedMs) * 1000 * 10) / 10,
         renderMs: summarize(samples.renderMs),
+        // The cadence of the frames of the items on screen.
+        itemFrameIntervalMs: summarize(samples.itemFrameMs),
+        expectedFrameMs: Math.round(frameMs * 100) / 100,
+        irregularFramesPct: irregularIntervalsPercent(
+          samples.itemFrameMs,
+          frameMs,
+          summarize(samples.uiFrameMs)?.p50
+        ),
       })
   );
 
+  const draw = scenario.sequence ? drawSequence : drawItemsGrid;
+  const drawFrame: FrameDrawer<number> = (info) => {
+    'worklet';
+    sampleItemFrames(
+      getSamples(runId),
+      info.frames,
+      info.videoComposition.items,
+      info.currentTime,
+      performance.now()
+    );
+    draw(info);
+  };
+
   const { currentFrame } = useVideoCompositionPlayer<number>({
     composition,
-    drawFrame: scenario.sequence ? drawSequence : drawItemsGrid,
+    drawFrame,
     beforeDrawFrame: () => {
       'worklet';
       return performance.now();
@@ -268,6 +336,11 @@ export const PlayerRun = ({
           10,
         expectedFps: clip.frameRate,
         decodedFrameIntervalMs: summarize(samples.decodedFrameMs),
+        irregularFramesPct: irregularIntervalsPercent(
+          samples.decodedFrameMs,
+          1000 / clip.frameRate,
+          summarize(samples.uiFrameMs)?.p50
+        ),
         decodedFramesTotal: samples.decodedFrames,
       }),
     // A new frame was decoded when the player's current frame changes.

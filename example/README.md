@@ -14,6 +14,13 @@ scenarios, to compare branches or devices:
 - **Composition preview** and **video player** scenarios measure, after a
   warm-up, the UI frame intervals, the frames missed by the display, the cost
   of a composition frame on the UI thread and the rate of the decoded frames.
+- The **cadence** of the frames on screen: the intervals between two new
+  frames of a clip (`itemFrameIntervalMs` in a preview,
+  `decodedFrameIntervalMs` in a player) and `irregularFramesPct`, the share
+  of them off by more than 3/4 of a display refresh from the duration of a
+  frame (a frame shown a refresh early or late: judder). 30 fps on 60 Hz
+  should show every frame for 33 ms; 24 fps on 60 Hz alternates 33 and 50 ms,
+  which is not counted.
 - The **sequence** scenarios play 8 clips one after another: only the clips
   around the current time have a decoder and textures, so their memory peak
   should stay close to that of a single clip, and the frames missed by the
