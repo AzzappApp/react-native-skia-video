@@ -8,6 +8,7 @@ import {
 import VideoPlayerExample from './VideoPlayerExample';
 import VideoCompositionExample from './VideoCompositionExample';
 import BenchmarkScreen from './benchmark/BenchmarkScreen';
+import BackgroundGpuLossExample from './BackgroundGpuLossExample';
 import { useEffect, useState } from 'react';
 import { getDecodingCapabilitiesFor } from '@azzapp/react-native-skia-video';
 
@@ -16,6 +17,7 @@ type RootStackParamList = {
   VideoPlayer: undefined;
   VideoComposition: undefined;
   Benchmark: undefined;
+  BackgroundGpuLoss: undefined;
 };
 
 function HomeScreen({
@@ -51,6 +53,10 @@ function HomeScreen({
         onPress={() => navigation.push('VideoComposition')}
       />
       <Button title="Benchmark" onPress={() => navigation.push('Benchmark')} />
+      <Button
+        title="Background GPU loss (iOS)"
+        onPress={() => navigation.push('BackgroundGpuLoss')}
+      />
       {supportedDecoder && <Text>Supported Decoder: {supportedDecoder}</Text>}
     </View>
   );
@@ -82,6 +88,11 @@ function App() {
             name="Benchmark"
             options={{ title: 'Benchmark' }}
             component={BenchmarkScreen}
+          />
+          <Stack.Screen
+            name="BackgroundGpuLoss"
+            options={{ title: 'Background GPU loss' }}
+            component={BackgroundGpuLossExample}
           />
         </Stack.Navigator>
       </NavigationContainer>

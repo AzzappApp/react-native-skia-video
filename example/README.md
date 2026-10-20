@@ -34,6 +34,32 @@ yarn ios --mode Release
 yarn android --mode release
 ```
 
+# Background GPU loss (iOS)
+
+The **Background GPU loss (iOS)** screen reproduces the loss of React Native
+Skia's GPU device when the app goes to the background while GPU work is being
+submitted. iOS refuses GPU work from an app in the background, including work
+still queued when the app gets there. With React Native Skia 3.7 (Dawn 157) a
+refused Metal command buffer loses the device, and nothing renders again until
+the app is restarted; React Native Skia 3.6 (Dawn 154) only lost the refused
+frame.
+
+The screen draws a costly shader at every frame, into an offscreen surface
+from a frame callback (React Native Skia only), or through a composition
+player of this library (switch). To reproduce, in a Release build on an
+iPhone (`yarn ios --mode Release`):
+
+1. **Start**, raise the shader iterations if the GPU is not busy enough.
+2. Go to the home screen (swipe up) for a few seconds, then come back. Try the
+   side (lock) button too.
+3. After a loss, the image is frozen, a **New canvas** stays empty, and
+   `Skia.gpu.isAvailable` is false (`Skia.gpu.error` says why).
+
+The **Workaround** switch stops rendering as soon as the app leaves the
+`active` state (`inactive` comes before `background`), which leaves time for
+the queued work to run. The app state transitions are listed as the JS thread
+receives them.
+
 # Getting Started
 
 >**Note**: Make sure you have completed the [React Native - Environment Setup](https://reactnative.dev/docs/environment-setup) instructions till "Creating a new application" step, before proceeding.
