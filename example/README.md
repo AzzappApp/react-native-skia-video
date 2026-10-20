@@ -36,29 +36,31 @@ yarn android --mode release
 
 # Background GPU loss (iOS)
 
-The **Background GPU loss (iOS)** screen reproduces the loss of React Native
-Skia's GPU device when the app goes to the background while GPU work is being
-submitted. iOS refuses GPU work from an app in the background, including work
-still queued when the app gets there. With React Native Skia 3.7 (Dawn 157) a
-refused Metal command buffer loses the device, and nothing renders again until
-the app is restarted; React Native Skia 3.6 (Dawn 154) only lost the refused
-frame.
+The **Background GPU loss (iOS)** screen tries to reproduce the loss of React
+Native Skia's GPU device when the app goes to the background while GPU work is
+being submitted. iOS refuses GPU work from an app in the background, including
+work still queued when the app gets there. With React Native Skia 3.7
+(Dawn 157) a refused Metal command buffer loses the device, and nothing renders
+again until the app is restarted; React Native Skia 3.6 (Dawn 154) only lost
+the refused frame.
 
-The screen draws a costly shader at every frame, into an offscreen surface
-from a frame callback (React Native Skia only), or through a composition
-player of this library (switch). To reproduce, in a Release build on an
-iPhone (`yarn ios --mode Release`):
+At every frame, the screen draws a costly animated background with a clock
+over it (hand, seconds, frame number), into an offscreen surface from a frame
+callback (React Native Skia only). Switches draw the background with a WebGPU
+pass on Skia's device instead of a Skia shader, and render through a
+composition player of this library. In a Release build on an iPhone
+(`yarn ios --mode Release`):
 
-1. **Start**, raise the shader iterations if the GPU is not busy enough.
+1. **Start**; raise the GPU load if needed.
 2. Go to the home screen (swipe up) for a few seconds, then come back. Try the
    side (lock) button too.
-3. After a loss, the image is frozen, a **New canvas** stays empty, and
-   `Skia.gpu.isAvailable` is false (`Skia.gpu.error` says why).
+3. A loss shows at once: the clock stops, the banner turns red with
+   `Skia.gpu.error`, and **Mount a new canvas** shows no disc.
 
-The **Workaround** switch stops rendering as soon as the app leaves the
-`active` state (`inactive` comes before `background`), which leaves time for
-the queued work to run. The app state transitions are listed as the JS thread
-receives them.
+The banner is a React Native view (it keeps working after a loss) and reads
+`Skia.gpu` twice a second. The **Workaround** switch stops rendering as soon as
+the app leaves the `active` state (`inactive` comes before `background`). The
+app state transitions are listed as the JS thread receives them.
 
 # Getting Started
 
