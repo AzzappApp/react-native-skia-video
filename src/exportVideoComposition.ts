@@ -284,10 +284,19 @@ export const exportVideoComposition = async <T = undefined>({
             }
             const currentTime = i / options.frameRate;
             runPooled(() => {
+              const decodeStart = performance.now();
+              const decodedFrames =
+                currentExtractor.decodeCompositionFrames(currentTime);
+              // How long the frame waited for the decoders, apart from
+              // turning their frames into images: read by the benchmark of
+              // the example app (private).
+              (
+                globalThis as unknown as { __rnskvExportDecodeWaitMs?: number }
+              ).__rnskvExportDecodeWaitMs = performance.now() - decodeStart;
               const frames = makeVideoFrames(
                 frameImageContext,
                 framesKey,
-                currentExtractor.decodeCompositionFrames(currentTime)
+                decodedFrames
               );
               const context = beforeDrawFrame?.() as any;
               const draw = (canvas: SkCanvas) => {

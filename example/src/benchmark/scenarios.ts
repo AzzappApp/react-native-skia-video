@@ -186,6 +186,23 @@ const SLOW_DECODE_MS = 100;
 const MAX_SLOW_FRAMES = 40;
 
 /**
+ * The garbage collections of the calling runtime so far, and the time they
+ * took in ms (Hermes only).
+ */
+const readGCStats = () => {
+  'worklet';
+  const stats = (
+    globalThis as unknown as {
+      HermesInternal?: {
+        getInstrumentedStats?: () => { js_numGCs?: number; js_gcTime?: number };
+      };
+    }
+  ).HermesInternal?.getInstrumentedStats?.();
+  // js_gcTime is in seconds.
+  return { count: stats?.js_numGCs ?? 0, ms: (stats?.js_gcTime ?? 0) * 1000 };
+};
+
+/**
  * Exports the composition of the scenario and measures, per frame (on the
  * export thread):
  * - `decodeMs`: from the end of the previous frame to the drawing of this one
@@ -194,7 +211,9 @@ const MAX_SLOW_FRAMES = 40;
  * - `frameMs`: the whole frame;
  * - `slowFrames`: the frames whose decoding took more than `SLOW_DECODE_MS`,
  *   with their composition time, to match them with what the composition
- *   does then (a clip opened, starting, ending, released).
+ *   does then (a clip opened, starting, ending, released), how long they
+ *   waited for the native decoders, and the garbage collections of the export
+ *   runtime meanwhile.
  */
 export const runExportScenario = async (
   scenario: ExportScenario,
@@ -213,14 +232,21 @@ export const runExportScenario = async (
     decode: number | null,
     renderEncode: number,
     frame: number | null,
-    time: number
+    time: number,
+    decodeWait: number,
+    gcCount: number,
+    gcMs: number
   ) => {
     renderEncodeMs.push(renderEncode);
     if (decode != null && frame != null) {
       decodeMs.push(decode);
       frameMs.push(frame);
       if (decode > SLOW_DECODE_MS && slowFrames.length < MAX_SLOW_FRAMES) {
-        slowFrames.push(`${time.toFixed(2)}s ${Math.round(decode)}ms`);
+        slowFrames.push(
+          `${time.toFixed(2)}s ${Math.round(decode)}ms ` +
+            `(native ${Math.round(decodeWait)}, ` +
+            `gc ${gcCount}/${Math.round(gcMs)}ms)`
+        );
       }
     }
   };
@@ -260,19 +286,25 @@ export const runExportScenario = async (
         __rnskvBenchmarkRun?: number;
         __rnskvBenchmarkFrameEnd?: number;
         __rnskvBenchmarkTime?: number;
+        __rnskvBenchmarkGC?: { count: number; ms: number };
+        __rnskvExportDecodeWaitMs?: number;
       };
-      const previousEnd =
-        state.__rnskvBenchmarkRun === runId
-          ? state.__rnskvBenchmarkFrameEnd
-          : undefined;
+      const sameRun = state.__rnskvBenchmarkRun === runId;
+      const previousEnd = sameRun ? state.__rnskvBenchmarkFrameEnd : undefined;
+      const gc = readGCStats();
+      const previousGC = (sameRun ? state.__rnskvBenchmarkGC : undefined) ?? gc;
       state.__rnskvBenchmarkRun = runId;
       state.__rnskvBenchmarkFrameEnd = end;
+      state.__rnskvBenchmarkGC = gc;
       scheduleOnRN(
         recordFrame,
         previousEnd == null ? null : drawStart - previousEnd,
         end - drawStart,
         previousEnd == null ? null : end - previousEnd,
-        state.__rnskvBenchmarkTime ?? 0
+        state.__rnskvBenchmarkTime ?? 0,
+        state.__rnskvExportDecodeWaitMs ?? 0,
+        gc.count - previousGC.count,
+        gc.ms - previousGC.ms
       );
     },
     abortSignal,
