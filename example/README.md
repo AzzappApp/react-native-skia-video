@@ -21,6 +21,12 @@ scenarios, to compare branches or devices:
   frame (a frame shown a refresh early or late: judder). 30 fps on 60 Hz
   should show every frame for 33 ms; 24 fps on 60 Hz alternates 33 and 50 ms,
   which is not counted.
+- To find what a preview misses frames on: `prepareMs`, the cost of turning
+  the decoded frames into images on the UI thread (`renderMs` is the drawing
+  that follows), `slowFrames`, the UI frames longer than 1.5 refresh periods
+  with the composition time and the `prepareMs` of the frame before, and
+  `itemGaps`, the intervals between two frames of a clip longer than two
+  frames, with the clip and the composition time.
 - The **sequence** scenarios play 8 clips one after another: only the clips
   around the current time have a decoder and textures, so their memory peak
   should stay close to that of a single clip, and the frames missed by the
