@@ -4,7 +4,6 @@ import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.media.MediaFormat;
-import android.os.Build;
 import android.util.Log;
 import android.util.Range;
 
@@ -239,7 +238,7 @@ public class VideoCapabilities {
       int aspectRatioOverride = 0;
       int frameRateOverride = 0;
       int bitrateOverride = 0;
-      int hardwareAccelerated = isHardwareAccelerated(codecInfo) ? 1 : 0;
+      int hardwareAccelerated = codecInfo.isHardwareAccelerated() ? 1 : 0;
 
       float aspectRatio = (float) width / height;
 
@@ -352,15 +351,5 @@ public class VideoCapabilities {
       }
     }
     return null;
-  }
-
-  private static boolean isHardwareAccelerated(MediaCodecInfo codecInfo) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      return codecInfo.isHardwareAccelerated();
-    } else {
-      // Use heuristics for older Android versions
-      String name = codecInfo.getName().toLowerCase();
-      return name.contains("qcom") || name.contains("intel") || name.contains("nvidia") || name.contains("mtk");
-    }
   }
 }

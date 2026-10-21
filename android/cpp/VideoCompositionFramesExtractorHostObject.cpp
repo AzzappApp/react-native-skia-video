@@ -1,5 +1,4 @@
 #include "VideoCompositionFramesExtractorHostObject.h"
-#include "EGLContextGuard.h"
 #include "JNIHelpers.h"
 
 #include <algorithm>
@@ -48,8 +47,6 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (!released.test() && !prepared.test_and_set()) {
-            // The decoders render the frames with their own EGL context.
-            EGLContextGuard contextGuard;
             player->prepare();
           }
           return jsi::Value::undefined();
@@ -64,7 +61,6 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
           if (released.test() || !prepared.test()) {
             return result;
           }
-          EGLContextGuard contextGuard;
           auto frames = player->decodeCompositionFrames();
           for (auto& entry : *frames) {
             auto id = entry.first->toStdString();

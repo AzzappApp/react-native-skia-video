@@ -1,5 +1,4 @@
 #include "VideoPlayerHostObject.h"
-#include "EGLContextGuard.h"
 #include "JNIHelpers.h"
 
 namespace RNSkiaVideo {
@@ -45,13 +44,6 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (released.test()) {
             return jsi::Value::null();
-          }
-
-          // The player renders the frames with its own EGL context.
-          EGLContextGuard contextGuard;
-          if (!glSetup) {
-            glSetup = true;
-            player->setupGL();
           }
 
           auto frame = player->decodeNextFrame();

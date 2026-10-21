@@ -6,9 +6,6 @@ import {
   GPUTextureUsage,
   importDevice,
   type GPUNativeBufferExternalTexture,
-  type GPUSharedFence,
-  type GPUSharedFenceState,
-  type GPUSharedTextureMemory,
   type NativeVideoFrame,
 } from 'react-native-webgpu';
 import type { DecodedFrame, VideoFrame } from './types';
@@ -39,10 +36,17 @@ export const getFrameImageContext = (): FrameImageContext => {
         `@azzapp/react-native-skia-video can't draw video frames: ${gpu.error}`
       );
     }
-    frameImageContext = {
-      device: importDevice(Skia.getNativeDevice()),
-      webgpu: RNWebGPU,
-    };
+    const device = importDevice(Skia.getNativeDevice());
+    // Android: the frames are the decoders' own YUV buffers (see
+    // `convertYUVFrame`), which Skia's device must be able to sample.
+    if (IS_ANDROID && !device.features.has(YUV_FEATURE)) {
+      throw new Error(
+        "@azzapp/react-native-skia-video can't draw video frames: the GPU " +
+          `can't sample the decoders' YUV buffers (no '${YUV_FEATURE}' ` +
+          "feature on Skia's device)"
+      );
+    }
+    frameImageContext = { device, webgpu: RNWebGPU };
   }
   return frameImageContext;
 };
@@ -56,19 +60,12 @@ let nextFrameImagesId = 0;
  */
 export const createFrameImagesKey = () => `rnskv-${nextFrameImagesId++}`;
 
-// Android: the decoders render the frames into a few hardware buffers in
-// turn, guarded by sync fences (see `copySharedBuffer`).
+// Android: the decoders hand their frames over in their own YUV buffers (see
+// `convertYUVFrame`).
 const IS_ANDROID = Platform.OS === 'android';
 
-// The hardware buffers of a key imported into Skia's device: a decoder's ring
-// (2 buffers), plus the buffers of a previous size.
-const MAX_SHARED_BUFFERS = 4;
-
-type SharedBuffer = {
-  handle: bigint;
-  memory: GPUSharedTextureMemory;
-  texture: GPUTexture;
-};
+// The Dawn feature Skia's device needs to sample the decoders' YUV buffers.
+const YUV_FEATURE = 'opaque-ycbcr-android-for-external-texture';
 
 // Android: the YUV buffers of a key imported into Skia's device (see
 // `convertYUVFrame`). A decoder renders into every buffer it decodes ahead
@@ -117,13 +114,6 @@ type FrameTexture = {
   spareImage: SkImage | null;
   /** The id of the frame copied into the texture (see DecodedFrame.id). */
   frameId: number | undefined;
-  /** Android: the imported buffers, most recently used first. */
-  sharedBuffers: SharedBuffer[];
-  /**
-   * Android: whether Skia's device waits for the frames on the GPU (see
-   * `copySharedBuffer`).
-   */
-  gpuReadyWait?: boolean;
   /**
    * Android: the uniforms of the conversion of YUV frames (see
    * `convertYUVFrame`).
@@ -182,153 +172,6 @@ const getTexture = (
     });
   }
   return state.texture;
-};
-
-/**
- * Begins the access to an imported buffer in a validation error scope, and
- * logs Dawn's error if it fails. Returns whether the access began.
- */
-const beginAccessReporting = (
-  device: GPUDevice,
-  source: SharedBuffer,
-  fences: GPUSharedFenceState[],
-  label: string
-): boolean => {
-  'worklet';
-  device.pushErrorScope('validation');
-  let begun = false;
-  try {
-    source.memory.beginAccess(source.texture, true, fences);
-    begun = true;
-  } catch {
-    // Reported below.
-  }
-  device.popErrorScope().then((dawnError) => {
-    if (dawnError != null) {
-      console.error(
-        `[react-native-skia-video] ${label}: ${dawnError.message} ` +
-          `(ready fences: ${fences.length}, sync-fd fences: ` +
-          `${device.features.has('shared-fence-sync-fd')})`
-      );
-    }
-  });
-  return begun;
-};
-
-/**
- * Android: copies the frame (an RGBA `AHardwareBuffer` of a decoder's ring)
- * into the texture of `state`, on Skia's queue. The decoder renders into the
- * buffer with OpenGL, so both sides are synchronized on the GPU with sync
- * fences:
- * - the copy waits for the frame's ready fence, signaled once OpenGL is done
- *   rendering the frame;
- * - the fences signaled once the copy is done are handed back to the decoder
- *   (`frame.release(fences)`), that waits for them before rendering into the
- *   buffer again.
- *
- * The buffers are imported once and kept (a decoder renders into the same
- * few buffers in turn). An imported buffer is kept alive by Skia's device, so
- * that its handle cannot be reused by another buffer while it is cached.
- *
- * The fences (a sync fd each) and the buffers dropped from the cache are
- * released right away with `destroy()`, rather than when the runtime collects
- * them.
- */
-const copySharedBuffer = (
-  device: GPUDevice,
-  state: FrameTexture,
-  handle: bigint,
-  frame: DecodedFrame
-): GPUTexture => {
-  'worklet';
-  const releaseFences: bigint[] = [];
-  let readyFence: GPUSharedFence | undefined;
-  try {
-    const { sharedBuffers } = state;
-    const index = sharedBuffers.findIndex((shared) => shared.handle === handle);
-    let source: SharedBuffer;
-    if (index >= 0) {
-      source = sharedBuffers[index]!;
-      sharedBuffers.splice(index, 1);
-    } else {
-      const memory = device.importSharedTextureMemory({ handle });
-      source = { handle, memory, texture: memory.createTexture() };
-      if (sharedBuffers.length >= MAX_SHARED_BUFFERS) {
-        const evicted = sharedBuffers.pop()!;
-        evicted.texture.destroy();
-        evicted.memory.destroy();
-      }
-    }
-    sharedBuffers.unshift(source);
-
-    // Skia's device waits for the frame's ready fence on the GPU if it can
-    // import sync fds, and the CPU waits for it otherwise.
-    state.gpuReadyWait ??= device.features.has('shared-fence-sync-fd');
-    const readyFences: GPUSharedFenceState[] = [];
-    if (frame.readyFence != null) {
-      if (state.gpuReadyWait) {
-        // Imports a duplicate of the fence: the frame keeps its own.
-        readyFence = device.importSharedFence({
-          type: 'sync-fd',
-          handle: frame.readyFence,
-        });
-        readyFences.push({
-          fence: readyFence,
-          // Dawn's Vulkan backend backs sync fds with binary semaphores, and
-          // rejects any other signaled value than 1.
-          signaledValue: BigInt(1),
-        });
-      } else {
-        frame.waitForReady?.();
-      }
-    }
-    try {
-      source.memory.beginAccess(source.texture, true, readyFences);
-    } catch (error) {
-      // React Native WebGPU only reports that the access failed, Dawn's
-      // reason goes to the device's error scopes: the access is tried again
-      // in one, to report it. If it fails again, the frame is waited for on
-      // the CPU and its buffer imported again, and the frames of the key are
-      // waited for on the CPU from now on.
-      if (!beginAccessReporting(device, source, readyFences, 'beginAccess')) {
-        frame.waitForReady?.();
-        sharedBuffers.shift();
-        source.texture.destroy();
-        source.memory.destroy();
-        const memory = device.importSharedTextureMemory({ handle });
-        source = { handle, memory, texture: memory.createTexture() };
-        sharedBuffers.unshift(source);
-        if (!beginAccessReporting(device, source, [], 'fallback')) {
-          throw error;
-        }
-        state.gpuReadyWait = false;
-      }
-    }
-    const { width, height } = source.texture;
-    const texture = getTexture(device, state, width, height);
-    try {
-      const encoder = device.createCommandEncoder();
-      encoder.copyTextureToTexture({ texture: source.texture }, { texture }, [
-        width,
-        height,
-      ]);
-      device.queue.submit([encoder.finish()]);
-    } finally {
-      const { fences } = source.memory.endAccess(source.texture);
-      for (const { fence } of fences) {
-        const exported = fence.export();
-        if (exported.type === 'sync-fd') {
-          releaseFences.push(exported.handle);
-        }
-        fence.destroy();
-      }
-    }
-    return texture;
-  } finally {
-    readyFence?.destroy();
-    // Takes ownership of the fences.
-    frame.release?.(releaseFences);
-  }
 };
 
 type YUVLayout = NonNullable<DecodedFrame['yuv']>;
@@ -406,8 +249,8 @@ const YUV_UNIFORMS_SIZE = 4 * Float32Array.BYTES_PER_ELEMENT;
 
 // The primaries and transfer function the decoded frames are taken in: those
 // of Skia's textures, so that the external textures only apply the frame's
-// YCbCr matrix and range, like the OpenGL path (Android) and the encoders,
-// and an exported clip keeps its colors. Otherwise React Native WebGPU also
+// YCbCr matrix and range, like the encoders, and an exported clip keeps its
+// colors. Otherwise React Native WebGPU also
 // converts a frame's transfer function (SMPTE 170M for BT.601 and BT.709
 // video) to sRGB: midtones come out brighter (about 12 levels at 50% gray),
 // more so with each export of an export. iOS decodes HDR video to
@@ -679,7 +522,10 @@ const convertYUVFrame = (
 ): GPUTexture => {
   'worklet';
   try {
-    const layout = frame.yuv!;
+    const layout = frame.yuv;
+    if (layout == null) {
+      throw new Error('The video frame has no YUV layout');
+    }
     const yuvBuffer = getYUVBuffer(
       device,
       webgpu,
@@ -722,8 +568,8 @@ const convertYUVFrame = (
 /**
  * Turns a decoded frame into a `VideoFrame` whose image can be drawn by Skia.
  *
- * The frame is copied on the GPU (see `convertNativeFrame`, `copySharedBuffer`
- * and `convertYUVFrame`) into a texture of Skia's device that is reused for
+ * The frame is converted on the GPU (see `convertNativeFrame` and
+ * `convertYUVFrame`) into a texture of Skia's device that is reused for
  * every frame of the same `key`, and the texture is wrapped into an SkImage
  * without copy. The images of a key show its latest frame: frames are only
  * valid until the next frame of the same key is made.
@@ -745,7 +591,6 @@ export const makeVideoFrame = (
       image: null,
       spareImage: null,
       frameId: undefined,
-      sharedBuffers: [],
     };
     textures[key] = state;
   }
@@ -759,7 +604,6 @@ export const makeVideoFrame = (
     state.image != null &&
     (buffer == null || (frameId != null && frameId === state.frameId))
   ) {
-    // Android: a frame handed out again carries a ready fence of its own.
     frame.release?.();
     return {
       image: state.image,
@@ -772,14 +616,9 @@ export const makeVideoFrame = (
   if (buffer == null) {
     throw new Error('The video frame was released before being drawn');
   }
-  let texture: GPUTexture;
-  if (!IS_ANDROID) {
-    texture = convertNativeFrame(device, webgpu, state, buffer, frame);
-  } else if (frame.yuv != null) {
-    texture = convertYUVFrame(device, webgpu, state, buffer, frame);
-  } else {
-    texture = copySharedBuffer(device, state, buffer, frame);
-  }
+  const texture = IS_ANDROID
+    ? convertYUVFrame(device, webgpu, state, buffer, frame)
+    : convertNativeFrame(device, webgpu, state, buffer, frame);
   // Two images of the texture, handed out in turn: a new frame needs another
   // image (Reanimated ignores setting a shared value to the object it holds,
   // e.g. in `useDerivedValue(() => currentFrame.value?.image)`), and a new
@@ -839,17 +678,10 @@ const releaseFrameTextures = (
       continue;
     }
     const state = textures[textureKey]!;
-    if (state.sharedBuffers.length > 0) {
-      importsDevice = state.device;
-    }
     state.image?.dispose();
     state.spareImage?.dispose();
     state.texture?.destroy();
     state.uniformBuffer?.destroy();
-    for (const shared of state.sharedBuffers) {
-      shared.texture.destroy();
-      shared.memory.destroy();
-    }
     for (const yuvBuffer of state.yuvBuffers ?? []) {
       pendingYUVReleases.push({ textureKey, device: state.device, yuvBuffer });
     }

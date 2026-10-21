@@ -54,21 +54,10 @@ export type DecodedFrame = {
    */
   id?: number;
   /**
-   * Android only: the sync fence (a sync_file descriptor, as a `BigInt`)
-   * signaled once the decoder is done rendering the frame into `buffer`. The
-   * buffer must not be read before. Owned by the frame.
-   */
-  readyFence?: bigint;
-  /**
-   * Android only: waits on the CPU for `readyFence`, for a device that cannot
-   * wait for it on the GPU.
-   */
-  waitForReady?: () => void;
-  /**
-   * Android only, a frame in a buffer of its decoder, in the decoder's own
-   * YUV layout: the region of `buffer` holding the frame (decoders pad their
-   * buffers) and the clockwise rotation to apply to it. The library converts
-   * it to RGB on the GPU, rotated and scaled to `width` × `height`.
+   * Android only, the frame is in a buffer of its decoder, in the decoder's
+   * own YUV layout: the region of `buffer` holding the frame (decoders pad
+   * their buffers) and the clockwise rotation to apply to it. The library
+   * converts it to RGB on the GPU, rotated and scaled to `width` × `height`.
    */
   yuv?: {
     x: number;
@@ -78,12 +67,11 @@ export type DecodedFrame = {
     rotation: number;
   };
   /**
-   * Hands the native buffer back to the decoder, once its pixels were copied.
-   * On Android, `fences` are the sync fences (sync_file descriptors, as
-   * `BigInt`s, whose ownership is transferred) signaled once the buffer is
-   * read: the decoder waits for them before rendering into the buffer again.
+   * Drops the frame's reference on the native buffer once its pixels were
+   * converted, rather than when the frame is garbage collected: on iOS it
+   * hands the buffer back to the decoder.
    */
-  release?: (fences?: bigint[]) => void;
+  release?: () => void;
   /**
    * The width in pixels of the frame.
    */
@@ -618,24 +606,6 @@ export type RNSkiaVideoModule = {
    * Not part of the public API (exposed through `__RNSkiaVideoPrivateAPI`).
    */
   getMemoryFootprint: () => number | null;
-  /**
-   * Android: whether the composition decoders prepared from now on hand
-   * their frames over in their own YUV buffers, converted to RGB on Skia's
-   * device, rather than rendered into RGBA buffers with OpenGL. Needs Android
-   * 10 and a device with the `opaque-ycbcr-android-for-external-texture`
-   * feature. By default, enabled when Skia's device has it.
-   *
-   * Not part of the public API (exposed through `__RNSkiaVideoPrivateAPI`).
-   */
-  setYUVFramesEnabled?: (enabled: boolean) => void;
-  /**
-   * Android: tells the native side whether Skia's device can sample the YUV
-   * buffers of the decoders (see `setYUVFramesEnabled`). Called by the
-   * library itself.
-   *
-   * Not part of the public API.
-   */
-  setYUVFramesSupported?: (supported: boolean) => void;
   /**
    * Returns the decoding capabilities of the current platform for the specified mimetype.
    *
