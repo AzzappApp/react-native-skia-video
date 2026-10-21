@@ -10,7 +10,8 @@ scenarios, to compare branches or devices:
   every run decodes the same files, without network.
 - **Export** scenarios measure the export time, the frames per second and, per
   frame on the export thread, the decoding time (`decodeMs`) and the drawing +
-  encoding time (`renderEncodeMs`).
+  encoding time (`renderEncodeMs`); `slowFrames` lists the frames decoded in
+  more than 100 ms, with their composition time.
 - **Composition preview** and **video player** scenarios measure, after a
   warm-up, the UI frame intervals, the frames missed by the display, the cost
   of a composition frame on the UI thread and the rate of the decoded frames.
