@@ -41,11 +41,13 @@ public:
   // isDecodedAt).
   static constexpr double decoderLead = 1;
 
-  // Whether the item is decoded at a time of the composition: while it is
-  // live, and decoderLead before, so that its first frame is ready when it
-  // is.
+  // Whether the item is decoded at a time of the composition: from
+  // decoderLead before it is live (its first frame is ready when it is) to
+  // its end. Its last frame is still handed out after its end, while it is
+  // live: a sequence of short clips keeps two readers, not three.
   bool isDecodedAt(double compositionTime) const {
-    return isLiveAt(compositionTime) || isLiveAt(compositionTime + decoderLead);
+    return compositionTime >= compositionStartTime - liveMargin - decoderLead &&
+           compositionTime <= compositionStartTime + duration;
   }
 };
 

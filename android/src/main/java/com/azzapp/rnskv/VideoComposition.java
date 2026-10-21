@@ -131,12 +131,17 @@ public class VideoComposition {
     }
 
     /**
-     * Whether the decoder of the item is open at a time of the composition: while the item is
-     * live, and {@link #DECODER_LEAD_US} before. The decoder has started, and decoded the first
-     * frame, by the time an export waits for it.
+     * Whether the decoder of the item is open at a time of the composition: from
+     * {@link #DECODER_LEAD_US} before the item is live (the decoder has started, and decoded the
+     * first frame, by the time an export waits for it) to the end of the item. Its last frame is
+     * still handed out after its end, while it is live: a sequence of short clips keeps two decoders
+     * open, not three.
      */
     public boolean isDecodedAt(long compositionTimeUs) {
-      return isLiveAt(compositionTimeUs) || isLiveAt(compositionTimeUs + DECODER_LEAD_US);
+      long startUs = TimeHelpers.secToUs(compositionStartTime);
+      long endUs = TimeHelpers.secToUs(compositionStartTime + duration);
+      return compositionTimeUs >= startUs - LIVE_MARGIN_US - DECODER_LEAD_US
+        && compositionTimeUs <= endUs;
     }
 
     public boolean isAudioEnabled() {

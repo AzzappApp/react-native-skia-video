@@ -117,7 +117,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
       codec.configure(format, surface, null, 0);
     } catch (RuntimeException e) {
       codec.release();
-      throw e;
+      throw describeError("configure", e);
     }
     this.codec = codec;
     seekExtractor(compositionTimeUs);
@@ -131,8 +131,28 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     if (codec == null || started) {
       return;
     }
-    codec.start();
+    try {
+      codec.start();
+    } catch (RuntimeException e) {
+      throw describeError("start", e);
+    }
     started = true;
+  }
+
+  /**
+   * An error of the decoder, with its item and, for a CodecException (which has no message), the
+   * codec's own diagnostic.
+   */
+  private RuntimeException describeError(String action, RuntimeException e) {
+    String details = e.getMessage();
+    if (e instanceof MediaCodec.CodecException) {
+      MediaCodec.CodecException codecException = (MediaCodec.CodecException) e;
+      details = codecException.getDiagnosticInfo()
+        + ", error code " + codecException.getErrorCode()
+        + (codecException.isTransient() ? ", transient" : "");
+    }
+    return new RuntimeException(
+      "Could not " + action + " the decoder of the item " + item.getId() + ": " + details, e);
   }
 
   /**
