@@ -247,11 +247,11 @@ export const useVideoCompositionPlayer = <T = undefined>({
         height: height * pixelRatio,
       });
     } catch (error) {
-      canvas.restoreToCount(saveCount);
       reportFrameError('failed to draw the composition frame', error);
       return;
+    } finally {
+      canvas.restoreToCount(saveCount);
     }
-    canvas.restoreToCount(saveCount);
     try {
       // Submits the frame's recording: the image shares the texture of the
       // surface (no copy), so a canvas drawing it shows this frame once the

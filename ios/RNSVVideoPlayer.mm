@@ -37,8 +37,12 @@ static void* rateContext = &rateContext;
 
   AVAsset* asset = [AVAsset assetWithURL:url];
   self.resolution = resolution;
-  // With maxLongSide, the size of the output depends on the video track's: it
-  // is made once the item is ready (see observeValueForKeyPath).
+  // The video output is made now when its size doesn't depend on the video
+  // track: with an explicit resolution, or without a cap on the long side
+  // (maxLongSide <= 0: the frames keep the size of the video, which the
+  // output picks itself). With a cap and no resolution, the size is the
+  // track's, capped: the output is made once the item is ready and the size
+  // of its track known (see observeValueForKeyPath).
   if (!CGSizeEqualToSize(CGSizeZero, resolution) || maxLongSide <= 0) {
     _videoOutput = [self makeVideoOutput];
   }
