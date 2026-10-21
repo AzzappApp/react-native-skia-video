@@ -60,7 +60,7 @@ modules.
 
 ### Android NDK
 
-React Native WebGPU (0.15 and above) must be built with NDK 27: it doesn't set
+React Native WebGPU must be built with NDK 27: it doesn't set
 its NDK version, so the Android Gradle Plugin builds it with its own default
 (NDK 28), which no longer defines the `STANDARD_*` / `TRANSFER_*` / `RANGE_*`
 constants of `<android/data_space.h>` it uses, and the build fails. Build it

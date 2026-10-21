@@ -17,10 +17,6 @@ public class HardwareBufferTexture {
 
   private final HardwareBuffer hardwareBuffer;
 
-  private final int width;
-
-  private final int height;
-
   private final int textureId;
 
   private long eglImage;
@@ -30,8 +26,6 @@ public class HardwareBufferTexture {
    * texture of the current GL context.
    */
   public HardwareBufferTexture(int width, int height) {
-    this.width = width;
-    this.height = height;
     // RGBA_8888 is the format React Native Skia imports hardware buffers as.
     hardwareBuffer = HardwareBuffer.create(
       width,
@@ -63,14 +57,6 @@ public class HardwareBufferTexture {
    */
   public int getTextureId() {
     return textureId;
-  }
-
-  public int getWidth() {
-    return width;
-  }
-
-  public int getHeight() {
-    return height;
   }
 
   /**

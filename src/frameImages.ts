@@ -31,12 +31,6 @@ let frameImageContext: FrameImageContext | null = null;
  */
 export const getFrameImageContext = (): FrameImageContext => {
   if (frameImageContext == null) {
-    if (typeof RNWebGPU === 'undefined') {
-      throw new Error(
-        '@azzapp/react-native-skia-video requires react-native-webgpu to ' +
-          'draw video frames with React Native Skia'
-      );
-    }
     // No GPU for Skia to render with (no Vulkan 1.1 on Android): there is no
     // device to copy the frames into, and Skia says why.
     const { gpu } = Skia;
@@ -413,10 +407,10 @@ const YUV_UNIFORMS_SIZE = 4 * Float32Array.BYTES_PER_ELEMENT;
 // The primaries and transfer function the decoded frames are taken in: those
 // of Skia's textures, so that the external textures only apply the frame's
 // YCbCr matrix and range, like the OpenGL path (Android) and the encoders,
-// and an exported clip keeps its colors. Otherwise React Native WebGPU (0.15
-// and later) also converts a frame's transfer function (SMPTE 170M for BT.601
-// and BT.709 video) to sRGB: midtones come out brighter (about 12 levels at
-// 50% gray), more so with each export of an export. iOS decodes HDR video to
+// and an exported clip keeps its colors. Otherwise React Native WebGPU also
+// converts a frame's transfer function (SMPTE 170M for BT.601 and BT.709
+// video) to sRGB: midtones come out brighter (about 12 levels at 50% gray),
+// more so with each export of an export. iOS decodes HDR video to
 // SDR BT.709 (see VideoCompositionItemDecoder.mm).
 const VIDEO_COLOR_SPACE = { primaries: 'srgb', transfer: 'srgb' } as const;
 

@@ -1,7 +1,6 @@
 #import "VideoEncoderHostObject.h"
 #import "AudioCompositionUtils.h"
 #import "RNSVJSIUtils.h"
-#import "RNSVPixelData.h"
 #import <algorithm>
 
 NS_INLINE NSError* createErrorWithMessage(NSString* message) {
@@ -31,7 +30,6 @@ std::vector<jsi::PropNameID>
 VideoEncoderHostObject::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> result;
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("prepare")));
-  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("encodeFrame")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("beginFrame")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("endFrame")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("finishWriting")));
@@ -48,25 +46,6 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           return runPooled([&] { prepare(); });
-        });
-  }
-  if (propName == "encodeFrame") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "encodeFrame"), 2,
-        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
-               const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (count < 2 || !arguments[1].isNumber()) {
-            throw jsi::JSError(runtime,
-                               "VideoEncoder.encodeFrame(..) expects pixels "
-                               "(Uint8Array) and a time (number)!");
-          }
-          auto pixels = getPixelData(runtime, arguments[0],
-                                     "VideoEncoder.encodeFrame(..)");
-          auto time =
-              CMTimeMakeWithSeconds(arguments[1].asNumber(), NSEC_PER_SEC);
-
-          return runPooled(
-              [&] { encodeFrame(pixels.data, pixels.size, time); });
         });
   }
   if (propName == "beginFrame") {
@@ -293,43 +272,6 @@ void VideoEncoderHostObject::appendFrameBuffer(CVPixelBufferRef pixelBuffer,
   if (error) {
     throw error;
   }
-}
-
-void VideoEncoderHostObject::encodeFrame(const uint8_t* pixels, size_t size,
-                                         CMTime time) {
-  const size_t srcBytesPerRow = (size_t)width * 4;
-  if (size < srcBytesPerRow * height) {
-    throw createErrorWithMessage(
-        @"The frame dimensions do not match the export dimensions");
-  }
-
-  CVPixelBufferRef pixelBuffer = createPoolBuffer(pixelBufferPool);
-  CVPixelBufferLockBaseAddress(pixelBuffer, 0);
-  uint8_t* dst = (uint8_t*)CVPixelBufferGetBaseAddress(pixelBuffer);
-  if (dst == NULL) {
-    CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
-    CVPixelBufferRelease(pixelBuffer);
-    throw createErrorWithMessage(@"Could not write the frame pixels");
-  }
-  // The pixel buffer rows may be padded.
-  const size_t dstBytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
-  if (dstBytesPerRow == srcBytesPerRow) {
-    memcpy(dst, pixels, srcBytesPerRow * height);
-  } else {
-    for (int y = 0; y < height; y++) {
-      memcpy(dst + y * dstBytesPerRow, pixels + y * srcBytesPerRow,
-             srcBytesPerRow);
-    }
-  }
-  CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
-
-  try {
-    appendFrameBuffer(pixelBuffer, time);
-  } catch (...) {
-    CVPixelBufferRelease(pixelBuffer);
-    throw;
-  }
-  CVPixelBufferRelease(pixelBuffer);
 }
 
 void VideoEncoderHostObject::copyFrameBuffer(CVPixelBufferRef source,

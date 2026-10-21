@@ -465,26 +465,15 @@ export type VideoEncoder = {
    */
   prepare(): void;
   /**
-   * Encodes a frame to the video.
-   *
-   * @param pixels The pixels of the frame, `width × height` premultiplied
-   * 32 bits pixels without row padding, in BGRA order on iOS and RGBA order on
-   * Android. The encoder copies them before returning.
-   * @param time The presentation time of the frame in seconds.
-   */
-  encodeFrame(pixels: Uint8Array, time: number): void;
-  /**
-   * Hands out a buffer of the encoder for the next frame, to render into:
+   * Hands out the buffer of the encoder for the next frame, to render into:
    * the `IOSurfaceRef` of the BGRA buffer the encoder converts every frame
    * from on iOS (`endFrame` appends an NV12 conversion of it, a BGRA copy
    * before iOS 16: the encoder may still be reading a frame when the next one
-   * is drawn), the
-   * `AHardwareBuffer*` the encoder
-   * reads every frame from on Android, as a `BigInt` pointer. The buffers
-   * can be imported once and reused.
-   * The frame is encoded by `endFrame`.
+   * is drawn), the `AHardwareBuffer*` the encoder reads every frame from on
+   * Android, as a `BigInt` pointer. It is the same buffer for every frame: it
+   * can be imported once. The frame is encoded by `endFrame`.
    */
-  beginFrame?: () => bigint;
+  beginFrame(): bigint;
   /**
    * Encodes the frame rendered into the buffer handed out by `beginFrame`.
    * The rendering must be complete (flushed synchronously).
@@ -495,7 +484,7 @@ export type VideoEncoder = {
    * Native WebGPU exports at the end of its access to the buffer. The encoder
    * takes ownership of them.
    */
-  endFrame?: (time: number, fences?: bigint[]) => void;
+  endFrame(time: number, fences?: bigint[]): void;
   /*
    * Finish writing the video to the output file.
    */
@@ -628,7 +617,7 @@ export type RNSkiaVideoModule = {
    *
    * Not part of the public API (exposed through `__RNSkiaVideoPrivateAPI`).
    */
-  getMemoryFootprint?: () => number | null;
+  getMemoryFootprint: () => number | null;
   /**
    * Android: whether the composition decoders prepared from now on hand
    * their frames over in their own YUV buffers, converted to RGB on Skia's
