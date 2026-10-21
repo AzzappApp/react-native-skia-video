@@ -1,6 +1,5 @@
 package com.azzapp.rnskv;
 
-import android.graphics.Bitmap;
 import android.hardware.HardwareBuffer;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
@@ -56,8 +55,6 @@ public class VideoEncoder {
   private EGLResourcesHolder eglResourcesHolder;
 
   private TextureRenderer textureRenderer;
-
-  private int pixelsTexture = 0;
 
   // The buffer React Native Skia draws the frames into (beginFrame/endFrame).
   private HardwareBufferTexture frameTexture;
@@ -221,35 +218,6 @@ public class VideoEncoder {
 
   public void makeGLContextCurrent() {
     eglResourcesHolder.makeCurrent();
-  }
-
-  /**
-   * Encodes a frame given as pixels.
-   *
-   * @param pixels the RGBA premultiplied pixels of the frame, width × height without row padding
-   * @param time   the presentation time of the frame in seconds
-   */
-  public void encodePixels(ByteBuffer pixels, double time) {
-    if (pixelsTexture == 0) {
-      int[] texIds = new int[1];
-      GLES20.glGenTextures(1, texIds, 0);
-      pixelsTexture = texIds[0];
-      EGLUtils.configureTexture(GLES20.GL_TEXTURE_2D, pixelsTexture);
-      GLES20.glTexImage2D(
-        GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0,
-        GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null
-      );
-    }
-    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, pixelsTexture);
-    GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 4);
-    // glTexSubImage2D copies the pixels before returning: the caller can
-    // reuse its buffer afterwards.
-    GLES20.glTexSubImage2D(
-      GLES20.GL_TEXTURE_2D, 0, 0, 0, width, height,
-      GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels
-    );
-    EGLUtils.checkGlError("VideoEncoder.encodePixels()");
-    encodeFrame(pixelsTexture, time);
   }
 
   /**
@@ -507,30 +475,5 @@ public class VideoEncoder {
       pendingVideoSamples.clear();
       pendingAudioSamples.clear();
     }
-  }
-
-  public Bitmap saveTexture(int texture, int width, int height) {
-    int[] frame = new int[1];
-    GLES20.glGenFramebuffers(1, frame, 0);
-    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frame[0]);
-    GLES20.glFramebufferTexture2D(
-      GLES20.GL_FRAMEBUFFER,
-      GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, texture,
-      0
-    );
-
-    ByteBuffer buffer = ByteBuffer.allocate(width * height * 4);
-    GLES20.glReadPixels(
-      0, 0, width, height, GLES20.GL_RGBA,
-      GLES20.GL_UNSIGNED_BYTE, buffer
-    );
-
-    Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-    bitmap.copyPixelsFromBuffer(buffer);
-
-    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
-    GLES20.glDeleteFramebuffers(1, frame, 0);
-
-    return bitmap;
   }
 }

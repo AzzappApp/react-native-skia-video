@@ -68,7 +68,7 @@ export const irregularIntervalsPercent = (
  * by Xcode; Android: total PSS, including graphics memory).
  */
 export const readMemoryFootprint = (): number | null =>
-  __RNSkiaVideoPrivateAPI.getMemoryFootprint?.() ?? null;
+  __RNSkiaVideoPrivateAPI.getMemoryFootprint();
 
 export const wait = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
