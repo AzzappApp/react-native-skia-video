@@ -51,8 +51,15 @@ public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableLi
    * @param height the height of the decoded frames
    */
   public ImageReaderFrameExtractor(int width, int height) {
-    reader = ImageReader.newInstance(
-      width, height, ImageFormat.PRIVATE, MAX_IMAGES, HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE);
+    // The buffers must be sampleable by the GPU: React Native Skia's device imports them as
+    // textures. Android 10 lets the reader ask for it. On Android 9 the reader asks for nothing,
+    // and the buffers carry the usage of the decoder alone, which renders to a surface for the
+    // GPU (MediaCodec's default output usage includes GPU sampling): a decoder that doesn't
+    // fails the import of its frames.
+    reader = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+      ? ImageReader.newInstance(
+          width, height, ImageFormat.PRIVATE, MAX_IMAGES, HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE)
+      : ImageReader.newInstance(width, height, ImageFormat.PRIVATE, MAX_IMAGES);
     // Called on the looper of the calling thread, like the frames of a SurfaceTexture.
     reader.setOnImageAvailableListener(this, null);
   }
