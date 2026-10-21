@@ -87,6 +87,12 @@ const MAX_YUV_BUFFERS = 32;
 // released: its decoder no longer renders into it.
 const YUV_BUFFER_MAX_AGE = 2 * MAX_YUV_BUFFERS;
 
+// The imported YUV buffers of the items no longer live released with each
+// frame (see `makeVideoFrames`): released at once, the 20 or so buffers of an
+// item took 40 to 70 ms on a Qualcomm device, 2 to 3 frames missed by the
+// display at each clip change of a sequence.
+const YUV_RELEASES_PER_FRAME = 2;
+
 type YUVBuffer = {
   handle: bigint;
   /** The buffer imported once, with its external texture. */
@@ -797,22 +803,49 @@ export const makeVideoFrame = (
   };
 };
 
+type PendingYUVRelease = {
+  textureKey: string;
+  device: GPUDevice;
+  yuvBuffer: YUVBuffer;
+};
+
+// The imported YUV buffers of the released keys not released yet, see
+// `releaseFrameTextures`. Stored on the runtime's global object, as the
+// textures.
+const getPendingYUVReleases = (): PendingYUVRelease[] => {
+  'worklet';
+  const global = globalThis as unknown as {
+    __rnskvPendingYUVReleases?: PendingYUVRelease[];
+  };
+  if (global.__rnskvPendingYUVReleases == null) {
+    global.__rnskvPendingYUVReleases = [];
+  }
+  return global.__rnskvPendingYUVReleases;
+};
+
 /**
  * Releases the textures, the images and the imported buffers of the frames of
  * the texture keys for which `shouldRelease` returns true.
+ *
+ * With `spreadYUVReleases`, their imported YUV buffers are released
+ * `YUV_RELEASES_PER_FRAME` at a time, with this call and the next ones (one
+ * per frame), along with those of the keys released before. Otherwise they
+ * are released now, with those of the keys released before.
  */
 const releaseFrameTextures = (
-  shouldRelease: (textureKey: string) => boolean
+  shouldRelease: (textureKey: string) => boolean,
+  spreadYUVReleases = false
 ) => {
   'worklet';
   const textures = getFrameTextures();
+  const pendingYUVReleases = getPendingYUVReleases();
   let importsDevice: GPUDevice | null = null;
   for (const textureKey of Object.keys(textures)) {
     if (!shouldRelease(textureKey)) {
       continue;
     }
     const state = textures[textureKey]!;
-    if (state.sharedBuffers.length > 0 || (state.yuvBuffers?.length ?? 0) > 0) {
+    if (state.sharedBuffers.length > 0) {
       importsDevice = state.device;
     }
     state.image?.dispose();
@@ -823,8 +856,26 @@ const releaseFrameTextures = (
       shared.texture.destroy();
       shared.memory.destroy();
     }
-    state.yuvBuffers?.forEach(releaseYUVBuffer);
+    for (const yuvBuffer of state.yuvBuffers ?? []) {
+      pendingYUVReleases.push({ textureKey, device: state.device, yuvBuffer });
+    }
     delete textures[textureKey];
+  }
+  let released = 0;
+  for (let i = 0; i < pendingYUVReleases.length;) {
+    const pending = pendingYUVReleases[i]!;
+    if (
+      spreadYUVReleases
+        ? released < YUV_RELEASES_PER_FRAME
+        : shouldRelease(pending.textureKey)
+    ) {
+      releaseYUVBuffer(pending.yuvBuffer);
+      importsDevice = pending.device;
+      pendingYUVReleases.splice(i, 1);
+      released++;
+    } else {
+      i++;
+    }
   }
   if (importsDevice != null) {
     // Android: Dawn frees the memory of the released buffers once the GPU is
@@ -858,7 +909,8 @@ export const releaseFrameImages = (key: string) => {
  * composition (see isLiveAt in the native code): the textures of the items
  * without a frame are released, rather than kept for the whole composition
  * (a 1080p texture is 8 MB, a 4K one 33 MB, and the buffers imported with
- * them pin their decoder's).
+ * them pin their decoder's). Their imported YUV buffers are released a few
+ * per frame (see `releaseFrameTextures`).
  */
 export const makeVideoFrames = (
   context: FrameImageContext,
@@ -870,7 +922,8 @@ export const makeVideoFrames = (
   releaseFrameTextures(
     (textureKey) =>
       textureKey.startsWith(prefix) &&
-      frames[textureKey.slice(prefix.length)] == null
+      frames[textureKey.slice(prefix.length)] == null,
+    true
   );
   const result: Record<string, VideoFrame> = {};
   for (const itemId of Object.keys(frames)) {
