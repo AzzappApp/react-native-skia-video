@@ -5,9 +5,11 @@ import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
+import android.os.Handler;
 import android.view.Surface;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -48,6 +50,9 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
   private boolean prepared = false;
 
   private boolean started = false;
+
+  // Whether open() is creating the decoder, outside of the lock.
+  private boolean opening = false;
 
   private boolean released = false;
 
@@ -101,42 +106,73 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
 
   /**
    * Creates the decoder, to decode from the given position of the composition once started (see
-   * {@link #start}), unless it is open. Its callbacks run on the looper of the calling thread.
+   * {@link #start}), unless it is open.
+   *
+   * Creating, starting and releasing a decoder take tens of milliseconds: they are done outside of
+   * the lock that {@link #render} and the decoder's callbacks take.
    *
    * @param compositionTimeUs the position in the composition timeline, in microseconds
+   * @param callbackHandler   the handler the decoder's callbacks run on, or null for the looper of
+   *                          the calling thread
    * @return whether the decoder was created
    * @throws IOException if the decoder cannot be created
    */
-  synchronized public boolean open(long compositionTimeUs) throws IOException {
-    if (!prepared || released || codec != null || surface == null) {
-      return false;
+  public boolean open(long compositionTimeUs, @Nullable Handler callbackHandler)
+    throws IOException {
+    Surface surface;
+    synchronized (this) {
+      if (!prepared || released || codec != null || opening || this.surface == null) {
+        return false;
+      }
+      opening = true;
+      surface = this.surface;
     }
-    MediaCodec codec = createCodec();
+    MediaCodec codec;
     try {
-      codec.setCallback(this);
-      codec.configure(format, surface, null, 0);
-    } catch (RuntimeException e) {
-      codec.release();
-      throw describeError("configure", e);
+      codec = createCodec();
+      try {
+        codec.setCallback(this, callbackHandler);
+        codec.configure(format, surface, null, 0);
+      } catch (RuntimeException e) {
+        codec.release();
+        throw describeError("configure", e);
+      }
+    } catch (IOException | RuntimeException e) {
+      synchronized (this) {
+        opening = false;
+      }
+      throw e;
     }
-    this.codec = codec;
-    seekExtractor(compositionTimeUs);
-    return true;
+    synchronized (this) {
+      opening = false;
+      if (!released) {
+        this.codec = codec;
+        seekExtractor(compositionTimeUs);
+        return true;
+      }
+    }
+    // Released meanwhile.
+    codec.release();
+    return false;
   }
 
   /**
    * Starts decoding, once the decoder is open.
    */
-  synchronized public void start() {
-    if (codec == null || started) {
-      return;
+  public void start() {
+    MediaCodec codec;
+    synchronized (this) {
+      if (this.codec == null || started) {
+        return;
+      }
+      codec = this.codec;
+      started = true;
     }
     try {
       codec.start();
     } catch (RuntimeException e) {
       throw describeError("start", e);
     }
-    started = true;
   }
 
   /**
@@ -158,17 +194,21 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
   /**
    * Releases the decoder, the item's format is kept: {@link #open} creates another one.
    */
-  synchronized public void close() {
-    if (codec == null) {
-      return;
+  public void close() {
+    MediaCodec codec;
+    synchronized (this) {
+      if (this.codec == null) {
+        return;
+      }
+      // Before the release: the callbacks it leaves queued see a decoder that is no longer this
+      // one.
+      codec = this.codec;
+      this.codec = null;
+      started = false;
+      freeFrames.addAll(pendingFrames);
+      pendingFrames.clear();
     }
-    // Before the release: the callbacks it leaves queued see a decoder that is no longer this one.
-    MediaCodec codec = this.codec;
-    this.codec = null;
-    started = false;
     codec.release();
-    freeFrames.addAll(pendingFrames);
-    pendingFrames.clear();
   }
 
   /**
@@ -437,10 +477,16 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
   /**
    * Release the decoder.
    */
-  synchronized public void release() {
-    if (!released) {
-      close();
+  public void release() {
+    synchronized (this) {
+      if (released) {
+        return;
+      }
+      // The callbacks of the decoder no longer read the extractor.
       released = true;
+    }
+    close();
+    synchronized (this) {
       if (extractor != null) {
         extractor.release();
       }

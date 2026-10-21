@@ -1,7 +1,10 @@
 package com.azzapp.rnskv;
 
 import android.os.Build;
+import android.os.Handler;
 import android.view.Surface;
+
+import androidx.annotation.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -75,6 +78,12 @@ public class VideoCompositionDecoder {
   private OnItemEndReachedListener onItemEndReachedListener;
 
   private volatile boolean started = false;
+
+  /**
+   * The handler the decoders' callbacks run on, or null for the looper of the thread opening them.
+   */
+  @Nullable
+  private Handler callbackHandler;
 
   /**
    * Creates a new video composition decoder.
@@ -159,6 +168,14 @@ public class VideoCompositionDecoder {
   }
 
   /**
+   * Sets the handler the decoders' callbacks run on, rather than the looper of the thread opening
+   * them (see {@link #updateDecoders}).
+   */
+  public void setCallbackHandler(@Nullable Handler callbackHandler) {
+    this.callbackHandler = callbackHandler;
+  }
+
+  /**
    * The position of the composition an item is decoded from at the given position, or null if
    * its decoder is closed: while it is open (see {@link VideoComposition.Item#isDecodedAt}), and,
    * when the composition loops, while it is open at the same position of the next loop (the items
@@ -177,9 +194,11 @@ public class VideoCompositionDecoder {
 
   /**
    * Opens the decoders of the items decoded at the given position (see
-   * {@link VideoComposition.Item#isDecodedAt}), decoding from it, and closes the others. Called on the thread the decoders' callbacks run on (the looper of the decoding
-   * thread), outside of the lock of the frames: the frames of the open items are still handed out
-   * while a decoder is created.
+   * {@link VideoComposition.Item#isDecodedAt}), decoding from it, and closes the others. Their
+   * callbacks run on the callback handler (see {@link #setCallbackHandler}), or else on the looper
+   * of the calling thread. Creating or releasing a decoder takes tens of milliseconds, without the
+   * locks of the frames: the frames of the other items are still rendered and handed out
+   * meanwhile, unless this runs on the thread rendering them.
    *
    * @param positionUs The current position in microseconds.
    * @param looping    Whether the composition loops.
@@ -196,7 +215,7 @@ public class VideoCompositionDecoder {
       if (decodingPositionUs == null) {
         // Its last frames are released by updateVideosFrames, on the thread that hands them out.
         decoder.close();
-      } else if (decoder.open(decodingPositionUs)) {
+      } else if (decoder.open(decodingPositionUs, callbackHandler)) {
         opened.add(decoder);
       }
     }
@@ -369,7 +388,7 @@ public class VideoCompositionDecoder {
         decoder.close();
       } else if (decoder.isOpen()) {
         decoder.seekTo(decodingPositionUs);
-      } else if (started && decoder.open(decodingPositionUs)) {
+      } else if (started && decoder.open(decodingPositionUs, callbackHandler)) {
         opened.add(decoder);
       }
     }

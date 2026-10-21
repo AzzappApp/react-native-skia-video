@@ -13,6 +13,7 @@ import androidx.media3.common.util.UnstableApi;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * A class that previews a video composition.
@@ -29,6 +30,7 @@ public class VideoCompositionFramesExtractor {
   private static final int PLAYBACK_RELEASE = 6;
   private static final int PLAYBACK_SET_VOLUME = 7;
   private static final int PLAYBACK_RENDER = 8;
+  private static final int PLAYBACK_DECODERS_SEEKED = 9;
 
   /**
    * How long after the last display refresh the playback loop renders the frames itself (the app
@@ -52,6 +54,25 @@ public class VideoCompositionFramesExtractor {
 
   private final Handler handler;
 
+  /**
+   * Opens, closes and seeks the decoders (see VideoCompositionDecoder#updateDecoders): creating or
+   * releasing a decoder takes tens of milliseconds, during which the playback thread keeps
+   * rendering the frames of the other items. The decoders' callbacks run on the playback thread.
+   */
+  private final HandlerThread codecThread;
+
+  private final Handler codecHandler;
+
+  private final AtomicBoolean decoderUpdatePosted = new AtomicBoolean(false);
+
+  private volatile long decoderUpdatePositionUs = 0;
+
+  /**
+   * The seeks of the decoders not done yet, on the playback thread: the frames are not rendered
+   * meanwhile, not to show the frames of before a seek.
+   */
+  private int pendingDecoderSeeks = 0;
+
   private final NativeEventDispatcher eventDispatcher;
 
   private boolean playWhenReady = false;
@@ -62,7 +83,8 @@ public class VideoCompositionFramesExtractor {
   private boolean prepared;
   // Also read on the UI thread, by frameCallback.
   private volatile boolean releasing;
-  private boolean looping;
+  // Also read on the codec thread.
+  private volatile boolean looping;
 
 
   private long pendingSeek = 0;
@@ -119,6 +141,10 @@ public class VideoCompositionFramesExtractor {
     playbackThread = new PlaybackThread();
     playbackThread.start();
     handler = new Handler(playbackThread.getLooper(), playbackThread);
+    codecThread = new HandlerThread("ReactNativeSkiaVideo-Codecs");
+    codecThread.start();
+    codecHandler = new Handler(codecThread.getLooper());
+    decoder.setCallbackHandler(handler);
   }
 
   public void prepare() {
@@ -222,6 +248,7 @@ public class VideoCompositionFramesExtractor {
     // Also stops frameCallback.
     releasing = true;
     if (!playbackThread.isAlive()) {
+      codecThread.quitSafely();
       decoder.release();
       return;
     }
@@ -300,10 +327,11 @@ public class VideoCompositionFramesExtractor {
     } else {
       completeDispatched = false;
     }
-    decoder.updateDecoders(currentPosition, looping);
+    updateDecoders(currentPosition);
     // The frames are rendered at each display refresh (see frameCallback), here only when the
     // display stopped refreshing.
-    if (System.nanoTime() - lastRefreshRenderNs > REFRESH_RENDER_TIMEOUT_NS) {
+    if (pendingDecoderSeeks == 0
+      && System.nanoTime() - lastRefreshRenderNs > REFRESH_RENDER_TIMEOUT_NS) {
       decoder.render(currentPosition);
     }
     if (isEOS && looping) {
@@ -322,12 +350,20 @@ public class VideoCompositionFramesExtractor {
     }
   }
 
-  private void seekInternal(long position) throws IOException {
+  private void seekInternal(long position) {
     if (!prepared) {
       pendingSeek = position;
       return;
     }
-    decoder.seekTo(position, looping);
+    pendingDecoderSeeks++;
+    boolean seekLooping = looping;
+    runOnCodecThread(() -> {
+      try {
+        decoder.seekTo(position, seekLooping);
+      } finally {
+        handler.sendEmptyMessage(PLAYBACK_DECODERS_SEEKED);
+      }
+    });
     if (audioPlayer != null) {
       audioPlayer.seekTo(position);
     }
@@ -347,9 +383,54 @@ public class VideoCompositionFramesExtractor {
       }
       audioPlayer = null;
     }
+    // The codec thread is done with the decoders before they are released.
+    codecThread.quitSafely();
+    try {
+      codecThread.join(1000);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
     playbackThread.interrupt();
     playbackThread.quit();
     decoder.release();
+  }
+
+  private interface DecoderTask {
+    void run() throws IOException;
+  }
+
+  /**
+   * Runs a task on the codec thread. Its failure is reported as an error and releases the player,
+   * as a failure on the playback thread does.
+   */
+  private void runOnCodecThread(DecoderTask task) {
+    codecHandler.post(() -> {
+      if (releasing) {
+        return;
+      }
+      try {
+        task.run();
+      } catch (Exception e) {
+        if (!releasing) {
+          eventDispatcher.dispatchEvent("error", e.getMessage());
+          release();
+        }
+      }
+    });
+  }
+
+  /**
+   * Has the codec thread open and close the decoders for the given position: once for the latest
+   * position requested while it was busy.
+   */
+  private void updateDecoders(long positionUs) {
+    decoderUpdatePositionUs = positionUs;
+    if (decoderUpdatePosted.compareAndSet(false, true)) {
+      runOnCodecThread(() -> {
+        decoderUpdatePosted.set(false);
+        decoder.updateDecoders(decoderUpdatePositionUs, looping);
+      });
+    }
   }
 
   private class PlaybackThread extends HandlerThread implements Handler.Callback {
@@ -392,10 +473,14 @@ public class VideoCompositionFramesExtractor {
             return true;
           }
           case PLAYBACK_RENDER -> {
-            if (prepared) {
+            if (prepared && pendingDecoderSeeks == 0) {
               decoder.render((Long) msg.obj);
-              lastRefreshRenderNs = System.nanoTime();
             }
+            lastRefreshRenderNs = System.nanoTime();
+            return true;
+          }
+          case PLAYBACK_DECODERS_SEEKED -> {
+            pendingDecoderSeeks--;
             return true;
           }
           case PLAYBACK_SET_VOLUME -> {
