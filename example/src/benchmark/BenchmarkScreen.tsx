@@ -261,7 +261,13 @@ const BenchmarkScreen = () => {
           try {
             metrics = await runScenario(scenario, signal);
           } catch (e) {
-            error = e instanceof Error ? e.message : String(e);
+            // The players' error events are objects with a message.
+            error =
+              e instanceof Error
+                ? e.message
+                : typeof e === 'object' && e != null && 'message' in e
+                  ? String(e.message)
+                  : String(e);
           } finally {
             clearInterval(memorySampling);
             appStateSubscription.remove();
