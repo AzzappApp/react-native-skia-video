@@ -178,7 +178,7 @@ public class VideoCompositionFramesExtractor {
   public VideoCompositionFramesExtractor(VideoComposition composition, NativeEventDispatcher eventDispatcher) {
     this.eventDispatcher = eventDispatcher;
     this.composition = composition;
-    decoder = new VideoCompositionDecoder(composition);
+    decoder = new VideoCompositionDecoder(composition, false);
     playbackThread = new PlaybackThread();
     playbackThread.start();
     handler = new Handler(playbackThread.getLooper(), playbackThread);

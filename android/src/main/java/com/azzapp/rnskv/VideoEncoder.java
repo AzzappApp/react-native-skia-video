@@ -125,22 +125,47 @@ public class VideoEncoder {
     bufferInfo = new MediaCodec.BufferInfo();
   }
 
-  /**
-   * Configures encoder and muxer state, and prepares the input Surface.
-   */
-  public void prepare() throws IOException {
-    encoder = encoderName != null
+  private MediaCodec createEncoder() throws IOException {
+    return encoderName != null
       ? MediaCodec.createByCodecName(encoderName)
       : MediaCodec.createEncoderByType(MIME_TYPE);
+  }
 
+  /**
+   * @param asFastAsPossible whether the encoder encodes as fast as it can, as Media3's Transformer
+   *                         configures its own, rather than in real time (KEY_PRIORITY) at the
+   *                         frame rate of the video (KEY_OPERATING_RATE): an export asks for
+   *                         frames faster than real time.
+   */
+  private MediaFormat createFormat(boolean asFastAsPossible) {
     MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, width, height);
     format.setInteger(MediaFormat.KEY_COLOR_FORMAT,
       MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
     format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
     format.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate);
     format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, DEFAULT_I_FRAME_INTERVAL_SECONDS);
+    if (asFastAsPossible) {
+      format.setInteger(MediaFormat.KEY_PRIORITY, 1);
+      // Above what any encoder reaches, without overflowing the computations of some
+      // (Integer.MAX_VALUE does).
+      format.setInteger(MediaFormat.KEY_OPERATING_RATE, 1000);
+    }
+    return format;
+  }
 
-    encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+  /**
+   * Configures encoder and muxer state, and prepares the input Surface.
+   */
+  public void prepare() throws IOException {
+    encoder = createEncoder();
+    try {
+      encoder.configure(createFormat(true), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+    } catch (RuntimeException e) {
+      Log.w(TAG, "The encoder rejected the export settings, configured without them", e);
+      encoder.release();
+      encoder = createEncoder();
+      encoder.configure(createFormat(false), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+    }
 
     inputSurface = encoder.createInputSurface();
     eglResourcesHolder = EGLResourcesHolder.createWithWindowedSurface(inputSurface);
