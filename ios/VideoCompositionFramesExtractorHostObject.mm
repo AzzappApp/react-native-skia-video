@@ -209,6 +209,7 @@ void VideoCompositionFramesExtractorHostObject::prepare() {
       initWithUpdateBlock:^(CADisplayLink* displayLink) {
         dispatch_async(decoderQueue, ^{
           std::vector<std::future<void>> futures;
+          std::vector<std::shared_ptr<VideoCompositionItemDecoder>> closing;
           @synchronized(lock) {
             if (released.test() || !initialized) {
               return;
@@ -247,8 +248,8 @@ void VideoCompositionFramesExtractorHostObject::prepare() {
               auto decodingTime =
                   getDecodingTime(*decoder->getItem(), currentTime);
               if (!decodingTime) {
-                // Not live: the reader and its frames are released.
-                decoder->release();
+                // Not decoded: the reader and its frames are released, below.
+                closing.push_back(decoder);
                 continue;
               }
               futures.push_back(std::async(std::launch::async,
@@ -256,6 +257,11 @@ void VideoCompositionFramesExtractorHostObject::prepare() {
                                              decoder->advanceDecoder(time);
                                            }));
             }
+          }
+          // Outside of the lock decodeCompositionFrames takes on the UI
+          // thread: cancelling a reader takes a while.
+          for (const auto& decoder : closing) {
+            decoder->release();
           }
           for (auto& future : futures) {
             try {
