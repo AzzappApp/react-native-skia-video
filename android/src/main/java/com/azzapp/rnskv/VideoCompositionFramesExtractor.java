@@ -2,10 +2,12 @@ package com.azzapp.rnskv;
 
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.Looper;
 import android.os.Message;
 import android.os.Process;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.Choreographer;
 
 import androidx.media3.common.util.UnstableApi;
 
@@ -26,6 +28,19 @@ public class VideoCompositionFramesExtractor {
   private static final int PLAYBACK_SEEK = 5;
   private static final int PLAYBACK_RELEASE = 6;
   private static final int PLAYBACK_SET_VOLUME = 7;
+  private static final int PLAYBACK_RENDER = 8;
+
+  /**
+   * How long after the last display refresh the playback loop renders the frames itself (the app
+   * in the background, a stalled UI thread): a decoder keeps its output buffers until they are.
+   */
+  private static final long REFRESH_RENDER_TIMEOUT_NS = 100_000_000;
+
+  /**
+   * The longest refresh period taken as the time to the next refresh (see frameCallback): a longer
+   * interval between two refreshes is refreshes the display skipped.
+   */
+  private static final long MAX_REFRESH_PERIOD_NS = 34_000_000;
 
   private final VideoComposition composition;
 
@@ -45,15 +60,50 @@ public class VideoCompositionFramesExtractor {
   private volatile float volume = 1f;
 
   private boolean prepared;
-  private boolean releasing;
+  // Also read on the UI thread, by frameCallback.
+  private volatile boolean releasing;
   private boolean looping;
 
 
   private long pendingSeek = 0;
-  private boolean isPlaying = false;
+  private volatile boolean isPlaying = false;
 
-  private long startTime = 0;
-  private long pausePosition = 0;
+  private volatile long startTime = 0;
+  private volatile long pausePosition = 0;
+
+  /**
+   * When the frames were last rendered for a display refresh, on the playback thread.
+   */
+  private long lastRefreshRenderNs = 0;
+
+  /**
+   * The time of the previous display refresh, on the UI thread.
+   */
+  private long lastFrameTimeNs = 0;
+
+  /**
+   * Renders the frames at each display refresh, rather than on the playback loop's own clock: the
+   * frames due at the next refresh are rendered on each refresh, at the same phase of it, and the
+   * decoders' readers report them on the UI thread's looper, after this frame. The frame callback
+   * of the composition player acquires them on the next refresh, every frame. Rendered every 10 ms,
+   * as the frames came due, a frame landed on either side of a refresh: about one frame in six
+   * stayed 50 ms on screen and another 17 ms, for a 30 fps video on a 60 Hz display.
+   */
+  private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {
+    @Override
+    public void doFrame(long frameTimeNanos) {
+      if (releasing) {
+        return;
+      }
+      long periodNs = lastFrameTimeNs > 0 ? frameTimeNanos - lastFrameTimeNs : 0;
+      lastFrameTimeNs = frameTimeNanos;
+      long leadNs = Math.max(0, Math.min(periodNs, MAX_REFRESH_PERIOD_NS));
+      // The display's clock and the playback's are both System.nanoTime().
+      long positionUs = getPositionAt((frameTimeNanos + leadNs) / 1000);
+      handler.obtainMessage(PLAYBACK_RENDER, positionUs).sendToTarget();
+      Choreographer.getInstance().postFrameCallback(this);
+    }
+  };
   private boolean isEOS = false;
   private boolean completeDispatched = false;
 
@@ -77,6 +127,8 @@ public class VideoCompositionFramesExtractor {
     }
     decoder.prepare();
     handler.sendEmptyMessage(PLAYBACK_PREPARE);
+    new Handler(Looper.getMainLooper())
+      .post(() -> Choreographer.getInstance().postFrameCallback(frameCallback));
   }
 
   /**
@@ -114,7 +166,15 @@ public class VideoCompositionFramesExtractor {
    * @return the current position of the player in microseconds
    */
   public long getCurrentPosition() {
-    return isPlaying ? microTime() - startTime : pausePosition;
+    return getPositionAt(microTime());
+  }
+
+  /**
+   * @param timeUs a time of {@link #microTime}
+   * @return the position of the player at that time in microseconds
+   */
+  private long getPositionAt(long timeUs) {
+    return isPlaying ? timeUs - startTime : pausePosition;
   }
 
   /**
@@ -159,12 +219,13 @@ public class VideoCompositionFramesExtractor {
   }
 
   public void release() {
+    // Also stops frameCallback.
+    releasing = true;
     if (!playbackThread.isAlive()) {
       decoder.release();
       return;
     }
     isPlaying = false;
-    releasing = true;
     handler.sendEmptyMessage(PLAYBACK_RELEASE);
   }
 
@@ -240,7 +301,11 @@ public class VideoCompositionFramesExtractor {
       completeDispatched = false;
     }
     decoder.updateDecoders(currentPosition, looping);
-    decoder.render(currentPosition);
+    // The frames are rendered at each display refresh (see frameCallback), here only when the
+    // display stopped refreshing.
+    if (System.nanoTime() - lastRefreshRenderNs > REFRESH_RENDER_TIMEOUT_NS) {
+      decoder.render(currentPosition);
+    }
     if (isEOS && looping) {
       playInternal();
     }
@@ -324,6 +389,13 @@ public class VideoCompositionFramesExtractor {
           }
           case PLAYBACK_RELEASE -> {
             releaseInternal();
+            return true;
+          }
+          case PLAYBACK_RENDER -> {
+            if (prepared) {
+              decoder.render((Long) msg.obj);
+              lastRefreshRenderNs = System.nanoTime();
+            }
             return true;
           }
           case PLAYBACK_SET_VOLUME -> {
