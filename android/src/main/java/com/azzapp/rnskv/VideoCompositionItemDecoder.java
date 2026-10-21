@@ -5,6 +5,7 @@ import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
+import android.os.Build;
 import android.os.Handler;
 import android.util.Log;
 import android.view.Surface;
@@ -245,11 +246,12 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
    * The format an export's decoder is configured with: decoding as fast as it can, rather than in
    * real time (KEY_PRIORITY) at the frame rate of the video (KEY_OPERATING_RATE). Configured for
    * real time, a decoder was clocked for 30 fps while the export asked for 40. Null for a preview,
-   * or once the decoder rejected it.
+   * before Android 10, or once the decoder rejected it.
    */
   @Nullable
   private MediaFormat getExportFormat() {
-    if (!forExport || exportSettingsRejected) {
+    // Android 10: MediaFormat's copy constructor.
+    if (!forExport || exportSettingsRejected || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
       return null;
     }
     // A copy: createCodec looks a decoder up with the item's own format.
