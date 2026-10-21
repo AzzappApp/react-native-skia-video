@@ -10,8 +10,6 @@ import android.os.Build;
 import android.util.Log;
 import android.view.Surface;
 
-import androidx.annotation.RequiresApi;
-
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayDeque;
@@ -19,10 +17,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Receives the frames of a decoder in GPU-sampleable buffers, in the decoder's own YUV layout
- * ({@link ImageFormat#PRIVATE}). JS converts them to RGB on React Native Skia's device: unlike
- * {@link GLFrameExtractor}, there is no OpenGL pass into an RGBA buffer.
+ * ({@link ImageFormat#PRIVATE}). JS converts them to RGB on React Native Skia's device.
  */
-@RequiresApi(api = Build.VERSION_CODES.Q)
 public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableListener {
 
   private static final String TAG = "ImageReaderFrameExtractor";
@@ -48,7 +44,7 @@ public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableLi
 
   private AcquiredImage currentImage;
 
-  private GLFrameExtractor.OnFrameAvailableListener onFrameAvailableListener;
+  private OnFrameAvailableListener onFrameAvailableListener;
 
   /**
    * @param width  the width of the decoded frames (the decoder sets the size of its buffers)
@@ -61,9 +57,7 @@ public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableLi
     reader.setOnImageAvailableListener(this, null);
   }
 
-  public void setOnFrameAvailableListener(
-    GLFrameExtractor.OnFrameAvailableListener onFrameAvailableListener
-  ) {
+  public void setOnFrameAvailableListener(OnFrameAvailableListener onFrameAvailableListener) {
     this.onFrameAvailableListener = onFrameAvailableListener;
   }
 
@@ -200,5 +194,12 @@ public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableLi
       buffer.close();
       image.close();
     }
+  }
+
+  /**
+   * Listener called when the decoder rendered a frame.
+   */
+  public interface OnFrameAvailableListener {
+    void onFrameAvailable();
   }
 }

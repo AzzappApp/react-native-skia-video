@@ -26,7 +26,6 @@ public:
 
 private:
   global_ref<NativeEventDispatcher> jEventDispatcher;
-  bool glSetup = false;
   jni::global_ref<VideoPlayer> player;
   std::atomic_flag released = ATOMIC_FLAG_INIT;
   void release();

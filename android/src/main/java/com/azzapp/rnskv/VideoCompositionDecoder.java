@@ -1,8 +1,6 @@
 package com.azzapp.rnskv;
 
-import android.os.Build;
 import android.os.Handler;
-import android.view.Surface;
 
 import androidx.annotation.Nullable;
 
@@ -22,49 +20,12 @@ import java.util.Map;
  */
 public class VideoCompositionDecoder {
 
-  /**
-   * Whether React Native Skia's device can sample the decoders' own YUV
-   * buffers: JS checks it once (see setYUVFramesSupported in JS).
-   */
-  private static volatile boolean yuvFramesSupported = false;
-
-  /**
-   * An explicit choice to hand the frames over in YUV buffers or not,
-   * overriding yuvFramesSupported, or null.
-   */
-  private static volatile Boolean yuvFramesEnabled = null;
-
-  /**
-   * Whether the decoders hand their frames over in their own YUV buffers,
-   * converted to RGB on React Native Skia's device
-   * ({@link ImageReaderFrameExtractor}), rather than rendered into RGBA buffers
-   * with OpenGL ({@link GLFrameExtractor}): when Skia's device can sample them,
-   * unless disabled. It applies to the decoders prepared next.
-   */
-  private static boolean useYUVFrames() {
-    Boolean enabled = yuvFramesEnabled;
-    // ImageReader only allocates GPU-sampleable buffers from Android 10 on.
-    return (enabled != null ? enabled : yuvFramesSupported)
-      && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
-  }
-
-  public static void setYUVFramesSupported(boolean supported) {
-    yuvFramesSupported = supported;
-  }
-
-  public static void setYUVFramesEnabled(boolean enabled) {
-    yuvFramesEnabled = enabled;
-  }
-
   private final VideoComposition composition;
 
   private final HashMap<VideoComposition.Item, VideoCompositionItemDecoder> decoders;
 
-  private EGLResourcesHolder eglResourcesHolder;
-
-  private final HashMap<VideoComposition.Item, GLFrameExtractor> glFrameExtractors;
-
-  private final HashMap<VideoComposition.Item, ImageReaderFrameExtractor> yuvFrameExtractors =
+  // The decoders hand their frames over in their own YUV buffers, converted to RGB by JS.
+  private final HashMap<VideoComposition.Item, ImageReaderFrameExtractor> frameExtractors =
     new HashMap<>();
 
   private final HashMap<String, VideoFrame> videoFrames = new HashMap<>();
@@ -95,7 +56,6 @@ public class VideoCompositionDecoder {
   public VideoCompositionDecoder(VideoComposition composition, boolean forExport) {
     this.composition = composition;
     decoders = new HashMap<>();
-    glFrameExtractors = new HashMap<>();
     composition.getItems().forEach(item -> {
       if (!item.isVideo()) {
         return;
@@ -127,35 +87,20 @@ public class VideoCompositionDecoder {
    * {@link #updateDecoders}.
    */
   public void prepare() {
-    boolean yuvFrames = useYUVFrames();
-    if (!yuvFrames) {
-      eglResourcesHolder = EGLResourcesHolder.createWithPBBufferSurface();
-      eglResourcesHolder.makeCurrent();
-    }
     decoders.values().forEach(decoder -> {
       try {
         decoder.prepare();
 
         VideoComposition.Item item = decoder.getItem();
-        GLFrameExtractor.OnFrameAvailableListener onFrameAvailable = () -> {
+        ImageReaderFrameExtractor frameExtractor = new ImageReaderFrameExtractor(
+          decoder.getVideoWidth(), decoder.getVideoHeight());
+        frameExtractor.setOnFrameAvailableListener(() -> {
           if (onItemImageAvailableListener != null) {
             onItemImageAvailableListener.onItemImageAvailable(item);
           }
-        };
-        Surface surface;
-        if (yuvFrames) {
-          ImageReaderFrameExtractor yuvFrameExtractor = new ImageReaderFrameExtractor(
-            decoder.getVideoWidth(), decoder.getVideoHeight());
-          yuvFrameExtractor.setOnFrameAvailableListener(onFrameAvailable);
-          yuvFrameExtractors.put(item, yuvFrameExtractor);
-          surface = yuvFrameExtractor.getSurface();
-        } else {
-          GLFrameExtractor glFrameExtractor = new GLFrameExtractor();
-          glFrameExtractor.setOnFrameAvailableListener(onFrameAvailable);
-          glFrameExtractors.put(item, glFrameExtractor);
-          surface = glFrameExtractor.getSurface();
-        }
-        decoder.setSurface(surface);
+        });
+        frameExtractors.put(item, frameExtractor);
+        decoder.setSurface(frameExtractor.getSurface());
       } catch (Exception e) {
         throw new RuntimeException(e);
       }
@@ -302,9 +247,9 @@ public class VideoCompositionDecoder {
         videoFrames.remove(item.getId());
         // Here rather than when the decoder is closed: the frames handed out last are converted
         // on this thread, after this call.
-        ImageReaderFrameExtractor yuvFrameExtractor = yuvFrameExtractors.get(item);
-        if (yuvFrameExtractor != null) {
-          yuvFrameExtractor.releaseFrames();
+        ImageReaderFrameExtractor frameExtractor = frameExtractors.get(item);
+        if (frameExtractor != null) {
+          frameExtractor.releaseFrames();
         }
         continue;
       }
@@ -338,34 +283,17 @@ public class VideoCompositionDecoder {
         frameWidth = frameHeight;
         frameHeight = temp;
       }
-      VideoFrame nextFrame;
-      ImageReaderFrameExtractor yuvFrameExtractor = yuvFrameExtractors.get(item);
-      GLFrameExtractor glFrameExtractor = glFrameExtractors.get(item);
-      if (yuvFrameExtractor != null) {
-        if (!yuvFrameExtractor.decodeNextFrame()) {
-          continue;
-        }
-        nextFrame = new VideoFrame(
-          yuvFrameExtractor.getOutputBuffer(),
-          frameWidth, frameHeight,
-          yuvFrameExtractor.getLatestTimeStampNs(),
-          yuvFrameExtractor.getCropRect(decoder.getVideoWidth(), decoder.getVideoHeight()),
-          decoder.getRotation()
-        );
-      } else {
-        if (eglResourcesHolder == null || glFrameExtractor == null) {
-          continue;
-        }
-        eglResourcesHolder.makeCurrent();
-        if (!glFrameExtractor.decodeNextFrame(frameWidth, frameHeight)) {
-          continue;
-        }
-        nextFrame = new VideoFrame(
-          glFrameExtractor.getOutputBuffer(),
-          frameWidth, frameHeight, 0,
-          glFrameExtractor.getLatestTimeStampNs()
-        );
+      ImageReaderFrameExtractor frameExtractor = frameExtractors.get(item);
+      if (frameExtractor == null || !frameExtractor.decodeNextFrame()) {
+        continue;
       }
+      VideoFrame nextFrame = new VideoFrame(
+        frameExtractor.getOutputBuffer(),
+        frameWidth, frameHeight,
+        frameExtractor.getLatestTimeStampNs(),
+        frameExtractor.getCropRect(decoder.getVideoWidth(), decoder.getVideoHeight()),
+        decoder.getRotation()
+      );
       String id = item.getId();
       videoFrames.put(id, nextFrame);
     }
@@ -404,19 +332,8 @@ public class VideoCompositionDecoder {
     decoders.values().forEach(VideoCompositionItemDecoder::release);
     decoders.clear();
     videoFrames.clear();
-    yuvFrameExtractors.values().forEach(ImageReaderFrameExtractor::release);
-    yuvFrameExtractors.clear();
-    // The GL deletes below require this context to be current on the
-    // calling thread.
-    if (eglResourcesHolder != null) {
-      eglResourcesHolder.makeCurrent();
-    }
-    glFrameExtractors.values().forEach(GLFrameExtractor::release);
-    glFrameExtractors.clear();
-    if (eglResourcesHolder != null) {
-      eglResourcesHolder.release();
-      eglResourcesHolder = null;
-    }
+    frameExtractors.values().forEach(ImageReaderFrameExtractor::release);
+    frameExtractors.clear();
   }
 
   /**

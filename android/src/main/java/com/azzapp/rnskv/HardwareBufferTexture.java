@@ -7,9 +7,8 @@ import android.opengl.GLES20;
  * An OpenGL texture whose storage is a {@link HardwareBuffer}.
  * <p>
  * The hardware buffer is GPU-only memory shared between OpenGL and React
- * Native Skia's device (Vulkan), without copy: decoded frames are rendered
- * into such textures for Skia to read them, and Skia draws exported frames
- * into one that the encoder reads.
+ * Native Skia's device (Vulkan), without copy: Skia draws exported frames into
+ * one that the encoder reads.
  * <p>
  * Must be created and released with the same GL context current.
  */
@@ -60,26 +59,6 @@ public class HardwareBufferTexture {
   }
 
   /**
-   * Makes the current GL context wait (on the GPU) until React Native Skia's
-   * device is done reading the frame previously rendered into the buffer, see
-   * {@link #signalReady()}. Must be called before rendering into the buffer.
-   */
-  public void waitForRelease() {
-    nativeWaitForRelease(hardwareBuffer);
-  }
-
-  /**
-   * Flushes the GL commands rendering into the buffer and creates the fence
-   * signaled once they are complete: the frame handed to JS carries it, and
-   * React Native Skia's device waits for it (on the GPU) before reading the
-   * buffer. JS hands back the fences signaled once the buffer is read, that
-   * {@link #waitForRelease()} waits for.
-   */
-  public void signalReady() {
-    nativeSignalReady(hardwareBuffer);
-  }
-
-  /**
    * Releases the texture and this object's reference on the hardware buffer.
    * (frames handed to JS keep their own reference on the buffer)
    */
@@ -90,7 +69,6 @@ public class HardwareBufferTexture {
       eglImage = 0;
     }
     if (!hardwareBuffer.isClosed()) {
-      nativeForget(hardwareBuffer);
       hardwareBuffer.close();
     }
   }
@@ -98,10 +76,4 @@ public class HardwareBufferTexture {
   private static native long nativeBindHardwareBuffer(HardwareBuffer hardwareBuffer, int textureId);
 
   private static native void nativeDestroyImage(long eglImage);
-
-  private static native void nativeWaitForRelease(HardwareBuffer hardwareBuffer);
-
-  private static native void nativeSignalReady(HardwareBuffer hardwareBuffer);
-
-  private static native void nativeForget(HardwareBuffer hardwareBuffer);
 }

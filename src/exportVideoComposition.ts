@@ -20,7 +20,6 @@ import type {
   VideoCompositionFramesExtractorSync,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
-import { checkYUVFramesSupport } from './yuvFrames';
 import disposeCanvas from './utils/disposeCanvas';
 import {
   createFrameImagesKey,
@@ -151,7 +150,6 @@ export const exportVideoComposition = async <T = undefined>({
     let frameImageContext: ReturnType<typeof getFrameImageContext>;
     try {
       frameImageContext = getFrameImageContext();
-      checkYUVFramesSupport(frameImageContext);
     } catch (error) {
       settleReject(error);
       return;
@@ -271,8 +269,8 @@ export const exportVideoComposition = async <T = undefined>({
                   } else {
                     gpuWait = false;
                   }
-                  // Closes Dawn's sync fd now rather than when collected (see
-                  // copySharedBuffer in frameImages).
+                  // Closes Dawn's sync fd now rather than when collected: the
+                  // encoder waits for its own duplicate.
                   fence.destroy();
                 }
                 if (!gpuWait) {

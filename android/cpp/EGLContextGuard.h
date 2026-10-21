@@ -8,9 +8,9 @@ namespace RNSkiaVideo {
  * Saves the EGL context current on the calling thread and restores it when
  * going out of scope.
  *
- * The decoders and the encoder render with their own EGL contexts, on threads
- * they don't own (the UI thread, worklet runtimes threads): the guard makes
- * sure they don't leave their context current there.
+ * The encoder renders with its own EGL context, on a thread it doesn't own
+ * (the export's worklet runtime thread): the guard makes sure it doesn't leave
+ * its context current there.
  */
 class EGLContextGuard {
 public:

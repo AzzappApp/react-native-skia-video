@@ -5,6 +5,7 @@ import android.os.Handler;
 import android.os.Looper;
 
 import androidx.annotation.NonNull;
+import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
@@ -14,7 +15,8 @@ import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 
 /**
- * A class that wraps ExoPlayer to play video, and extract frames from it using OpenGL
+ * A class that wraps ExoPlayer to play video, and hands out its frames in the decoder's own YUV
+ * buffers (see {@link ImageReaderFrameExtractor}).
  */
 @UnstableApi
 public class VideoPlayer {
@@ -43,10 +45,16 @@ public class VideoPlayer {
   // dispatched once it is.
   private boolean readyPending = false;
 
-  private EGLResourcesHolder eglResourcesHolder;
+  /**
+   * The default size of the reader's buffers: the decoder sets the size of its own.
+   */
+  private static final int DEFAULT_BUFFER_WIDTH = 1920;
+  private static final int DEFAULT_BUFFER_HEIGHT = 1080;
 
-  private GLFrameExtractor glFrameExtractor;
+  // Created and read on the main thread, as the player.
+  private ImageReaderFrameExtractor frameExtractor;
 
+  // The size of the video once rotated, as the player reports it.
   private int videoWidth;
   private int videoHeight;
 
@@ -78,6 +86,10 @@ public class VideoPlayer {
         return;
       }
       player = new ExoPlayer.Builder(ReactNativeSkiaVideoModule.currentReactApplicationContext()).build();
+      // Its listener runs on the looper of this thread, the main one: decodeNextFrame is called
+      // on it too.
+      frameExtractor = new ImageReaderFrameExtractor(DEFAULT_BUFFER_WIDTH, DEFAULT_BUFFER_HEIGHT);
+      player.setVideoSurface(frameExtractor.getSurface());
 
       MediaItem mediaItem = new MediaItem.Builder().setUri(Uri.parse(uriStr)).build();
       player.setMediaItem(mediaItem);
@@ -108,9 +120,6 @@ public class VideoPlayer {
               VideoSize videoSize = player.getVideoSize();
               videoHeight = videoSize.height;
               videoWidth = videoSize.width;
-              if (glFrameExtractor != null) {
-                player.setVideoSurface(glFrameExtractor.getSurface());
-              }
               updateCurrentPosition();
               if (videoWidth > 0 && videoHeight > 0) {
                 dispatchReady();
@@ -218,18 +227,6 @@ public class VideoPlayer {
     mainHandler.post(() -> player.seekTo(location));
   }
 
-  public synchronized void setupGL() {
-    if (Looper.myLooper() != Looper.getMainLooper()) {
-      throw new RuntimeException("setupGL should be called on UI Thread");
-    }
-    eglResourcesHolder = EGLResourcesHolder.createWithPBBufferSurface();
-    eglResourcesHolder.makeCurrent();
-    glFrameExtractor = new GLFrameExtractor();
-    if (player != null) {
-      player.setVideoSurface(glFrameExtractor.getSurface());
-    }
-  }
-
   /**
    * @return whether the video is playing
    */
@@ -307,18 +304,23 @@ public class VideoPlayer {
   }
 
   /**
-   * Decode the next frame of the video
+   * Hands out the latest frame the player rendered, if it is new.
    *
-   * @return whether the frame was decoded successfully
+   * @return the frame, or null if there is no new one
    */
-  public synchronized VideoFrame decodeNextFrame() {
+  public VideoFrame decodeNextFrame() {
     if (Looper.myLooper() != Looper.getMainLooper()) {
       throw new RuntimeException("decodeNextFrame should be called on UI Thread");
     }
-    if (released || eglResourcesHolder == null || glFrameExtractor == null) {
+    if (released || player == null || frameExtractor == null) {
       return null;
     }
-    eglResourcesHolder.makeCurrent();
+    // The decoder renders the frames as stored, JS rotates them: the size the player reports
+    // (videoWidth × videoHeight) is the rotated one.
+    Format format = player.getVideoFormat();
+    if (format == null) {
+      return null;
+    }
     boolean downscale = outputWidth > 0 && outputHeight > 0;
     int width = downscale ? outputWidth : videoWidth;
     int height = downscale ? outputHeight : videoHeight;
@@ -333,41 +335,39 @@ public class VideoPlayer {
         height = Math.max(2, 2 * (int) Math.round(height * scale / 2));
       }
     }
-    if (width > 0 && height > 0 && glFrameExtractor.decodeNextFrame(width, height)) {
-      return new VideoFrame(
-        glFrameExtractor.getOutputBuffer(),
-        width,
-        height,
-        0,
-        glFrameExtractor.getLatestTimeStampNs()
-      );
+    if (width <= 0 || height <= 0 || !frameExtractor.decodeNextFrame()) {
+      return null;
     }
-    return null;
+    int rotation = format.rotationDegrees;
+    // The size of the video as stored, before its rotation.
+    boolean swapped = rotation == 90 || rotation == 270;
+    int storedWidth = swapped ? videoHeight : videoWidth;
+    int storedHeight = swapped ? videoWidth : videoHeight;
+    return new VideoFrame(
+      frameExtractor.getOutputBuffer(),
+      width,
+      height,
+      frameExtractor.getLatestTimeStampNs(),
+      frameExtractor.getCropRect(storedWidth, storedHeight),
+      rotation
+    );
   }
 
   /**
    * Release the video player and its resources
    */
-  public synchronized void release() {
+  public void release() {
     released = true;
-    // The GL deletes below require the player's context to be current on the
-    // calling thread.
-    if (eglResourcesHolder != null) {
-      eglResourcesHolder.makeCurrent();
-    }
-    if (glFrameExtractor != null) {
-      glFrameExtractor.release();
-      glFrameExtractor = null;
-    }
-    if (eglResourcesHolder != null) {
-      eglResourcesHolder.release();
-      eglResourcesHolder = null;
-    }
     mainHandler.post(() -> {
       if (player != null) {
         player.stop();
         player.release();
         player = null;
+      }
+      // Once the decoder is released.
+      if (frameExtractor != null) {
+        frameExtractor.release();
+        frameExtractor = null;
       }
     });
   }

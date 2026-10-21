@@ -50,11 +50,11 @@ version of it is installed (`yarn why react-native-webgpu-dawn`), and upgrade
 the two packages together (see the
 [compatibility table](https://wcandillon.github.io/react-native-webgpu/docs/integrations/react-native-skia#compatibility)).
 
-It ships native code for **iOS** (AVFoundation) and **Android** (MediaCodec,
-API level 28 or above). The decoded frames stay on the GPU and are drawn by
-Skia's GPU device (Metal on iOS, Vulkan on Android): on Android 10 and above,
-when the GPU supports it, it reads the decoders' own YUV buffers, with an
-OpenGL conversion as a fallback otherwise. With Expo, use a
+It ships native code for **iOS** (AVFoundation, iOS 16 or above) and
+**Android** (MediaCodec, Android 10, API level 29, or above). The decoded frames
+stay on the GPU and are drawn by Skia's GPU device (Metal on iOS, Vulkan on
+Android): on Android, it reads the decoders' own YUV buffers, which the GPU must
+be able to sample (see [Vulkan on Android](#vulkan-on-android)). With Expo, use a
 [development build](https://docs.expo.dev/develop/development-builds/introduction/)
 (`npx expo prebuild && npx expo run:ios`) — Expo Go can't load custom native
 modules.
@@ -88,6 +88,11 @@ If you remove that declaration to ship to them anyway (see
 check `Skia.gpu.isAvailable` before playing or exporting videos: without a
 GPU, the players throw while rendering and `exportVideoComposition` rejects,
 with the reason Skia gives in `Skia.gpu.error`.
+
+The library also needs Skia's device to sample the decoders' YUV buffers (the
+`opaque-ycbcr-android-for-external-texture` WebGPU feature, from the Vulkan
+YCbCr conversions of Android hardware buffers): without it, the players throw
+and `exportVideoComposition` rejects with an error naming the feature.
 
 ## Three building blocks
 

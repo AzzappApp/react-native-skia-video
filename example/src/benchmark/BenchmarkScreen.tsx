@@ -16,7 +16,6 @@ import ReactNativeBlobUtil from 'react-native-blob-util';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Skia } from 'react-native-skia';
 import { importDevice } from 'react-native-webgpu';
-import { __RNSkiaVideoPrivateAPI } from '@azzapp/react-native-skia-video';
 import { CLIPS, generateClip, getClip, isClipReady } from './clips';
 import { runColorCheck } from './colorCheck';
 import { PlayerRun, PreviewRun } from './LiveRuns';
@@ -48,12 +47,6 @@ type RunResult = {
   memoryAfter: number | null;
   /** Highest memory sampled during the run. */
   memoryPeak: number | null;
-  /**
-   * Android: whether the composition decoders handed their frames over in
-   * YUV buffers converted on Skia's device (otherwise RGBA buffers rendered
-   * with OpenGL). Null on iOS.
-   */
-  yuvFrames?: boolean | null;
 };
 
 type LiveRun = {
@@ -86,23 +79,6 @@ const getSharedFenceFeatures = () => {
   }
 };
 
-/**
- * Android: whether the composition decoders can hand their frames over in
- * YUV buffers, which needs Android 10 and Skia's device to sample them.
- */
-const areYUVFramesSupported = () => {
-  if (Platform.OS !== 'android' || Platform.Version < 29) {
-    return false;
-  }
-  try {
-    return importDevice(Skia.getNativeDevice()).features.has(
-      'opaque-ycbcr-android-for-external-texture'
-    );
-  } catch {
-    return false;
-  }
-};
-
 const BenchmarkScreen = () => {
   // The screen is drawn edge to edge: the system bars overlap it.
   const insets = useSafeAreaInsets();
@@ -118,15 +94,7 @@ const BenchmarkScreen = () => {
   // Where the last report went, shown under the results: an alert needs the
   // activity React Native tracks, which it sometimes loses on Android.
   const [shareStatus, setShareStatus] = useState<string | null>(null);
-  const [yuvFramesSupported] = useState(areYUVFramesSupported);
-  // The library's default: YUV frames when Skia's device supports them.
-  const [yuvFrames, setYUVFrames] = useState(yuvFramesSupported);
   const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Also on mount: the setting is kept by the native module across reloads.
-  useEffect(() => {
-    __RNSkiaVideoPrivateAPI.setYUVFramesEnabled?.(yuvFrames);
-  }, [yuvFrames]);
 
   const refreshClips = useCallback(async () => {
     const ready = new Set<string>();
@@ -288,7 +256,6 @@ const BenchmarkScreen = () => {
             memoryBefore,
             memoryAfter: readMemoryFootprint(),
             memoryPeak,
-            yuvFrames: Platform.OS === 'android' ? yuvFrames : null,
           };
           console.log('[benchmark]', JSON.stringify(result));
           setResults((previous) => [...previous, result]);
@@ -314,7 +281,6 @@ const BenchmarkScreen = () => {
     platform: Platform.OS,
     osVersion: Platform.Version,
     sharedFenceFeatures: getSharedFenceFeatures(),
-    yuvFramesSupported,
     date: new Date().toISOString(),
     runsPerScenario: runCount,
     results,
@@ -403,25 +369,6 @@ const BenchmarkScreen = () => {
               autoCorrect={false}
             />
           </View>
-          {Platform.OS === 'android' && (
-            <View style={styles.section}>
-              <Text style={styles.title}>Composition decoding</Text>
-              <View style={styles.row}>
-                <Switch
-                  value={yuvFrames}
-                  disabled={!yuvFramesSupported}
-                  onValueChange={setYUVFrames}
-                />
-                <Text style={styles.scenarioLabel}>
-                  {yuvFramesSupported
-                    ? 'YUV buffers (ImageReader), converted on Skia’s device, ' +
-                      'instead of an OpenGL pass into RGBA buffers'
-                    : 'YUV buffers: unsupported (needs Android 10 and ' +
-                      'opaque-ycbcr-android-for-external-texture)'}
-                </Text>
-              </View>
-            </View>
-          )}
           <View style={styles.section}>
             <Text style={styles.title}>Runs per scenario</Text>
             <View style={styles.row}>

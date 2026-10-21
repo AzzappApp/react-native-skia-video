@@ -5,7 +5,6 @@ import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
-import android.os.Build;
 import android.os.Handler;
 import android.util.Log;
 import android.view.Surface;
@@ -250,7 +249,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
    */
   @Nullable
   private MediaFormat getExportFormat() {
-    if (!forExport || exportSettingsRejected || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+    if (!forExport || exportSettingsRejected) {
       return null;
     }
     // A copy: createCodec looks a decoder up with the item's own format.
