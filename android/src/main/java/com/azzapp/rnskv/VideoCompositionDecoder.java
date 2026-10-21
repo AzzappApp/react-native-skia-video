@@ -4,7 +4,9 @@ import android.os.Build;
 import android.view.Surface;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -186,6 +188,7 @@ public class VideoCompositionDecoder {
     if (!started) {
       return;
     }
+    List<VideoCompositionItemDecoder> opened = new ArrayList<>();
     for (Map.Entry<VideoComposition.Item, VideoCompositionItemDecoder> entry : decoders.entrySet()) {
       VideoComposition.Item item = entry.getKey();
       VideoCompositionItemDecoder decoder = entry.getValue();
@@ -193,9 +196,21 @@ public class VideoCompositionDecoder {
       if (decodingPositionUs == null) {
         // Its last frames are released by updateVideosFrames, on the thread that hands them out.
         decoder.close();
-      } else {
-        decoder.open(decodingPositionUs);
+      } else if (decoder.open(decodingPositionUs)) {
+        opened.add(decoder);
       }
+    }
+    startDecoders(opened);
+  }
+
+  /**
+   * Starts the decoders opened together once they are all created: the items starting at the same
+   * time show their first frames together, rather than one decoder creation (tens of milliseconds)
+   * after the other.
+   */
+  private static void startDecoders(List<VideoCompositionItemDecoder> opened) {
+    for (VideoCompositionItemDecoder decoder : opened) {
+      decoder.start();
     }
   }
 
@@ -345,6 +360,7 @@ public class VideoCompositionDecoder {
    * @param looping  Whether the composition loops.
    */
   public void seekTo(long position, boolean looping) throws IOException {
+    List<VideoCompositionItemDecoder> opened = new ArrayList<>();
     for (Map.Entry<VideoComposition.Item, VideoCompositionItemDecoder> entry : decoders.entrySet()) {
       VideoComposition.Item item = entry.getKey();
       VideoCompositionItemDecoder decoder = entry.getValue();
@@ -353,10 +369,11 @@ public class VideoCompositionDecoder {
         decoder.close();
       } else if (decoder.isOpen()) {
         decoder.seekTo(decodingPositionUs);
-      } else if (started) {
-        decoder.open(decodingPositionUs);
+      } else if (started && decoder.open(decodingPositionUs)) {
+        opened.add(decoder);
       }
     }
+    startDecoders(opened);
   }
 
   /**
