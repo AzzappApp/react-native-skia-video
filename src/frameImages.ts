@@ -1,3 +1,8 @@
+// GPUDevice, GPUTexture and the other GPU* types are the standard WebGPU
+// types: @webgpu/types declares them as globals, as TypeScript's DOM library
+// does for the browser, and React Native WebGPU's own types build on them.
+// There is no module to import them from.
+/// <reference types="@webgpu/types" />
 import { Platform } from 'react-native';
 import { Skia, type SkImage } from 'react-native-skia';
 import {
@@ -38,7 +43,10 @@ export const getFrameImageContext = (): FrameImageContext => {
     }
     const device = importDevice(Skia.getNativeDevice());
     // Android: the frames are the decoders' own YUV buffers (see
-    // `convertYUVFrame`), which Skia's device must be able to sample.
+    // `convertYUVFrame`), which Skia's device must be able to sample. Checked
+    // here rather than natively: React Native Skia creates its device in its
+    // own native module and only hands it out to JS (getNativeDevice), and
+    // this library's native code doesn't link Dawn.
     if (IS_ANDROID && !device.features.has(YUV_FEATURE)) {
       throw new Error(
         "@azzapp/react-native-skia-video can't draw video frames: the GPU " +

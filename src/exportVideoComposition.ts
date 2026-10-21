@@ -1,3 +1,8 @@
+// GPUDevice, GPUTexture and the other GPU* types are the standard WebGPU
+// types: @webgpu/types declares them as globals, as TypeScript's DOM library
+// does for the browser, and React Native WebGPU's own types build on them.
+// There is no module to import them from.
+/// <reference types="@webgpu/types" />
 import {
   createSynchronizable,
   createWorkletRuntime,

@@ -1,3 +1,8 @@
+// GPUDevice, GPUTexture and the other GPU* types are the standard WebGPU
+// types: @webgpu/types declares them as globals, as TypeScript's DOM library
+// does for the browser, and React Native WebGPU's own types build on them.
+// There is no module to import them from.
+/// <reference types="@webgpu/types" />
 import type { SkCanvas, SkImage } from 'react-native-skia';
 
 /**
@@ -305,16 +310,16 @@ export type VideoCompositionAudioItem = VideoCompositionItemBase & {
    */
   volume?: number;
   /**
-   * A fade in, in seconds from the start of the item: its volume ramps
-   * linearly from 0 to `volume`, during playback and in the export.
+   * An audio fade in, in seconds from the start of the item: its volume
+   * ramps linearly from 0 to `volume`, during playback and in the export.
    * Defaults to 0 (no fade).
    */
-  fadeIn?: number;
+  audioFadeIn?: number;
   /**
-   * A fade out, in seconds before the end of the item: its volume ramps
-   * linearly from `volume` to 0. Defaults to 0 (no fade).
+   * An audio fade out, in seconds before the end of the item: its volume
+   * ramps linearly from `volume` to 0. Defaults to 0 (no fade).
    */
-  fadeOut?: number;
+  audioFadeOut?: number;
 };
 
 export type VideoCompositionItem =
