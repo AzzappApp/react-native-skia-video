@@ -18,7 +18,6 @@ public:
   void emit(std::string eventName,
             std::function<jsi::Value(jsi::Runtime&)> dataFactory);
   void removeAllListeners();
-  jsi::Runtime* getRuntime();
 
 protected:
   jsi::Runtime* runtime;

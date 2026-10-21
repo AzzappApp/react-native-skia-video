@@ -5,7 +5,6 @@ import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.media.MediaFormat;
 import android.os.Build;
-import android.util.Log;
 import android.util.Range;
 
 import java.util.ArrayList;

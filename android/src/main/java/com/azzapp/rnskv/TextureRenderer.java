@@ -115,11 +115,4 @@ public class TextureRenderer {
     GLES20.glDisableVertexAttribArray(aFramePositionLoc);
     GLES20.glDisableVertexAttribArray(aTexCoordsLoc);
   }
-
-  /**
-   * Release the resources. (delete the program)
-   */
-  public void release() {
-    GLES20.glDeleteProgram(program);
-  }
 }

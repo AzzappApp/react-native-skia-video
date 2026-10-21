@@ -56,10 +56,6 @@ void EventEmitter::emit(std::string eventName,
   });
 }
 
-jsi::Runtime* EventEmitter::getRuntime() {
-  return runtime;
-}
-
 void EventEmitter::removeAllListeners() {
   jsListeners->clear();
 }

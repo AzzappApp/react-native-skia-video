@@ -60,7 +60,7 @@ public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableLi
       ? ImageReader.newInstance(
           width, height, ImageFormat.PRIVATE, MAX_IMAGES, HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE)
       : ImageReader.newInstance(width, height, ImageFormat.PRIVATE, MAX_IMAGES);
-    // Called on the looper of the calling thread, like the frames of a SurfaceTexture.
+    // Called on the looper of the calling thread.
     reader.setOnImageAvailableListener(this, null);
   }
 
