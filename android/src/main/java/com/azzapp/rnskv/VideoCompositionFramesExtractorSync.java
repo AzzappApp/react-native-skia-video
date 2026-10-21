@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class VideoCompositionFramesExtractorSync {
   /**
@@ -35,6 +36,22 @@ public class VideoCompositionFramesExtractorSync {
 
   private Handler handler;
 
+  /**
+   * Opens and closes the decoders (see VideoCompositionDecoder#updateDecoders): creating a decoder
+   * takes tens of milliseconds and releasing one up to a few hundred, during which the export
+   * thread keeps decoding the frames of the other items. The decoders' callbacks run on the export
+   * thread.
+   */
+  private HandlerThread codecThread = null;
+
+  private Handler codecHandler;
+
+  private final AtomicBoolean decoderUpdatePosted = new AtomicBoolean(false);
+
+  private volatile long decoderUpdateTimeUs;
+
+  private volatile boolean released = false;
+
   private volatile CompletableFuture<Map<String, VideoFrame>> future;
 
   // A decoder error reported while no frames were being decoded, thrown by the next
@@ -50,6 +67,10 @@ public class VideoCompositionFramesExtractorSync {
     exportThread = new HandlerThread("ReactNativeSkiaVideo-ExportThread");
     exportThread.start();
     handler = new Handler(exportThread.getLooper());
+    codecThread = new HandlerThread("ReactNativeSkiaVideo-ExportCodecs");
+    codecThread.start();
+    codecHandler = new Handler(codecThread.getLooper());
+    decoder.setCallbackHandler(handler);
     CompletableFuture<Void> future = new CompletableFuture<>();
     handler.post(() -> {
       try {
@@ -93,13 +114,10 @@ public class VideoCompositionFramesExtractorSync {
         pendingError = null;
         return;
       }
-      try {
-        // Opens the decoders of the items that became live, closes the others.
-        decoder.updateDecoders(decodingTimeUs, false);
-      } catch (Exception e) {
-        future.completeExceptionally(e);
-        return;
-      }
+      // The frames of an item whose decoder is still being opened are waited for as the others: an
+      // item's decoder is opened a second before its frames are handed out (see
+      // VideoComposition.Item#isDecodedAt).
+      updateDecoders(decodingTimeUs);
       decoding = true;
       renderedTimes.clear();
       checkIfFrameDecoded();
@@ -107,17 +125,52 @@ public class VideoCompositionFramesExtractorSync {
     return await(future, "decode the frames at " + time + " s");
   }
 
+  /**
+   * Has the codec thread open the decoders of the items decoded at the given time and close the
+   * others: once for the latest time requested while it was busy. Called on the export thread.
+   */
+  private void updateDecoders(long timeUs) {
+    decoderUpdateTimeUs = timeUs;
+    if (!decoderUpdatePosted.compareAndSet(false, true)) {
+      return;
+    }
+    Handler exportHandler = handler;
+    codecHandler.post(() -> {
+      decoderUpdatePosted.set(false);
+      if (released) {
+        return;
+      }
+      try {
+        decoder.updateDecoders(decoderUpdateTimeUs, false);
+      } catch (Exception e) {
+        if (!released) {
+          exportHandler.post(() -> handleError(e));
+        }
+      }
+    });
+  }
+
   public void release() {
+    released = true;
     if (future != null) {
       future.cancel(true);
     }
     if (handler != null) {
+      HandlerThread codecThread = this.codecThread;
+      codecThread.quitSafely();
       // The decoder's EGL context and GL resources are bound to the export
       // thread (where they are current); releasing them from another thread
       // would silently fail the GL deletes and defer the EGL context
-      // destruction. Release on the export thread, then let the looper
-      // drain and quit.
-      handler.post(decoder::release);
+      // destruction. Release on the export thread, once the codec thread is
+      // done with the decoders, then let the looper drain and quit.
+      handler.post(() -> {
+        try {
+          codecThread.join(1000);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+        decoder.release();
+      });
       exportThread.quitSafely();
       exportThread = null;
       handler = null;
@@ -222,7 +275,9 @@ public class VideoCompositionFramesExtractorSync {
         return;
       }
       Long itemFrameTime = renderedTimes.getOrDefault(item.getId(), null);
-      if (itemFrameTime == null) {
+      // After its end, an item's decoder is being closed on the codec thread: a frame rendered
+      // meanwhile can be dropped with it, and never reach the reader.
+      if (itemFrameTime == null || !item.isDecodedAt(decodingTimeUs)) {
         continue;
       }
       long videoFrameTime = TimeHelpers.nsecToUs(videoFrame.getTimestampNs());
