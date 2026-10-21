@@ -5,7 +5,9 @@ import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
+import android.os.Build;
 import android.os.Handler;
+import android.util.Log;
 import android.view.Surface;
 
 import androidx.annotation.NonNull;
@@ -68,13 +70,29 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
 
   private OnFrameAvailableListener onFrameAvailableListener;
 
+  private static final String TAG = "VideoCompositionItemDecoder";
+
+  /**
+   * The operating rate of an export's decoders (see {@link #getExportFormat}): above what any
+   * decoder reaches, without overflowing the computations of some (Integer.MAX_VALUE does).
+   */
+  private static final int EXPORT_OPERATING_RATE = 1000;
+
+  // Whether the decoder decodes for an export rather than a preview.
+  private final boolean forExport;
+
+  // Whether the codec rejected the export settings (see getExportFormat): not tried again.
+  private boolean exportSettingsRejected = false;
+
   /**
    * Create a new VideoCompositionItemDecoder.
    *
-   * @param item the video composition item to decode
+   * @param item      the video composition item to decode
+   * @param forExport whether it decodes for an export, as fast as it can, rather than in real time
    */
-  public VideoCompositionItemDecoder(VideoComposition.Item item) {
+  public VideoCompositionItemDecoder(VideoComposition.Item item, boolean forExport) {
     this.item = item;
+    this.forExport = forExport;
   }
 
   /**
@@ -130,12 +148,18 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     MediaCodec codec;
     try {
       codec = createCodec();
-      try {
-        codec.setCallback(this, callbackHandler);
-        codec.configure(format, surface, null, 0);
-      } catch (RuntimeException e) {
-        codec.release();
-        throw describeError("configure", e);
+      MediaFormat exportFormat = getExportFormat();
+      if (exportFormat == null) {
+        configure(codec, format, surface, callbackHandler);
+      } else {
+        try {
+          configure(codec, exportFormat, surface, callbackHandler);
+        } catch (RuntimeException e) {
+          Log.w(TAG, "The decoder rejected the export settings, configured without them", e);
+          exportSettingsRejected = true;
+          codec = createCodec();
+          configure(codec, format, surface, callbackHandler);
+        }
       }
     } catch (IOException | RuntimeException e) {
       synchronized (this) {
@@ -216,6 +240,38 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
    */
   synchronized public boolean isOpen() {
     return codec != null;
+  }
+
+  /**
+   * The format an export's decoder is configured with: decoding as fast as it can, rather than in
+   * real time (KEY_PRIORITY) at the frame rate of the video (KEY_OPERATING_RATE). Configured for
+   * real time, a decoder was clocked for 30 fps while the export asked for 40. Null for a preview,
+   * or once the decoder rejected it.
+   */
+  @Nullable
+  private MediaFormat getExportFormat() {
+    if (!forExport || exportSettingsRejected || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+      return null;
+    }
+    // A copy: createCodec looks a decoder up with the item's own format.
+    MediaFormat exportFormat = new MediaFormat(format);
+    exportFormat.setInteger(MediaFormat.KEY_PRIORITY, 1);
+    exportFormat.setInteger(MediaFormat.KEY_OPERATING_RATE, EXPORT_OPERATING_RATE);
+    return exportFormat;
+  }
+
+  /**
+   * Configures the codec, released if it cannot be.
+   */
+  private void configure(
+    MediaCodec codec, MediaFormat format, Surface surface, @Nullable Handler callbackHandler) {
+    try {
+      codec.setCallback(this, callbackHandler);
+      codec.configure(format, surface, null, 0);
+    } catch (RuntimeException e) {
+      codec.release();
+      throw describeError("configure", e);
+    }
   }
 
   private MediaCodec createCodec() throws IOException {
