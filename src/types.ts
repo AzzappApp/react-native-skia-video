@@ -467,9 +467,9 @@ export type VideoEncoder = {
   /**
    * Hands out the buffer of the encoder for the next frame, to render into:
    * the `IOSurfaceRef` of the BGRA buffer the encoder converts every frame
-   * from on iOS (`endFrame` appends an NV12 conversion of it, a BGRA copy
-   * before iOS 16: the encoder may still be reading a frame when the next one
-   * is drawn), the `AHardwareBuffer*` the encoder reads every frame from on
+   * from on iOS (`endFrame` appends an NV12 conversion of it: the encoder may
+   * still be reading a frame when the next one is drawn), the
+   * `AHardwareBuffer*` the encoder reads every frame from on
    * Android, as a `BigInt` pointer. It is the same buffer for every frame: it
    * can be imported once. The frame is encoded by `endFrame`.
    */

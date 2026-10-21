@@ -31,16 +31,14 @@ private:
   std::shared_ptr<VideoComposition> composition;
   AVAssetWriter* assetWriter;
   AVAssetWriterInput* assetWriterInput;
-  // BGRA buffers: the one beginFrame() hands out, and its copies before iOS 16
-  // (see endFrame()).
+  // The BGRA buffer beginFrame() hands out.
   CVPixelBufferPoolRef pixelBufferPool = NULL;
   // The buffer beginFrame() hands out, the same every frame; endFrame()
   // appends an NV12 conversion of it (see endFrame()).
   CVPixelBufferRef frameBuffer = NULL;
-  // iOS 16+: the NV12 buffers endFrame() appends, and the conversion into
-  // them (a VTPixelTransferSessionRef). Before, endFrame() appends a BGRA copy.
+  // The NV12 buffers endFrame() appends, and the conversion into them.
   CVPixelBufferPoolRef encoderBufferPool = NULL;
-  CFTypeRef pixelTransferSession = NULL;
+  VTPixelTransferSessionRef pixelTransferSession = NULL;
   // Between beginFrame() and endFrame().
   bool framePending = false;
 
@@ -53,7 +51,6 @@ private:
 
   void prepare();
   CVPixelBufferRef createPoolBuffer(CVPixelBufferPoolRef pool);
-  void copyFrameBuffer(CVPixelBufferRef source, CVPixelBufferRef destination);
   void convertFrameBuffer(CVPixelBufferRef source,
                           CVPixelBufferRef destination);
   void appendFrameBuffer(CVPixelBufferRef pixelBuffer, CMTime time);
