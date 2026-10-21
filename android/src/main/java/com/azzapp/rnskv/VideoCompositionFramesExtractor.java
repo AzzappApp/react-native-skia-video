@@ -1,5 +1,7 @@
 package com.azzapp.rnskv;
 
+import android.content.Context;
+import android.hardware.display.DisplayManager;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
@@ -8,7 +10,9 @@ import android.os.Process;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.Choreographer;
+import android.view.Display;
 
+import androidx.annotation.Nullable;
 import androidx.media3.common.util.UnstableApi;
 
 import java.io.IOException;
@@ -39,8 +43,9 @@ public class VideoCompositionFramesExtractor {
   private static final long REFRESH_RENDER_TIMEOUT_NS = 100_000_000;
 
   /**
-   * The longest refresh period taken as the time to the next refresh (see frameCallback): a longer
-   * interval between two refreshes is refreshes the display skipped.
+   * The longest interval between two refreshes taken as the time to the next refresh, when the
+   * display's refresh period is unknown (see frameCallback): a longer one is refreshes the UI thread
+   * missed.
    */
   private static final long MAX_REFRESH_PERIOD_NS = 34_000_000;
 
@@ -103,6 +108,35 @@ public class VideoCompositionFramesExtractor {
    */
   private long lastFrameTimeNs = 0;
 
+  private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+  /**
+   * The display's refresh period, 0 when unknown, on the UI thread: followed as the display changes
+   * its refresh rate (see watchDisplay).
+   */
+  private long refreshPeriodNs = 0;
+
+  @Nullable
+  private DisplayManager displayManager;
+
+  private final DisplayManager.DisplayListener displayListener =
+    new DisplayManager.DisplayListener() {
+      @Override
+      public void onDisplayAdded(int displayId) {
+      }
+
+      @Override
+      public void onDisplayRemoved(int displayId) {
+      }
+
+      @Override
+      public void onDisplayChanged(int displayId) {
+        if (displayId == Display.DEFAULT_DISPLAY) {
+          updateRefreshPeriod();
+        }
+      }
+    };
+
   /**
    * Renders the frames at each display refresh, rather than on the playback loop's own clock: the
    * frames due at the next refresh are rendered on each refresh, at the same phase of it, and the
@@ -110,6 +144,10 @@ public class VideoCompositionFramesExtractor {
    * of the composition player acquires them on the next refresh, every frame. Rendered every 10 ms,
    * as the frames came due, a frame landed on either side of a refresh: about one frame in six
    * stayed 50 ms on screen and another 17 ms, for a 30 fps video on a 60 Hz display.
+   *
+   * The next refresh is taken the display's refresh period away rather than the interval since the
+   * previous refresh: after a refresh the UI thread missed, that interval is two periods, and the
+   * frames due a refresh later would be rendered, one of them shown a refresh early.
    */
   private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {
     @Override
@@ -117,7 +155,10 @@ public class VideoCompositionFramesExtractor {
       if (releasing) {
         return;
       }
-      long periodNs = lastFrameTimeNs > 0 ? frameTimeNanos - lastFrameTimeNs : 0;
+      long periodNs = refreshPeriodNs;
+      if (periodNs == 0) {
+        periodNs = lastFrameTimeNs > 0 ? frameTimeNanos - lastFrameTimeNs : 0;
+      }
       lastFrameTimeNs = frameTimeNanos;
       long leadNs = Math.max(0, Math.min(periodNs, MAX_REFRESH_PERIOD_NS));
       // The display's clock and the playback's are both System.nanoTime().
@@ -153,8 +194,43 @@ public class VideoCompositionFramesExtractor {
     }
     decoder.prepare();
     handler.sendEmptyMessage(PLAYBACK_PREPARE);
-    new Handler(Looper.getMainLooper())
-      .post(() -> Choreographer.getInstance().postFrameCallback(frameCallback));
+    mainHandler.post(() -> {
+      if (releasing) {
+        return;
+      }
+      watchDisplay();
+      Choreographer.getInstance().postFrameCallback(frameCallback);
+    });
+  }
+
+  /**
+   * Follows the refresh rate of the display, on the UI thread: an adaptive display changes it with
+   * what it shows (e.g. 120 Hz while scrolling, 60 Hz on a video). Without a React context, the
+   * refresh period is taken from the interval between two refreshes.
+   */
+  private void watchDisplay() {
+    Context context = ReactNativeSkiaVideoModule.currentReactApplicationContext();
+    displayManager = context != null ? context.getSystemService(DisplayManager.class) : null;
+    if (displayManager == null) {
+      return;
+    }
+    // On the looper of the UI thread.
+    displayManager.registerDisplayListener(displayListener, null);
+    updateRefreshPeriod();
+  }
+
+  private void unwatchDisplay() {
+    if (displayManager != null) {
+      displayManager.unregisterDisplayListener(displayListener);
+      displayManager = null;
+    }
+  }
+
+  private void updateRefreshPeriod() {
+    Display display =
+      displayManager != null ? displayManager.getDisplay(Display.DEFAULT_DISPLAY) : null;
+    float refreshRate = display != null ? display.getRefreshRate() : 0;
+    refreshPeriodNs = refreshRate > 0 ? (long) (1_000_000_000L / refreshRate) : 0;
   }
 
   /**
@@ -247,6 +323,7 @@ public class VideoCompositionFramesExtractor {
   public void release() {
     // Also stops frameCallback.
     releasing = true;
+    mainHandler.post(this::unwatchDisplay);
     if (!playbackThread.isAlive()) {
       codecThread.quitSafely();
       decoder.release();
