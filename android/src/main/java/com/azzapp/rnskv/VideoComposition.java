@@ -148,10 +148,6 @@ public class VideoComposition {
       return audioEnabled;
     }
 
-    public double getAudioVolume() {
-      return audioVolume;
-    }
-
     /**
      * The volume of the item at a time of the item (seconds from its start):
      * its volume, ramped by its fades. The fades are clamped to the item, the
