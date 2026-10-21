@@ -312,12 +312,29 @@ const BenchmarkScreen = () => {
   });
 
   const shareReport = async () => {
-    const json = JSON.stringify(report(), null, 2);
-    const path = `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/rnskv-benchmark-${
-      label || 'report'
-    }-${Date.now()}.json`;
+    // Not indented: on Android the text travels in the share intent, which
+    // fails beyond about 1 MB (the system copies the text, in UTF-16, twice).
+    const json = JSON.stringify(report());
+    const name = `rnskv-benchmark-${label || 'report'}-${Date.now()}.json`;
+    const path = `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/${name}`;
     await ReactNativeBlobUtil.fs.writeFile(path, json, 'utf8');
-    await Share.share({ message: json, title: `Benchmark ${label}` });
+    try {
+      await Share.share({ message: json, title: `Benchmark ${label}` });
+    } catch (error) {
+      if (Platform.OS !== 'android') {
+        throw error;
+      }
+      // Too large for the share sheet: saved in Downloads instead.
+      await ReactNativeBlobUtil.MediaCollection.copyToMediaStore(
+        { name, parentFolder: '', mimeType: 'application/json' },
+        'Download',
+        path
+      );
+      Alert.alert(
+        'Report saved in Downloads',
+        `Too large to share as text: ${name}`
+      );
+    }
   };
 
   const toggleScenario = (id: string, value: boolean) =>
@@ -453,7 +470,14 @@ const BenchmarkScreen = () => {
           <Button
             title="Share JSON"
             disabled={results.length === 0 || running}
-            onPress={shareReport}
+            onPress={() =>
+              shareReport().catch((e) =>
+                Alert.alert(
+                  'Could not share the report',
+                  e instanceof Error ? e.message : String(e)
+                )
+              )
+            }
           />
           <Button
             title="Clear"
