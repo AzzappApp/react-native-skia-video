@@ -115,6 +115,9 @@ const BenchmarkScreen = () => {
   const [status, setStatus] = useState<string | null>(null);
   const [liveRun, setLiveRun] = useState<LiveRun | null>(null);
   const [results, setResults] = useState<RunResult[]>([]);
+  // Where the last report went, shown under the results: an alert needs the
+  // activity React Native tracks, which it sometimes loses on Android.
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [yuvFramesSupported] = useState(areYUVFramesSupported);
   // The library's default: YUV frames when Skia's device supports them.
   const [yuvFrames, setYUVFrames] = useState(yuvFramesSupported);
@@ -312,29 +315,25 @@ const BenchmarkScreen = () => {
   });
 
   const shareReport = async () => {
+    setShareStatus(null);
     // Not indented: on Android the text travels in the share intent, which
     // fails beyond about 1 MB (the system copies the text, in UTF-16, twice).
     const json = JSON.stringify(report());
     const name = `rnskv-benchmark-${label || 'report'}-${Date.now()}.json`;
     const path = `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/${name}`;
     await ReactNativeBlobUtil.fs.writeFile(path, json, 'utf8');
-    try {
-      await Share.share({ message: json, title: `Benchmark ${label}` });
-    } catch (error) {
-      if (Platform.OS !== 'android') {
-        throw error;
-      }
-      // Too large for the share sheet: saved in Downloads instead.
+    if (Platform.OS === 'android') {
+      // Saved in Downloads first: the share sheet needs the activity React
+      // Native tracks, which it sometimes loses ("Failed to open share
+      // dialog"), and the text may be too large for it.
       await ReactNativeBlobUtil.MediaCollection.copyToMediaStore(
         { name, parentFolder: '', mimeType: 'application/json' },
         'Download',
         path
       );
-      Alert.alert(
-        'Report saved in Downloads',
-        `Too large to share as text: ${name}`
-      );
+      setShareStatus(`Saved in Downloads: ${name}`);
     }
+    await Share.share({ message: json, title: `Benchmark ${label}` });
   };
 
   const toggleScenario = (id: string, value: boolean) =>
@@ -472,9 +471,11 @@ const BenchmarkScreen = () => {
             disabled={results.length === 0 || running}
             onPress={() =>
               shareReport().catch((e) =>
-                Alert.alert(
-                  'Could not share the report',
-                  e instanceof Error ? e.message : String(e)
+                setShareStatus(
+                  (previous) =>
+                    `${previous ?? ''}\nCould not share the report: ${
+                      e instanceof Error ? e.message : String(e)
+                    }`
                 )
               )
             }
@@ -485,6 +486,7 @@ const BenchmarkScreen = () => {
             onPress={() => setResults([])}
           />
         </View>
+        {shareStatus != null && <Text selectable>{shareStatus.trim()}</Text>}
         {results.map((result, index) => (
           <ResultView key={index} result={result} />
         ))}
