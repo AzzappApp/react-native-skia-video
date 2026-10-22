@@ -20,21 +20,26 @@ export type VideoFrame = {
   image: SkImage;
   /**
    * The WebGPU texture the image samples, on Skia's device: for a WebGPU pass
-   * that reads the frame (the same pixels as `image`, unrotated), without a
-   * copy. Owned by the player like the image, and overwritten by the next
-   * frame: sample it in the frame it was handed out with, don't destroy it.
+   * that reads the frame (the same pixels as `image`, oriented the same way,
+   * see `rotation`), without a copy. Owned by the player like the image, and
+   * overwritten by the next frame: sample it in the frame it was handed out
+   * with, don't destroy it.
    */
   texture: GPUTexture;
   /**
-   * The width in pixels of the frame.
+   * The width in pixels of the image (see `rotation`).
    */
   width: number;
   /**
-   * The height in pixels of the frame.
+   * The height in pixels of the image (see `rotation`).
    */
   height: number;
   /**
-   * The rotation in degrees of the frame.
+   * The clockwise rotation in degrees (0, 90, 180 or 270) to apply to the
+   * image to display it upright. iOS: the rotation of the video, the image
+   * being as stored in the file (a portrait phone clip is a 1920×1080 image
+   * with a rotation of 90). Android: always 0, the frame being rotated upright
+   * when it is converted (the same clip is a 1080×1920 image).
    */
   rotation: number;
 };
@@ -78,33 +83,36 @@ export type DecodedFrame = {
    */
   release?: () => void;
   /**
-   * The width in pixels of the frame.
+   * The width in pixels of the frame, as `VideoFrame.width`.
    */
   width: number;
   /**
-   * The height in pixels of the frame.
+   * The height in pixels of the frame, as `VideoFrame.height`.
    */
   height: number;
   /**
-   * The rotation in degrees of the frame.
+   * The rotation of the frame, as `VideoFrame.rotation`: always 0 on Android,
+   * where `yuv.rotation` is the rotation the conversion applies.
    */
   rotation: number;
 };
 
 /**
- * Represents the dimensions of a video.
+ * Represents the dimensions of a video, as those of its frames (see
+ * `VideoFrame.rotation`).
  */
 export type VideoDimensions = {
   /**
-   * The width in pixels of the video.
+   * The width in pixels of the video's frames.
    */
   width: number;
   /**
-   * The height in pixels of the video.
+   * The height in pixels of the video's frames.
    */
   height: number;
   /**
-   * The rotation in degrees of the video.
+   * The clockwise rotation in degrees to apply to the video's frames to
+   * display them upright: the video's on iOS, always 0 on Android.
    */
   rotation: number;
 };
