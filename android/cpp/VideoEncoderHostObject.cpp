@@ -1,7 +1,6 @@
 #include "VideoEncoderHostObject.h"
 #include "EGLContextGuard.h"
 #include "HardwareBufferGL.h"
-#include "RNSVPixelData.h"
 #include "VideoFrame.h"
 #include <android/hardware_buffer_jni.h>
 
@@ -29,17 +28,6 @@ void VideoEncoder::makeGLContextCurrent() const {
   static const auto makeGLContextCurrentMethod =
       getClass()->getMethod<void()>("makeGLContextCurrent");
   makeGLContextCurrentMethod(self());
-}
-
-void VideoEncoder::encodePixels(uint8_t* pixels, size_t size,
-                                jdouble time) const {
-  static const auto encodePixelsMethod =
-      getClass()->getMethod<void(alias_ref<JByteBuffer>, jdouble)>(
-          "encodePixels");
-  // A direct ByteBuffer on the JS array memory: no copy, valid during the
-  // call only (the encoder uploads the pixels before returning).
-  auto buffer = JByteBuffer::wrapBytes(pixels, size);
-  encodePixelsMethod(self(), buffer, time);
 }
 
 AHardwareBuffer* VideoEncoder::beginFrame() const {
@@ -86,7 +74,6 @@ std::vector<jsi::PropNameID>
 VideoEncoderHostObject::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> result;
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("prepare")));
-  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("encodeFrame")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("beginFrame")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("endFrame")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("finishWriting")));
@@ -97,28 +84,7 @@ VideoEncoderHostObject::getPropertyNames(jsi::Runtime& rt) {
 jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
                                        const jsi::PropNameID& propNameId) {
   auto propName = propNameId.utf8(runtime);
-  if (propName == "encodeFrame") {
-    return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "encodeFrame"), 2,
-        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
-               const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (count < 2 || !arguments[1].isNumber()) {
-            throw jsi::JSError(runtime,
-                               "VideoEncoder.encodeFrame(..) expects pixels "
-                               "(Uint8Array) and a time (number)!");
-          }
-          auto pixels = getPixelData(runtime, arguments[0],
-                                     "VideoEncoder.encodeFrame(..)");
-          if (released.test()) {
-            return jsi::Value::undefined();
-          }
-          EGLContextGuard contextGuard;
-          framesExtractor->makeGLContextCurrent();
-          framesExtractor->encodePixels(const_cast<uint8_t*>(pixels.data),
-                                        pixels.size, arguments[1].asNumber());
-          return jsi::Value::undefined();
-        });
-  } else if (propName == "beginFrame") {
+  if (propName == "beginFrame") {
     return jsi::Function::createFromHostFunction(
         runtime, jsi::PropNameID::forAscii(runtime, "beginFrame"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
@@ -159,12 +125,18 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
           if (!released.test()) {
             framesExtractor->makeGLContextCurrent();
           }
+          // Each fence is waited for, and closed, even after one failed.
+          bool drawn = true;
           for (int fence : fences) {
-            // Without a current context, waits on the CPU (and closes).
-            waitForSyncFence(fence);
+            drawn = waitForSyncFence(fence) && drawn;
           }
           if (released.test()) {
             return jsi::Value::undefined();
+          }
+          if (!drawn) {
+            // Encoding the buffer now could encode a frame half drawn.
+            throw jsi::JSError(runtime, "VideoEncoder.endFrame(): could not "
+                                        "wait for the frame to be drawn");
           }
           framesExtractor->endFrame(arguments[0].asNumber());
           return jsi::Value::undefined();

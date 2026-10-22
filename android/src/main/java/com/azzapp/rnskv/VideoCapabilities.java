@@ -5,7 +5,6 @@ import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.media.MediaFormat;
 import android.os.Build;
-import android.util.Log;
 import android.util.Range;
 
 import java.util.ArrayList;
@@ -357,10 +356,10 @@ public class VideoCapabilities {
   private static boolean isHardwareAccelerated(MediaCodecInfo codecInfo) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       return codecInfo.isHardwareAccelerated();
-    } else {
-      // Use heuristics for older Android versions
-      String name = codecInfo.getName().toLowerCase();
-      return name.contains("qcom") || name.contains("intel") || name.contains("nvidia") || name.contains("mtk");
     }
+    // Android 9: guessed from the name, the codecs of the SoC vendors.
+    String name = codecInfo.getName().toLowerCase();
+    return name.contains("qcom") || name.contains("intel") || name.contains("nvidia")
+      || name.contains("mtk") || name.contains("exynos");
   }
 }

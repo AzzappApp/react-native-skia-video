@@ -16,6 +16,7 @@ public:
                          int frameRate, int bitRate, int audioBitRate,
                          int audioSampleRate, int audioChannelCount,
                          std::shared_ptr<VideoComposition> composition);
+  ~VideoEncoderHostObject();
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
   std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime& rt) override;
 
@@ -31,16 +32,14 @@ private:
   std::shared_ptr<VideoComposition> composition;
   AVAssetWriter* assetWriter;
   AVAssetWriterInput* assetWriterInput;
-  // BGRA buffers: the one beginFrame() hands out, and the frames of
-  // encodeFrame().
+  // The BGRA buffer beginFrame() hands out.
   CVPixelBufferPoolRef pixelBufferPool = NULL;
   // The buffer beginFrame() hands out, the same every frame; endFrame()
   // appends an NV12 conversion of it (see endFrame()).
   CVPixelBufferRef frameBuffer = NULL;
-  // iOS 16+: the NV12 buffers endFrame() appends, and the conversion into
-  // them (a VTPixelTransferSessionRef). Before, endFrame() appends a BGRA copy.
+  // The NV12 buffers endFrame() appends, and the conversion into them.
   CVPixelBufferPoolRef encoderBufferPool = NULL;
-  CFTypeRef pixelTransferSession = NULL;
+  VTPixelTransferSessionRef pixelTransferSession = NULL;
   // Between beginFrame() and endFrame().
   bool framePending = false;
 
@@ -53,11 +52,10 @@ private:
 
   void prepare();
   CVPixelBufferRef createPoolBuffer(CVPixelBufferPoolRef pool);
-  void copyFrameBuffer(CVPixelBufferRef source, CVPixelBufferRef destination);
+  CVPixelBufferRef createEncoderBuffer();
   void convertFrameBuffer(CVPixelBufferRef source,
                           CVPixelBufferRef destination);
   void appendFrameBuffer(CVPixelBufferRef pixelBuffer, CMTime time);
-  void encodeFrame(const uint8_t* pixels, size_t size, CMTime time);
   IOSurfaceRef beginFrame();
   void endFrame(CMTime time);
   void releaseFrameBuffer();

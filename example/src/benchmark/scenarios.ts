@@ -179,13 +179,41 @@ export const getScenarioClips = (scenario: Scenario): string[] =>
 
 export type Metrics = Record<string, number | string | Summary | null>;
 
+// The decoding time from which an export frame is listed in `slowFrames`.
+const SLOW_DECODE_MS = 100;
+
+// The most frames listed in `slowFrames`.
+const MAX_SLOW_FRAMES = 40;
+
+/**
+ * The garbage collections of the calling runtime so far, and the time they
+ * took in ms (Hermes only).
+ */
+const readGCStats = () => {
+  'worklet';
+  const stats = (
+    globalThis as unknown as {
+      HermesInternal?: {
+        getInstrumentedStats?: () => { js_numGCs?: number; js_gcTime?: number };
+      };
+    }
+  ).HermesInternal?.getInstrumentedStats?.();
+  // js_gcTime is in seconds.
+  return { count: stats?.js_numGCs ?? 0, ms: (stats?.js_gcTime ?? 0) * 1000 };
+};
+
 /**
  * Exports the composition of the scenario and measures, per frame (on the
  * export thread):
  * - `decodeMs`: from the end of the previous frame to the drawing of this one
  *   (decoding the frames of the items and importing them into textures);
  * - `renderEncodeMs`: drawing the frame and handing it to the encoder;
- * - `frameMs`: the whole frame.
+ * - `frameMs`: the whole frame;
+ * - `slowFrames`: the frames whose decoding took more than `SLOW_DECODE_MS`,
+ *   with their composition time, to match them with what the composition
+ *   does then (a clip opened, starting, ending, released), how long they
+ *   waited for the native decoders, and the garbage collections of the export
+ *   runtime meanwhile.
  */
 export const runExportScenario = async (
   scenario: ExportScenario,
@@ -199,20 +227,37 @@ export const runExportScenario = async (
   const decodeMs: number[] = [];
   const renderEncodeMs: number[] = [];
   const frameMs: number[] = [];
+  const slowFrames: string[] = [];
   const recordFrame = (
     decode: number | null,
     renderEncode: number,
-    frame: number | null
+    frame: number | null,
+    time: number,
+    decodeWait: number,
+    gcCount: number,
+    gcMs: number
   ) => {
     renderEncodeMs.push(renderEncode);
     if (decode != null && frame != null) {
       decodeMs.push(decode);
       frameMs.push(frame);
+      if (decode > SLOW_DECODE_MS && slowFrames.length < MAX_SLOW_FRAMES) {
+        slowFrames.push(
+          `${time.toFixed(2)}s ${Math.round(decode)}ms ` +
+            `(native ${Math.round(decodeWait)}, ` +
+            `gc ${gcCount}/${Math.round(gcMs)}ms)`
+        );
+      }
     }
   };
   const runId = Math.random();
   const outPath = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/rnskv-benchmark-${Date.now()}.mp4`;
 
+  const draw = scenario.sequence
+    ? drawSequence
+    : scenario.clips.length > 0
+      ? drawItemsGrid
+      : drawTestPattern;
   const start = performance.now();
   await exportVideoComposition<number>({
     videoComposition: buildComposition(
@@ -221,11 +266,14 @@ export const runExportScenario = async (
       undefined,
       scenario.sequence
     ),
-    drawFrame: scenario.sequence
-      ? drawSequence
-      : scenario.clips.length > 0
-        ? drawItemsGrid
-        : drawTestPattern,
+    drawFrame: (info) => {
+      'worklet';
+      // The time of the frame, for afterDrawFrame.
+      (
+        globalThis as unknown as { __rnskvBenchmarkTime?: number }
+      ).__rnskvBenchmarkTime = info.currentTime;
+      draw(info);
+    },
     beforeDrawFrame: () => {
       'worklet';
       return performance.now();
@@ -237,18 +285,26 @@ export const runExportScenario = async (
       const state = globalThis as unknown as {
         __rnskvBenchmarkRun?: number;
         __rnskvBenchmarkFrameEnd?: number;
+        __rnskvBenchmarkTime?: number;
+        __rnskvBenchmarkGC?: { count: number; ms: number };
+        __rnskvExportDecodeWaitMs?: number;
       };
-      const previousEnd =
-        state.__rnskvBenchmarkRun === runId
-          ? state.__rnskvBenchmarkFrameEnd
-          : undefined;
+      const sameRun = state.__rnskvBenchmarkRun === runId;
+      const previousEnd = sameRun ? state.__rnskvBenchmarkFrameEnd : undefined;
+      const gc = readGCStats();
+      const previousGC = (sameRun ? state.__rnskvBenchmarkGC : undefined) ?? gc;
       state.__rnskvBenchmarkRun = runId;
       state.__rnskvBenchmarkFrameEnd = end;
+      state.__rnskvBenchmarkGC = gc;
       scheduleOnRN(
         recordFrame,
         previousEnd == null ? null : drawStart - previousEnd,
         end - drawStart,
-        previousEnd == null ? null : end - previousEnd
+        previousEnd == null ? null : end - previousEnd,
+        state.__rnskvBenchmarkTime ?? 0,
+        state.__rnskvExportDecodeWaitMs ?? 0,
+        gc.count - previousGC.count,
+        gc.ms - previousGC.ms
       );
     },
     abortSignal,
@@ -279,6 +335,7 @@ export const runExportScenario = async (
     frameMs: summarize(frameMs),
     decodeMs: summarize(decodeMs),
     renderEncodeMs: summarize(renderEncodeMs),
+    slowFrames: slowFrames.length > 0 ? slowFrames.join('; ') : 'none',
     fileSize,
   };
 };

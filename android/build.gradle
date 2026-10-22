@@ -44,6 +44,9 @@ tasks.all({ task ->
   }
 })
 
+// The lowest Android version the library supports (see minSdkVersion).
+def MIN_SDK_VERSION = 28
+
 def getExtOrDefault(name) {
   return rootProject.ext.has(name) ? rootProject.ext.get(name) : project.properties["ReactNativeSkiaVideo_" + name]
 }
@@ -64,7 +67,11 @@ android {
   compileSdkVersion getExtOrIntegerDefault("compileSdkVersion")
 
   defaultConfig {
-    minSdkVersion getExtOrIntegerDefault("minSdkVersion")
+    // Android 9: Image.getHardwareBuffer, the decoders' frames handed to
+    // React Native Skia's device (see ImageReaderFrameExtractor). An app with a
+    // lower minimum fails to build (manifest merger) rather than crashing on
+    // older devices.
+    minSdkVersion Math.max(getExtOrIntegerDefault("minSdkVersion"), MIN_SDK_VERSION)
     targetSdkVersion getExtOrIntegerDefault("targetSdkVersion")
     consumerProguardFiles "proguard-rules.pro"
 

@@ -105,14 +105,14 @@ VideoComposition::fromJSIObject(jsi::Runtime& runtime,
           audioVolume = volumeProp.asNumber();
         }
       }
-      if (jsItem.hasProperty(runtime, "fadeIn")) {
-        auto fadeInProp = jsItem.getProperty(runtime, "fadeIn");
+      if (jsItem.hasProperty(runtime, "audioFadeIn")) {
+        auto fadeInProp = jsItem.getProperty(runtime, "audioFadeIn");
         if (fadeInProp.isNumber()) {
           audioFadeIn = fadeInProp.asNumber();
         }
       }
-      if (jsItem.hasProperty(runtime, "fadeOut")) {
-        auto fadeOutProp = jsItem.getProperty(runtime, "fadeOut");
+      if (jsItem.hasProperty(runtime, "audioFadeOut")) {
+        auto fadeOutProp = jsItem.getProperty(runtime, "audioFadeOut");
         if (fadeOutProp.isNumber()) {
           audioFadeOut = fadeOutProp.asNumber();
         }

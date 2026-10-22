@@ -27,8 +27,6 @@ public:
 
   void makeGLContextCurrent() const;
 
-  void encodePixels(uint8_t* pixels, size_t size, jdouble time) const;
-
   AHardwareBuffer* beginFrame() const;
 
   void endFrame(jdouble time) const;

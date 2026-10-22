@@ -1,6 +1,5 @@
 package com.azzapp.rnskv;
 
-import android.graphics.Bitmap;
 import android.hardware.HardwareBuffer;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
@@ -56,8 +55,6 @@ public class VideoEncoder {
   private EGLResourcesHolder eglResourcesHolder;
 
   private TextureRenderer textureRenderer;
-
-  private int pixelsTexture = 0;
 
   // The buffer React Native Skia draws the frames into (beginFrame/endFrame).
   private HardwareBufferTexture frameTexture;
@@ -125,22 +122,47 @@ public class VideoEncoder {
     bufferInfo = new MediaCodec.BufferInfo();
   }
 
-  /**
-   * Configures encoder and muxer state, and prepares the input Surface.
-   */
-  public void prepare() throws IOException {
-    encoder = encoderName != null
+  private MediaCodec createEncoder() throws IOException {
+    return encoderName != null
       ? MediaCodec.createByCodecName(encoderName)
       : MediaCodec.createEncoderByType(MIME_TYPE);
+  }
 
+  /**
+   * @param asFastAsPossible whether the encoder encodes as fast as it can, as Media3's Transformer
+   *                         configures its own, rather than in real time (KEY_PRIORITY) at the
+   *                         frame rate of the video (KEY_OPERATING_RATE): an export asks for
+   *                         frames faster than real time.
+   */
+  private MediaFormat createFormat(boolean asFastAsPossible) {
     MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, width, height);
     format.setInteger(MediaFormat.KEY_COLOR_FORMAT,
       MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
     format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
     format.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate);
     format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, DEFAULT_I_FRAME_INTERVAL_SECONDS);
+    if (asFastAsPossible) {
+      format.setInteger(MediaFormat.KEY_PRIORITY, 1);
+      // Above what any encoder reaches, without overflowing the computations of some
+      // (Integer.MAX_VALUE does).
+      format.setInteger(MediaFormat.KEY_OPERATING_RATE, 1000);
+    }
+    return format;
+  }
 
-    encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+  /**
+   * Configures encoder and muxer state, and prepares the input Surface.
+   */
+  public void prepare() throws IOException {
+    encoder = createEncoder();
+    try {
+      encoder.configure(createFormat(true), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+    } catch (RuntimeException e) {
+      Log.w(TAG, "The encoder rejected the export settings, configured without them", e);
+      encoder.release();
+      encoder = createEncoder();
+      encoder.configure(createFormat(false), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+    }
 
     inputSurface = encoder.createInputSurface();
     eglResourcesHolder = EGLResourcesHolder.createWithWindowedSurface(inputSurface);
@@ -196,35 +218,6 @@ public class VideoEncoder {
 
   public void makeGLContextCurrent() {
     eglResourcesHolder.makeCurrent();
-  }
-
-  /**
-   * Encodes a frame given as pixels.
-   *
-   * @param pixels the RGBA premultiplied pixels of the frame, width × height without row padding
-   * @param time   the presentation time of the frame in seconds
-   */
-  public void encodePixels(ByteBuffer pixels, double time) {
-    if (pixelsTexture == 0) {
-      int[] texIds = new int[1];
-      GLES20.glGenTextures(1, texIds, 0);
-      pixelsTexture = texIds[0];
-      EGLUtils.configureTexture(GLES20.GL_TEXTURE_2D, pixelsTexture);
-      GLES20.glTexImage2D(
-        GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0,
-        GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null
-      );
-    }
-    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, pixelsTexture);
-    GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 4);
-    // glTexSubImage2D copies the pixels before returning: the caller can
-    // reuse its buffer afterwards.
-    GLES20.glTexSubImage2D(
-      GLES20.GL_TEXTURE_2D, 0, 0, 0, width, height,
-      GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels
-    );
-    EGLUtils.checkGlError("VideoEncoder.encodePixels()");
-    encodeFrame(pixelsTexture, time);
   }
 
   /**
@@ -482,30 +475,5 @@ public class VideoEncoder {
       pendingVideoSamples.clear();
       pendingAudioSamples.clear();
     }
-  }
-
-  public Bitmap saveTexture(int texture, int width, int height) {
-    int[] frame = new int[1];
-    GLES20.glGenFramebuffers(1, frame, 0);
-    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frame[0]);
-    GLES20.glFramebufferTexture2D(
-      GLES20.GL_FRAMEBUFFER,
-      GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, texture,
-      0
-    );
-
-    ByteBuffer buffer = ByteBuffer.allocate(width * height * 4);
-    GLES20.glReadPixels(
-      0, 0, width, height, GLES20.GL_RGBA,
-      GLES20.GL_UNSIGNED_BYTE, buffer
-    );
-
-    Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-    bitmap.copyPixelsFromBuffer(buffer);
-
-    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
-    GLES20.glDeleteFramebuffers(1, frame, 0);
-
-    return bitmap;
   }
 }

@@ -57,7 +57,8 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
   // GPU when the frame is drawn into a texture (React Native WebGPU's
   // importExternalTexture), which needs IOSurface-backed buffers. The frames
   // are SDR BT.709, HDR video (an iPhone's HLG) tone mapped by VideoToolbox:
-  // the GPU conversion applies the BT.709 matrix only (see frameImages.ts).
+  // the GPU conversion applies the BT.709 matrix only (see
+  // src/frameImages/gpuConversion.ts).
   NSDictionary* pixBuffAttributes = @{
     (id)kCVPixelBufferPixelFormatTypeKey :
         @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
@@ -151,8 +152,13 @@ double VideoCompositionItemDecoder::mapSourceTimeToTarget(CMTime sourceTime) {
 
 #define DECODER_INPUT_TIME_ADVANCE 0.1
 
-void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
+void VideoCompositionItemDecoder::advanceDecoder(
+    CMTime currentTime, bool decodeNextLoop,
+    std::optional<uint64_t> expectedGeneration) {
   @synchronized(lock) {
+    if (expectedGeneration && *expectedGeneration != generation) {
+      return;
+    }
     CMTime startTime = CMTimeMakeWithSeconds(item->startTime, NSEC_PER_SEC);
     CMTime compositionStartTime =
         CMTimeMakeWithSeconds(item->compositionStartTime, NSEC_PER_SEC);
@@ -186,7 +192,8 @@ void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
       std::lock_guard<std::mutex> frames(framesMutex);
       looped = hasLooped;
     }
-    if (realTime && CMTimeCompare(endTime, inputPosition) < 0 && !looped) {
+    if (decodeNextLoop && CMTimeCompare(endTime, inputPosition) < 0 &&
+        !looped) {
       setupReader(kCMTimeZero);
       {
         std::lock_guard<std::mutex> frames(framesMutex);
@@ -325,6 +332,7 @@ void VideoCompositionItemDecoder::seekTo(CMTime currentTime) {
 
 void VideoCompositionItemDecoder::release() {
   @synchronized(lock) {
+    generation++;
     if (assetReader) {
       [assetReader cancelReading];
       assetReader = nullptr;
@@ -350,6 +358,10 @@ void VideoCompositionItemDecoder::releaseFrames() {
   nextLoopFrames.clear();
 }
 
-VideoCompositionItemDecoder::~VideoCompositionItemDecoder() {}
+VideoCompositionItemDecoder::~VideoCompositionItemDecoder() {
+  // The decoded frames are retained sample buffers: ARC doesn't release them.
+  std::lock_guard<std::mutex> frames(framesMutex);
+  releaseFrames();
+}
 
 } // namespace RNSkiaVideo

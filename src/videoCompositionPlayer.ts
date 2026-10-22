@@ -14,16 +14,15 @@ import type {
   VideoFrame,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
-import { checkYUVFramesSupport } from './yuvFrames';
 import {
   createFrameImagesKey,
   getFrameImageContext,
   makeVideoFrames,
   releaseFrameImages,
+  type FrameImageContext,
 } from './frameImages';
 import useEventListener from './utils/useEventListener';
 import reportFrameError from './utils/reportFrameError';
-import disposeCanvas from './utils/disposeCanvas';
 import { PixelRatio } from 'react-native';
 
 type UseVideoCompositionPlayerOptions<T = undefined> = {
@@ -112,65 +111,6 @@ export const useVideoCompositionPlayer = <T = undefined>({
   onError,
 }: UseVideoCompositionPlayerOptions<T>): UseVideoCompositionPlayerReturnType => {
   const [isErrored, setIsErrored] = useState(false);
-  const framesExtractor = useMemo(() => {
-    if (composition && !isErrored) {
-      return RNSkiaVideoModule.createVideoCompositionFramesExtractor(
-        composition
-      );
-    }
-    return null;
-  }, [isErrored, composition]);
-
-  useEffect(() => {
-    runOnUI(() => {
-      framesExtractor?.prepare();
-    })();
-  }, [framesExtractor]);
-
-  const frameImageContext = useMemo(() => {
-    const context = getFrameImageContext();
-    checkYUVFramesSupport(context);
-    return context;
-  }, []);
-  const framesKey = useMemo(() => createFrameImagesKey(), []);
-
-  // The offscreen surface the frames are drawn into. `currentFrame` is its
-  // image (surface.asImage()): the same image for every frame, sharing the
-  // texture of the surface.
-  const surfaceSharedValue = useSharedValue<SkSurface | null>(null);
-  // The canvas of the surface, made once: each getCanvas() call makes a new
-  // canvas, which keeps the surface alive until the UI runtime collects it.
-  const canvasSharedValue = useSharedValue<SkCanvas | null>(null);
-  const currentFrame = useSharedValue<SkImage | null>(null);
-  useEffect(
-    () => () => {
-      framesExtractor?.dispose();
-      runOnUI(() => {
-        'worklet';
-        releaseFrameImages(framesKey);
-        // Released now rather than when the UI runtime collects them: a
-        // collected surface is only destroyed once the UI thread creates
-        // another Skia surface or image.
-        const frame = currentFrame.value;
-        currentFrame.value = null;
-        frame?.dispose();
-        const surface = surfaceSharedValue.value;
-        surfaceSharedValue.value = null;
-        const canvas = canvasSharedValue.value;
-        canvasSharedValue.value = null;
-        disposeCanvas(canvas);
-        surface?.dispose();
-      })();
-    },
-    [
-      canvasSharedValue,
-      currentFrame,
-      framesExtractor,
-      framesKey,
-      surfaceSharedValue,
-    ]
-  );
-
   const retry = useCallback(() => {
     setIsErrored(false);
   }, []);
@@ -181,6 +121,84 @@ export const useVideoCompositionPlayer = <T = undefined>({
       setIsErrored(true);
     },
     [onError, retry]
+  );
+
+  // The context the frames are turned into images with comes first: on a
+  // device whose GPU can't draw them, there is no player, and the error goes
+  // to onError (below) rather than failing the render.
+  const { framesExtractor, frameImageContext, contextError } = useMemo(() => {
+    if (!composition || isErrored) {
+      return {
+        framesExtractor: null,
+        frameImageContext: null,
+        contextError: null,
+      };
+    }
+    let context: FrameImageContext;
+    try {
+      context = getFrameImageContext();
+    } catch (error) {
+      return {
+        framesExtractor: null,
+        frameImageContext: null,
+        contextError: { error },
+      };
+    }
+    return {
+      framesExtractor:
+        RNSkiaVideoModule.createVideoCompositionFramesExtractor(composition),
+      frameImageContext: context,
+      contextError: null,
+    };
+  }, [isErrored, composition]);
+
+  useEffect(() => {
+    if (contextError) {
+      errorHandler(contextError.error);
+    }
+  }, [contextError, errorHandler]);
+
+  useEffect(() => {
+    runOnUI(() => {
+      framesExtractor?.prepare();
+    })();
+  }, [framesExtractor]);
+
+  const framesKey = useMemo(() => createFrameImagesKey(), []);
+
+  // The offscreen surface the frames are drawn into. `currentFrame` is its
+  // image (surface.asImage()): the same image for every frame, sharing the
+  // texture of the surface.
+  const surfaceSharedValue = useSharedValue<SkSurface | null>(null);
+  // The canvas of the surface.
+  const canvasSharedValue = useSharedValue<SkCanvas | null>(null);
+  const currentFrame = useSharedValue<SkImage | null>(null);
+  useEffect(
+    () => () => {
+      framesExtractor?.dispose();
+      runOnUI(() => {
+        'worklet';
+        releaseFrameImages(framesKey);
+        // Released now rather than when the UI runtime collects them: a
+        // collected surface is only destroyed once the UI thread creates
+        // another Skia surface or image. Disposing the surface detaches its
+        // canvas, which no longer keeps it alive.
+        const frame = currentFrame.value;
+        currentFrame.value = null;
+        frame?.dispose();
+        const surface = surfaceSharedValue.value;
+        surfaceSharedValue.value = null;
+        canvasSharedValue.value = null;
+        surface?.dispose();
+      })();
+    },
+    [
+      canvasSharedValue,
+      currentFrame,
+      framesExtractor,
+      framesKey,
+      surfaceSharedValue,
+    ]
   );
 
   useEffect(() => {
@@ -202,7 +220,7 @@ export const useVideoCompositionPlayer = <T = undefined>({
   const pixelRatio = PixelRatio.get();
   useFrameCallback(() => {
     'worklet';
-    if (!framesExtractor) {
+    if (!framesExtractor || !frameImageContext) {
       return;
     }
 
@@ -231,52 +249,66 @@ export const useVideoCompositionPlayer = <T = undefined>({
       frames = makeVideoFrames(
         frameImageContext,
         framesKey,
-        framesExtractor.decodeCompositionFrames()
+        framesExtractor.decodeCompositionFrames(),
+        (itemId, error) =>
+          reportFrameError(
+            `failed to turn the frame of the item ${itemId} into an image`,
+            error
+          )
       );
     } catch (error) {
       reportFrameError('failed to turn the decoded frames into images', error);
     }
-    // The surface, hence its canvas, is kept from frame to frame: a drawing
-    // interrupted by an exception must not leave its save() calls behind.
-    const saveCount = canvas.save();
     let context: T;
     try {
       context = beforeDrawFrame?.() as T;
-      drawFrame({
-        canvas,
-        context,
-        videoComposition: composition!,
-        currentTime: framesExtractor.currentTime,
-        frames,
-        width: width * pixelRatio,
-        height: height * pixelRatio,
-      });
     } catch (error) {
-      canvas.restoreToCount(saveCount);
-      reportFrameError('failed to draw the composition frame', error);
+      reportFrameError('beforeDrawFrame failed', error);
       return;
     }
-    canvas.restoreToCount(saveCount);
     try {
-      // Submits the frame's recording: the image shares the texture of the
-      // surface (no copy), so a canvas drawing it shows this frame once the
-      // drawing reaches the GPU.
-      surface.flush();
-      if (currentFrame.value == null) {
-        currentFrame.value = surface.asImage();
-      } else {
-        // The image keeps the same identity from frame to frame, so the
-        // listeners (the Skia canvas) must be forced to re-run.
-        currentFrame.modify(undefined, true);
+      // The surface, hence its canvas, is kept from frame to frame: a drawing
+      // interrupted by an exception must not leave its save() calls behind.
+      const saveCount = canvas.save();
+      try {
+        drawFrame({
+          canvas,
+          context,
+          videoComposition: composition!,
+          currentTime: framesExtractor.currentTime,
+          frames,
+          width: width * pixelRatio,
+          height: height * pixelRatio,
+        });
+      } catch (error) {
+        reportFrameError('failed to draw the composition frame', error);
+        return;
+      } finally {
+        canvas.restoreToCount(saveCount);
       }
-    } catch (error) {
-      console.warn('Failed to flush the composition frame', error);
-      return;
-    }
-    try {
-      afterDrawFrame?.(context);
-    } catch (error) {
-      reportFrameError('afterDrawFrame failed', error);
+      try {
+        // Submits the frame's recording: the image shares the texture of the
+        // surface (no copy), so a canvas drawing it shows this frame once the
+        // drawing reaches the GPU.
+        surface.flush();
+        if (currentFrame.value == null) {
+          currentFrame.value = surface.asImage();
+        } else {
+          // The image keeps the same identity from frame to frame, so the
+          // listeners (the Skia canvas) must be forced to re-run.
+          currentFrame.modify(undefined, true);
+        }
+      } catch (error) {
+        console.warn('Failed to flush the composition frame', error);
+      }
+    } finally {
+      // Also when the frame could not be drawn: what beforeDrawFrame made for
+      // the frame is released all the same.
+      try {
+        afterDrawFrame?.(context);
+      } catch (error) {
+        reportFrameError('afterDrawFrame failed', error);
+      }
     }
   }, true);
 

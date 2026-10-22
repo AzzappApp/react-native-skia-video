@@ -67,20 +67,27 @@ jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
               auto itemId = entry.first;
               auto decoder = entry.second;
 
-              // Only the live items are decoded and their frames handed out
-              // (see the frames extractor of the player): the readers of the
-              // others are released.
-              if (!decoder->getItem()->isLiveAt(
-                      CMTimeGetSeconds(currentTime))) {
+              // Only the live items' frames are handed out, and the items
+              // are only decoded up to their end (see isDecodedAt): the
+              // readers of the others are released.
+              auto item = decoder->getItem();
+              double seconds = CMTimeGetSeconds(currentTime);
+              bool decoded =
+                  item->isLiveAt(seconds) && item->isDecodedAt(seconds);
+              if (!decoded) {
                 decoder->release();
+              }
+              if (!item->isLiveAt(seconds)) {
                 currentFrames.erase(itemId);
                 continue;
               }
-              try {
-                decoder->advanceDecoder(currentTime);
-              } catch (NSError* error) {
-                pendingError = describeNSError(error);
-                break;
+              if (decoded) {
+                try {
+                  decoder->advanceDecoder(currentTime);
+                } catch (NSError* error) {
+                  pendingError = describeNSError(error);
+                  break;
+                }
               }
 
               auto previousFrame = currentFrames[itemId];

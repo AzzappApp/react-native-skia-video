@@ -1,3 +1,8 @@
+// GPUDevice, GPUTexture and the other GPU* types are the standard WebGPU
+// types: @webgpu/types declares them as globals, as TypeScript's DOM library
+// does for the browser, and React Native WebGPU's own types build on them.
+// There is no module to import them from.
+/// <reference types="@webgpu/types" />
 import type { SkCanvas, SkImage } from 'react-native-skia';
 
 /**
@@ -15,21 +20,26 @@ export type VideoFrame = {
   image: SkImage;
   /**
    * The WebGPU texture the image samples, on Skia's device: for a WebGPU pass
-   * that reads the frame (the same pixels as `image`, unrotated), without a
-   * copy. Owned by the player like the image, and overwritten by the next
-   * frame: sample it in the frame it was handed out with, don't destroy it.
+   * that reads the frame (the same pixels as `image`, oriented the same way,
+   * see `rotation`), without a copy. Owned by the player like the image, and
+   * overwritten by the next frame: sample it in the frame it was handed out
+   * with, don't destroy it.
    */
   texture: GPUTexture;
   /**
-   * The width in pixels of the frame.
+   * The width in pixels of the image (see `rotation`).
    */
   width: number;
   /**
-   * The height in pixels of the frame.
+   * The height in pixels of the image (see `rotation`).
    */
   height: number;
   /**
-   * The rotation in degrees of the frame.
+   * The clockwise rotation in degrees (0, 90, 180 or 270) to apply to the
+   * image to display it upright. iOS: the rotation of the video, the image
+   * being as stored in the file (a portrait phone clip is a 1920×1080 image
+   * with a rotation of 90). Android: always 0, the frame being rotated upright
+   * when it is converted (the same clip is a 1080×1920 image).
    */
   rotation: number;
 };
@@ -54,21 +64,10 @@ export type DecodedFrame = {
    */
   id?: number;
   /**
-   * Android only: the sync fence (a sync_file descriptor, as a `BigInt`)
-   * signaled once the decoder is done rendering the frame into `buffer`. The
-   * buffer must not be read before. Owned by the frame.
-   */
-  readyFence?: bigint;
-  /**
-   * Android only: waits on the CPU for `readyFence`, for a device that cannot
-   * wait for it on the GPU.
-   */
-  waitForReady?: () => void;
-  /**
-   * Android only, a frame in a buffer of its decoder, in the decoder's own
-   * YUV layout: the region of `buffer` holding the frame (decoders pad their
-   * buffers) and the clockwise rotation to apply to it. The library converts
-   * it to RGB on the GPU, rotated and scaled to `width` × `height`.
+   * Android only, the frame is in a buffer of its decoder, in the decoder's
+   * own YUV layout: the region of `buffer` holding the frame (decoders pad
+   * their buffers) and the clockwise rotation to apply to it. The library
+   * converts it to RGB on the GPU, rotated and scaled to `width` × `height`.
    */
   yuv?: {
     x: number;
@@ -78,40 +77,42 @@ export type DecodedFrame = {
     rotation: number;
   };
   /**
-   * Hands the native buffer back to the decoder, once its pixels were copied.
-   * On Android, `fences` are the sync fences (sync_file descriptors, as
-   * `BigInt`s, whose ownership is transferred) signaled once the buffer is
-   * read: the decoder waits for them before rendering into the buffer again.
+   * Drops the frame's reference on the native buffer once its pixels were
+   * converted, rather than when the frame is garbage collected: on iOS it
+   * hands the buffer back to the decoder.
    */
-  release?: (fences?: bigint[]) => void;
+  release?: () => void;
   /**
-   * The width in pixels of the frame.
+   * The width in pixels of the frame, as `VideoFrame.width`.
    */
   width: number;
   /**
-   * The height in pixels of the frame.
+   * The height in pixels of the frame, as `VideoFrame.height`.
    */
   height: number;
   /**
-   * The rotation in degrees of the frame.
+   * The rotation of the frame, as `VideoFrame.rotation`: always 0 on Android,
+   * where `yuv.rotation` is the rotation the conversion applies.
    */
   rotation: number;
 };
 
 /**
- * Represents the dimensions of a video.
+ * Represents the dimensions of a video, as those of its frames (see
+ * `VideoFrame.rotation`).
  */
 export type VideoDimensions = {
   /**
-   * The width in pixels of the video.
+   * The width in pixels of the video's frames.
    */
   width: number;
   /**
-   * The height in pixels of the video.
+   * The height in pixels of the video's frames.
    */
   height: number;
   /**
-   * The rotation in degrees of the video.
+   * The clockwise rotation in degrees to apply to the video's frames to
+   * display them upright: the video's on iOS, always 0 on Android.
    */
   rotation: number;
 };
@@ -317,16 +318,16 @@ export type VideoCompositionAudioItem = VideoCompositionItemBase & {
    */
   volume?: number;
   /**
-   * A fade in, in seconds from the start of the item: its volume ramps
-   * linearly from 0 to `volume`, during playback and in the export.
+   * An audio fade in, in seconds from the start of the item: its volume
+   * ramps linearly from 0 to `volume`, during playback and in the export.
    * Defaults to 0 (no fade).
    */
-  fadeIn?: number;
+  audioFadeIn?: number;
   /**
-   * A fade out, in seconds before the end of the item: its volume ramps
-   * linearly from `volume` to 0. Defaults to 0 (no fade).
+   * An audio fade out, in seconds before the end of the item: its volume
+   * ramps linearly from `volume` to 0. Defaults to 0 (no fade).
    */
-  fadeOut?: number;
+  audioFadeOut?: number;
 };
 
 export type VideoCompositionItem =
@@ -465,26 +466,15 @@ export type VideoEncoder = {
    */
   prepare(): void;
   /**
-   * Encodes a frame to the video.
-   *
-   * @param pixels The pixels of the frame, `width × height` premultiplied
-   * 32 bits pixels without row padding, in BGRA order on iOS and RGBA order on
-   * Android. The encoder copies them before returning.
-   * @param time The presentation time of the frame in seconds.
-   */
-  encodeFrame(pixels: Uint8Array, time: number): void;
-  /**
-   * Hands out a buffer of the encoder for the next frame, to render into:
+   * Hands out the buffer of the encoder for the next frame, to render into:
    * the `IOSurfaceRef` of the BGRA buffer the encoder converts every frame
-   * from on iOS (`endFrame` appends an NV12 conversion of it, a BGRA copy
-   * before iOS 16: the encoder may still be reading a frame when the next one
-   * is drawn), the
-   * `AHardwareBuffer*` the encoder
-   * reads every frame from on Android, as a `BigInt` pointer. The buffers
-   * can be imported once and reused.
-   * The frame is encoded by `endFrame`.
+   * from on iOS (`endFrame` appends an NV12 conversion of it: the encoder may
+   * still be reading a frame when the next one is drawn), the
+   * `AHardwareBuffer*` the encoder reads every frame from on
+   * Android, as a `BigInt` pointer. It is the same buffer for every frame: it
+   * can be imported once. The frame is encoded by `endFrame`.
    */
-  beginFrame?: () => bigint;
+  beginFrame(): bigint;
   /**
    * Encodes the frame rendered into the buffer handed out by `beginFrame`.
    * The rendering must be complete (flushed synchronously).
@@ -495,7 +485,7 @@ export type VideoEncoder = {
    * Native WebGPU exports at the end of its access to the buffer. The encoder
    * takes ownership of them.
    */
-  endFrame?: (time: number, fences?: bigint[]) => void;
+  endFrame(time: number, fences?: bigint[]): void;
   /*
    * Finish writing the video to the output file.
    */
@@ -626,27 +616,10 @@ export type RNSkiaVideoModule = {
    * Android: total PSS), or null if unavailable. Slow on Android: meant for
    * benchmarks, not to be called per frame.
    *
-   * Not part of the public API (exposed through `__RNSkiaVideoPrivateAPI`).
+   * Not part of the public API: read through `__RNSkiaVideoBenchmark`, in
+   * development builds or once enabled (see benchmarkStats.ts).
    */
-  getMemoryFootprint?: () => number | null;
-  /**
-   * Android: whether the composition decoders prepared from now on hand
-   * their frames over in their own YUV buffers, converted to RGB on Skia's
-   * device, rather than rendered into RGBA buffers with OpenGL. Needs Android
-   * 10 and a device with the `opaque-ycbcr-android-for-external-texture`
-   * feature. By default, enabled when Skia's device has it.
-   *
-   * Not part of the public API (exposed through `__RNSkiaVideoPrivateAPI`).
-   */
-  setYUVFramesEnabled?: (enabled: boolean) => void;
-  /**
-   * Android: tells the native side whether Skia's device can sample the YUV
-   * buffers of the decoders (see `setYUVFramesEnabled`). Called by the
-   * library itself.
-   *
-   * Not part of the public API.
-   */
-  setYUVFramesSupported?: (supported: boolean) => void;
+  getMemoryFootprint: () => number | null;
   /**
    * Returns the decoding capabilities of the current platform for the specified mimetype.
    *

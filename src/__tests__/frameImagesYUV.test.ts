@@ -1,6 +1,7 @@
 import type { FrameImageContext } from '../frameImages';
 import {
   makeVideoFrame,
+  makeVideoFrames,
   releaseFrameImages,
   uprightCrop,
 } from '../frameImages';
@@ -303,5 +304,76 @@ describe('releaseFrameImages with YUV frames', () => {
       wrappers[1]!.destroy.mock.invocationCallOrder[0]!
     );
     expect(device.queue.onSubmittedWorkDone).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('makeVideoFrames with YUV frames', () => {
+  it('releases the imported buffers of the items without a frame a few per frame', () => {
+    const { context, wrappers, nativeFrames } = makeContext();
+    const key = makeKey();
+    // The item `a` renders into 5 buffers in turn, `b` into one.
+    for (let id = 1; id <= 5; id++) {
+      makeVideoFrames(context, key, {
+        a: makeYUVFrame(id, 0, 1920, 1080),
+        b: makeYUVFrame(10, 0, 1920, 1080),
+      });
+    }
+    expect(wrappers).toHaveLength(6);
+    const wrappersA = wrappers.filter((_, i) => i !== 1);
+    const released = () =>
+      wrappersA.filter((wrapper) => wrapper.destroy.mock.calls.length > 0)
+        .length;
+
+    // The item `a` is no longer live: 2 of its buffers are released per frame.
+    makeVideoFrames(context, key, { b: makeYUVFrame(10, 0, 1920, 1080) });
+    expect(released()).toBe(2);
+    makeVideoFrames(context, key, { b: makeYUVFrame(10, 0, 1920, 1080) });
+    expect(released()).toBe(4);
+    expect(wrappers[1]!.destroy).not.toHaveBeenCalled();
+
+    // The rest is released with the key.
+    releaseFrameImages(key);
+    expect(released()).toBe(5);
+    wrappers.forEach((wrapper) => {
+      expect(wrapper.destroy).toHaveBeenCalledTimes(1);
+    });
+    nativeFrames.forEach((nativeFrame) => {
+      expect(nativeFrame.release).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('leaves out the frame of an item that cannot be made, with onError', () => {
+    const { context } = makeContext();
+    const broken: DecodedFrame = {
+      ...makeYUVFrame(2, 0, 1920, 1080),
+      yuv: undefined,
+    };
+    const onError = jest.fn();
+
+    const frames = makeVideoFrames(
+      context,
+      makeKey(),
+      {
+        a: makeYUVFrame(1, 0, 1920, 1080),
+        b: broken,
+        c: makeYUVFrame(3, 0, 1920, 1080),
+      },
+      onError
+    );
+
+    expect(Object.keys(frames)).toEqual(['a', 'c']);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith('b', expect.any(Error));
+    expect(broken.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws for an item that cannot be made, without onError', () => {
+    const { context } = makeContext();
+
+    expect(() =>
+      makeVideoFrames(context, makeKey(), {
+        a: { ...makeYUVFrame(1, 0, 1920, 1080), yuv: undefined },
+      })
+    ).toThrow('no YUV layout');
   });
 });
