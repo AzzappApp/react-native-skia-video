@@ -82,9 +82,21 @@ type FrameDrawer<T = undefined> = (args: {
 | Field | Type | Description |
 | --- | --- | --- |
 | `image` | `SkImage` | The frame, backed by a GPU texture of Skia's device. Owned by the player and only valid until the next frame is produced. |
-| `texture` | `GPUTexture` | The texture `image` samples, for a WebGPU pass that reads the frame without a copy (unrotated). Same lifetime as `image`; never destroy it. |
-| `width` / `height` | `number` | Frame size in pixels, as stored. |
-| `rotation` | `number` | Display rotation in degrees (0, 90, 180, 270). |
+| `texture` | `GPUTexture` | The texture `image` samples, for a WebGPU pass that reads the frame without a copy (oriented as `image`). Same lifetime as `image`; never destroy it. |
+| `width` / `height` | `number` | Size in pixels of `image`. |
+| `rotation` | `number` | Clockwise rotation in degrees (0, 90, 180, 270) to apply to `image` to display it upright. iOS: the video's, `image` being as stored in the file (a portrait phone clip is 1920×1080, rotation 90). Android: always 0, `image` is already upright (the same clip is 1080×1920). |
+
+## DecodedFrame
+
+Low level: what `decodeNextFrame()` and `decodeCompositionFrames()` return, a
+frame in a native buffer of its decoder, turned into a `VideoFrame` by the
+library.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `buffer` | `bigint \| undefined` | `CVPixelBufferRef` (iOS) or `AHardwareBuffer*` (Android) pointer. |
+| `width` / `height` / `rotation` | `number` | As those of the `VideoFrame` it becomes. |
+| `yuv` | `{ x, y, width, height, rotation }?` | Android: the region of `buffer` holding the frame and the rotation its conversion applies. |
 
 ## VideoPlayer
 
@@ -114,6 +126,11 @@ playback subset).
 | `audioBitRate` | `number?` | `128000` | AAC bit rate (compositions with audio). |
 | `audioSampleRate` | `number?` | `44100` | AAC sample rate. |
 | `audioChannelCount` | `number?` | `2` | 1 = mono, 2 = stereo. |
+
+The encoder `exportVideoComposition` drives frames with `beginFrame(time)`,
+which on iOS hands out the native buffer to render into (on Android the frame is
+presented to its `nativeWindow`), and `endFrame(time)`, which encodes it (they
+replace `encodeFrame`).
 
 `exportVideoComposition` additionally accepts `drawFrame`,
 `beforeDrawFrame` / `afterDrawFrame`, `onProgress({ framesCompleted, nbFrames })`

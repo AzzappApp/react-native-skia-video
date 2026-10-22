@@ -42,7 +42,8 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "decodeNextFrame"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (released.test()) {
+          auto player = getPlayer();
+          if (!player) {
             return jsi::Value::null();
           }
 
@@ -57,7 +58,7 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "play"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released.test()) {
+          if (auto player = getPlayer()) {
             player->play();
           }
           return jsi::Value::undefined();
@@ -67,7 +68,7 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "pause"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released.test()) {
+          if (auto player = getPlayer()) {
             player->pause();
           }
           return jsi::Value::undefined();
@@ -77,7 +78,8 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "seekTo"), 1,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (released.test()) {
+          auto player = getPlayer();
+          if (!player) {
             return jsi::Value::undefined();
           }
           auto time = arguments[0].asNumber();
@@ -85,19 +87,24 @@ jsi::Value VideoPlayerHostObject::get(jsi::Runtime& runtime,
           return jsi::Value::undefined();
         });
   } else if (propName == "currentTime") {
-    return jsi::Value(
-        released.test() ? 0 : (double)player->getCurrentPosition() / 1000.0);
+    auto player = getPlayer();
+    return jsi::Value(player ? (double)player->getCurrentPosition() / 1000.0
+                             : 0);
   } else if (propName == "duration") {
-    return jsi::Value(released.test() ? 0
-                                      : (double)player->getDuration() / 1000.0);
+    auto player = getPlayer();
+    return jsi::Value(player ? (double)player->getDuration() / 1000.0 : 0);
   } else if (propName == "volume") {
-    return jsi::Value(released.test() ? 0 : (double)player->getVolume());
+    auto player = getPlayer();
+    return jsi::Value(player ? (double)player->getVolume() : 0);
   } else if (propName == "playbackSpeed") {
-    return jsi::Value(released.test() ? 1 : (double)player->getPlaybackSpeed());
+    auto player = getPlayer();
+    return jsi::Value(player ? (double)player->getPlaybackSpeed() : 1);
   } else if (propName == "isLooping") {
-    return jsi::Value(!(released.test()) && player->getIsLooping());
+    auto player = getPlayer();
+    return jsi::Value(player && player->getIsLooping());
   } else if (propName == "isPlaying") {
-    return jsi::Value(!(released.test()) && player->getIsPlaying());
+    auto player = getPlayer();
+    return jsi::Value(player && player->getIsPlaying());
   } else if (propName == "on") {
     return jsi::Function::createFromHostFunction(
         runtime, jsi::PropNameID::forAscii(runtime, "on"), 2,
@@ -132,7 +139,8 @@ void VideoPlayerHostObject::set(facebook::jsi::Runtime& runtime,
                                 const facebook::jsi::PropNameID& propNameId,
                                 const facebook::jsi::Value& value) {
   auto propName = propNameId.utf8(runtime);
-  if (released.test()) {
+  auto player = getPlayer();
+  if (!player) {
     return;
   }
   if (propName == "volume") {
@@ -190,11 +198,22 @@ void VideoPlayerHostObject::handleEvent(std::string eventName,
   }
 }
 
+// A copy: release() can reset the player on the JS thread while it is used on
+// the UI thread. The Java player is safe to call once released.
+jni::global_ref<VideoPlayer> VideoPlayerHostObject::getPlayer() {
+  std::lock_guard<std::mutex> lock(playerMutex);
+  return player;
+}
+
 void VideoPlayerHostObject::release() {
   if (!released.test_and_set()) {
     jEventDispatcher->invalidate();
+    jni::global_ref<VideoPlayer> player;
+    {
+      std::lock_guard<std::mutex> lock(playerMutex);
+      std::swap(player, this->player);
+    }
     player->release();
-    player = nullptr;
     this->removeAllListeners();
     jEventDispatcher = nullptr;
   }

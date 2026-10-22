@@ -18,13 +18,16 @@ public:
                               bool realTime, AVURLAsset* sharedAsset = nil);
   ~VideoCompositionItemDecoder();
   // Decodes the frames up to `currentTime`, setting the reader up first if it
-  // is not (see release). With the generation read when it was started (see
-  // getGeneration), does nothing if the decoder was released since: a decoding
-  // started on another thread before a seek would set the reader up at the
-  // position from before the seek, and one started before the composition is
-  // released would decode frames that nothing releases.
+  // is not (see release). With `decodeNextLoop`, once the item's end is
+  // reached, the reader is set up again at its start and decodes the first
+  // frames of the next loop of the composition ahead. With the generation read
+  // when it was started (see getGeneration), does nothing if the decoder was
+  // released since: a decoding started on another thread before a seek would
+  // set the reader up at the position from before the seek, and one started
+  // before the composition is released would decode frames that nothing
+  // releases.
   void
-  advanceDecoder(CMTime currentTime,
+  advanceDecoder(CMTime currentTime, bool decodeNextLoop = false,
                  std::optional<uint64_t> expectedGeneration = std::nullopt);
   void seekTo(CMTime currentTime);
   std::shared_ptr<VideoFrame> acquireFrameForTime(CMTime currentTime,

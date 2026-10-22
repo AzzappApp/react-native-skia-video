@@ -268,97 +268,102 @@ export const exportVideoComposition = async <T = undefined>({
                 decodedFrames
               );
               const context = beforeDrawFrame?.() as any;
-              if (IS_ANDROID) {
-                windowContext ??= makeWindowContext(
-                  frameImageContext,
-                  currentEncoder,
-                  options.width,
-                  options.height
-                );
-                currentEncoder.beginFrame(currentTime);
-                const targetSurface = Skia.Surface.MakeFromGPUTexture(
-                  windowContext.getCurrentTexture()
-                );
-                const canvas = targetSurface.getCanvas();
-                try {
-                  canvas.drawColor(clearColor, BlendMode.Clear);
-                  drawFrame({
-                    context,
-                    canvas,
-                    videoComposition,
-                    currentTime,
-                    frames,
-                    width: options.width,
-                    height: options.height,
-                  });
-                  // Submits the drawing: the present waits for it on the GPU.
-                  targetSurface.flush();
-                } finally {
-                  // The swapchain's texture changes with each frame: released
-                  // now, its canvas detached with it.
-                  targetSurface.dispose();
-                }
-                windowContext.present();
-                currentEncoder.endFrame(currentTime);
-              } else {
-                const handle = currentEncoder.beginFrame(currentTime)!;
-                let target = targets.find(
-                  (candidate) => candidate.handle === handle
-                );
-                if (target == null) {
-                  const memory =
-                    frameImageContext.device.importSharedTextureMemory({
-                      handle,
-                    });
-                  let texture: GPUTexture | undefined;
+              try {
+                if (IS_ANDROID) {
+                  windowContext ??= makeWindowContext(
+                    frameImageContext,
+                    currentEncoder,
+                    options.width,
+                    options.height
+                  );
+                  currentEncoder.beginFrame(currentTime);
+                  const targetSurface = Skia.Surface.MakeFromGPUTexture(
+                    windowContext.getCurrentTexture()
+                  );
+                  const canvas = targetSurface.getCanvas();
                   try {
-                    texture = memory.createTexture();
-                    const targetSurface =
-                      Skia.Surface.MakeFromGPUTexture(texture);
-                    target = {
-                      handle,
-                      memory,
-                      texture,
-                      surface: targetSurface,
-                      canvas: targetSurface.getCanvas(),
-                    };
-                  } catch (error) {
-                    // Not in `targets` yet: released here rather than when
-                    // the export runtime, idle once the export failed,
-                    // collects it.
-                    texture?.destroy();
-                    memory.destroy();
-                    throw error;
+                    canvas.drawColor(clearColor, BlendMode.Clear);
+                    drawFrame({
+                      context,
+                      canvas,
+                      videoComposition,
+                      currentTime,
+                      frames,
+                      width: options.width,
+                      height: options.height,
+                    });
+                    // Submits the drawing: the present waits for it on the GPU.
+                    targetSurface.flush();
+                  } finally {
+                    // The swapchain's texture changes with each frame: released
+                    // now, its canvas detached with it.
+                    targetSurface.dispose();
                   }
-                  targets.push(target);
-                }
-                target.memory.beginAccess(target.texture, false);
-                try {
-                  target.canvas.drawColor(clearColor, BlendMode.Clear);
-                  drawFrame({
-                    context,
-                    canvas: target.canvas,
-                    videoComposition,
-                    currentTime,
-                    frames,
-                    width: options.width,
-                    height: options.height,
-                  });
-                  // The encoder reads the buffer as soon as it is handed
-                  // back: wait for the GPU to finish drawing into it.
-                  target.surface.flush(true);
-                } finally {
-                  // Releases the fences (MTLSharedEvent) of the access now
-                  // rather than when collected.
-                  for (const { fence } of target.memory.endAccess(
-                    target.texture
-                  ).fences) {
-                    fence.destroy();
+                  windowContext.present();
+                  currentEncoder.endFrame(currentTime);
+                } else {
+                  const handle = currentEncoder.beginFrame(currentTime)!;
+                  let target = targets.find(
+                    (candidate) => candidate.handle === handle
+                  );
+                  if (target == null) {
+                    const memory =
+                      frameImageContext.device.importSharedTextureMemory({
+                        handle,
+                      });
+                    let texture: GPUTexture | undefined;
+                    try {
+                      texture = memory.createTexture();
+                      const targetSurface =
+                        Skia.Surface.MakeFromGPUTexture(texture);
+                      target = {
+                        handle,
+                        memory,
+                        texture,
+                        surface: targetSurface,
+                        canvas: targetSurface.getCanvas(),
+                      };
+                    } catch (error) {
+                      // Not in `targets` yet: released here rather than when
+                      // the export runtime, idle once the export failed,
+                      // collects it.
+                      texture?.destroy();
+                      memory.destroy();
+                      throw error;
+                    }
+                    targets.push(target);
                   }
+                  target.memory.beginAccess(target.texture, false);
+                  try {
+                    target.canvas.drawColor(clearColor, BlendMode.Clear);
+                    drawFrame({
+                      context,
+                      canvas: target.canvas,
+                      videoComposition,
+                      currentTime,
+                      frames,
+                      width: options.width,
+                      height: options.height,
+                    });
+                    // The encoder reads the buffer as soon as it is handed
+                    // back: wait for the GPU to finish drawing into it.
+                    target.surface.flush(true);
+                  } finally {
+                    // Releases the fences (MTLSharedEvent) of the access now
+                    // rather than when collected.
+                    for (const { fence } of target.memory.endAccess(
+                      target.texture
+                    ).fences) {
+                      fence.destroy();
+                    }
+                  }
+                  currentEncoder.endFrame(currentTime);
                 }
-                currentEncoder.endFrame(currentTime);
+              } finally {
+                // Also when the frame could not be drawn: what beforeDrawFrame
+                // made for the frame is released all the same.
+                afterDrawFrame?.(context);
               }
-              afterDrawFrame?.(context);
               if (onProgress) {
                 scheduleOnRN(onProgress, {
                   framesCompleted: i + 1,
