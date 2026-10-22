@@ -220,12 +220,18 @@ public class VideoCompositionDecoder {
    * Renders the video composition at the given position.
    *
    * @param currentPositionUs The current position in microseconds.
+   * @param looping           Whether the composition loops: the items of its start, opened before
+   *                          it loops (see {@link #getDecodingPosition}), render the frames due at
+   *                          the same position of the next loop, their first one, rather than all
+   *                          the frames they decode until the composition loops.
    * @return A map with the rendered times for each item.
    */
-  public synchronized Map<String, Long> render(long currentPositionUs) {
+  public synchronized Map<String, Long> render(long currentPositionUs, boolean looping) {
     Map<String, Long> renderedTimes = new HashMap<>();
     decoders.forEach((item, decoder) -> {
-      renderedTimes.put(item.getId(), decoder.render(currentPositionUs));
+      Long decodingPositionUs = getDecodingPosition(item, currentPositionUs, looping);
+      renderedTimes.put(item.getId(), decoder.render(
+        decodingPositionUs != null ? decodingPositionUs : currentPositionUs));
     });
     return renderedTimes;
   }

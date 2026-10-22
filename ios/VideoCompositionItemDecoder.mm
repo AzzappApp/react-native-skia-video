@@ -151,8 +151,12 @@ double VideoCompositionItemDecoder::mapSourceTimeToTarget(CMTime sourceTime) {
 
 #define DECODER_INPUT_TIME_ADVANCE 0.1
 
-void VideoCompositionItemDecoder::advanceDecoder(CMTime currentTime) {
+void VideoCompositionItemDecoder::advanceDecoder(
+    CMTime currentTime, std::optional<uint64_t> expectedGeneration) {
   @synchronized(lock) {
+    if (expectedGeneration && *expectedGeneration != generation) {
+      return;
+    }
     CMTime startTime = CMTimeMakeWithSeconds(item->startTime, NSEC_PER_SEC);
     CMTime compositionStartTime =
         CMTimeMakeWithSeconds(item->compositionStartTime, NSEC_PER_SEC);
@@ -325,6 +329,7 @@ void VideoCompositionItemDecoder::seekTo(CMTime currentTime) {
 
 void VideoCompositionItemDecoder::release() {
   @synchronized(lock) {
+    generation++;
     if (assetReader) {
       [assetReader cancelReading];
       assetReader = nullptr;
@@ -350,6 +355,10 @@ void VideoCompositionItemDecoder::releaseFrames() {
   nextLoopFrames.clear();
 }
 
-VideoCompositionItemDecoder::~VideoCompositionItemDecoder() {}
+VideoCompositionItemDecoder::~VideoCompositionItemDecoder() {
+  // The decoded frames are retained sample buffers: ARC doesn't release them.
+  std::lock_guard<std::mutex> frames(framesMutex);
+  releaseFrames();
+}
 
 } // namespace RNSkiaVideo

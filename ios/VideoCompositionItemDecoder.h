@@ -3,8 +3,10 @@
 #import "VideoComposition.h"
 #import "VideoFrame.h"
 #import <AVFoundation/AVFoundation.h>
+#import <atomic>
 #import <list>
 #import <mutex>
+#import <optional>
 
 using namespace facebook;
 
@@ -16,14 +18,24 @@ public:
                               bool realTime, AVURLAsset* sharedAsset = nil);
   ~VideoCompositionItemDecoder();
   // Decodes the frames up to `currentTime`, setting the reader up first if it
-  // is not (see release).
-  void advanceDecoder(CMTime currentTime);
+  // is not (see release). With the generation read when it was started (see
+  // getGeneration), does nothing if the decoder was released since: a decoding
+  // started on another thread before a seek would set the reader up at the
+  // position from before the seek, and one started before the composition is
+  // released would decode frames that nothing releases.
+  void
+  advanceDecoder(CMTime currentTime,
+                 std::optional<uint64_t> expectedGeneration = std::nullopt);
   void seekTo(CMTime currentTime);
   std::shared_ptr<VideoFrame> acquireFrameForTime(CMTime currentTime,
                                                   bool force);
   // Releases the reader and the decoded frames: while the item is not live.
   // The next advanceDecoder sets the reader up again.
   void release();
+  // Changes with each release, seeks included (see advanceDecoder).
+  uint64_t getGeneration() const {
+    return generation;
+  }
   std::shared_ptr<VideoCompositionItem> getItem() const {
     return item;
   }
@@ -47,6 +59,7 @@ private:
   // Whether the reader could not be set up: advanceDecoder no longer tries
   // until the next seek.
   bool openFailed = false;
+  std::atomic<uint64_t> generation{0};
   std::shared_ptr<VideoCompositionItem> item;
   double width;
   double height;

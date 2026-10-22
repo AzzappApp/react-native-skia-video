@@ -374,13 +374,9 @@ const convertNativeFrame = (
   'worklet';
   const nativeFrame = webgpu.createVideoFrameFromNativeBuffer(buffer);
   let externalTexture: GPUExternalTexture | null = null;
+  let texture: GPUTexture;
   try {
-    const texture = getTexture(
-      device,
-      state,
-      nativeFrame.width,
-      nativeFrame.height
-    );
+    texture = getTexture(device, state, nativeFrame.width, nativeFrame.height);
     externalTexture = device.importExternalTexture({
       source: nativeFrame,
       sourceColorSpace: VIDEO_COLOR_SPACE,
@@ -401,15 +397,17 @@ const convertNativeFrame = (
       }),
       texture
     );
-    return texture;
   } finally {
     // Once the commands sampling the frame are submitted, never before.
     externalTexture?.destroy();
     nativeFrame.release();
-    // Hand the buffer back to the decoder now rather than when the JS
-    // wrapper is garbage collected.
-    frame.release?.();
   }
+  // Hand the buffer back to the decoder now rather than when the JS wrapper is
+  // garbage collected. Not when the conversion failed: the producer hands the
+  // frame out again until a new one is decoded, and it is converted again (a
+  // paused player would otherwise never show it).
+  frame.release?.();
+  return texture;
 };
 
 /**
@@ -745,11 +743,16 @@ export const releaseFrameImages = (key: string) => {
  * (a 1080p texture is 8 MB, a 4K one 33 MB, and the buffers imported with
  * them pin their decoder's). Their imported YUV buffers are released a few
  * per frame (see `releaseFrameTextures`).
+ *
+ * With `onError`, the frame of an item that can't be made is left out and
+ * reported, and the frames of the other items are still made. Otherwise the
+ * error is thrown.
  */
 export const makeVideoFrames = (
   context: FrameImageContext,
   key: string,
-  frames: Record<string, DecodedFrame>
+  frames: Record<string, DecodedFrame>,
+  onError?: (itemId: string, error: unknown) => void
 ): Record<string, VideoFrame> => {
   'worklet';
   const prefix = `${key}:`;
@@ -761,11 +764,18 @@ export const makeVideoFrames = (
   );
   const result: Record<string, VideoFrame> = {};
   for (const itemId of Object.keys(frames)) {
-    result[itemId] = makeVideoFrame(
-      context,
-      `${key}:${itemId}`,
-      frames[itemId]!
-    );
+    try {
+      result[itemId] = makeVideoFrame(
+        context,
+        `${key}:${itemId}`,
+        frames[itemId]!
+      );
+    } catch (error) {
+      if (onError == null) {
+        throw error;
+      }
+      onError(itemId, error);
+    }
   }
   return result;
 };
