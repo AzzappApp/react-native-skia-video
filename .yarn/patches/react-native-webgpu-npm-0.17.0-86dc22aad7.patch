@@ -1,0 +1,144 @@
+diff --git a/cpp/rnwgpu/api/GPUCanvasContext.h b/cpp/rnwgpu/api/GPUCanvasContext.h
+index eac142800852a45d911200a2e826a32d5f173456..c7dd204368341336dc57b616d046b7f4768f80c6 100644
+--- a/cpp/rnwgpu/api/GPUCanvasContext.h
++++ b/cpp/rnwgpu/api/GPUCanvasContext.h
+@@ -3,6 +3,7 @@
+ #include <cstdint>
+ #include <memory>
+ #include <mutex>
++#include <optional>
+ #include <string>
+ #include <utility>
+ 
+@@ -35,6 +36,17 @@ public:
+         registry.getSurfaceInfoOrCreate(contextId, _gpu->get(), width, height);
+   }
+ 
++  ~GPUCanvasContext() {
++    if (_ownedContextId) {
++      SurfaceRegistry::getInstance().removeSurfaceInfo(*_ownedContextId);
++    }
++  }
++
++  // Makes the context retire the registry entry of contextId when it is
++  // destroyed: for a context made from a native window
++  // (RNWebGPU::MakeWebGPUCanvasContextFromNativeWindow), no view does.
++  void ownRegistryEntry(int contextId) { _ownedContextId = contextId; }
++
+ public:
+   std::string getBrand() { return CLASS_NAME; }
+ 
+@@ -68,6 +80,7 @@ private:
+   std::shared_ptr<Canvas> _canvas;
+   std::shared_ptr<SurfaceInfo> _surfaceInfo;
+   std::shared_ptr<GPU> _gpu;
++  std::optional<int> _ownedContextId;
+   // The current frame's texture, valid while
+   // _surfaceInfo->isCurrentFrame(_currentTextureEpoch). Guarded by
+   // _currentTextureMutex: contexts can be driven from worklet runtimes.
+diff --git a/cpp/rnwgpu/api/RNWebGPU.h b/cpp/rnwgpu/api/RNWebGPU.h
+index 9274f13507e185c8f4147695369df8baff36aa80..ba8d80b29c3ed4151d8664b64134cbe577bf8a47 100644
+--- a/cpp/rnwgpu/api/RNWebGPU.h
++++ b/cpp/rnwgpu/api/RNWebGPU.h
+@@ -18,6 +18,13 @@
+ #include "PlatformContext.h"
+ #include "VideoFrame.h"
+ #include "VideoPlayer.h"
++#include "WebGPURuntime.h"
++
++#include <atomic>
++
++#if defined(__ANDROID__)
++#include <android/native_window.h>
++#endif
+ 
+ #include <ReactCommon/CallInvoker.h>
+ 
+@@ -83,6 +90,47 @@ public:
+     return ctx;
+   }
+ 
++  // A canvas context presenting to a native window that is not a WebGPU
++  // view, e.g. the input Surface of a MediaCodec encoder: an ANativeWindow*
++  // passed as a BigInt. The context takes its own reference to the window
++  // and owns its registry entry, which no view retires (see
++  // GPUCanvasContext::ownRegistryEntry). unconfigure() releases the
++  // swapchain right away. Android only.
++  std::shared_ptr<GPUCanvasContext>
++  MakeWebGPUCanvasContextFromNativeWindow(void *window, float width,
++                                          float height) {
++#if defined(__ANDROID__)
++    if (window == nullptr) {
++      throw std::runtime_error(
++          "MakeWebGPUCanvasContextFromNativeWindow: expected a non-null "
++          "ANativeWindow pointer (BigInt)");
++    }
++    // Negative: the views' context ids count up from 1 (see Canvas.tsx).
++    static std::atomic<int> nextContextId{-1};
++    int contextId = nextContextId.fetch_sub(1);
++    auto nativeWindow = static_cast<ANativeWindow *>(window);
++    ANativeWindow_acquire(nativeWindow);
++    auto &runtime = WebGPURuntime::shared();
++    // Adopted by the context's configure() (see SurfaceInfo::configure).
++    SurfaceRegistry::getInstance().attachSurface(
++        contextId, runtime.instance(), static_cast<int>(width),
++        static_cast<int>(height), nativeWindow,
++        runtime.makeSurface(nativeWindow), [](void *nativeSurface) {
++          ANativeWindow_release(static_cast<ANativeWindow *>(nativeSurface));
++        });
++    auto context =
++        std::make_shared<GPUCanvasContext>(_gpu, contextId, width, height);
++    context->ownRegistryEntry(contextId);
++    return context;
++#else
++    (void)window;
++    (void)width;
++    (void)height;
++    throw std::runtime_error(
++        "MakeWebGPUCanvasContextFromNativeWindow is only available on Android");
++#endif
++  }
++
+   // Wrap an externally created WGPUDevice (passed as a BigInt pointer, e.g.
+   // Skia's Graphite device from Skia.getNativeDevice()) in a GPUDevice.
+   // AddRefs the handle, so the original owner keeps its reference. Only sound
+@@ -325,6 +373,8 @@ public:
+                   &RNWebGPU::destroyContext);
+     installMethod(runtime, prototype, "MakeWebGPUCanvasContext",
+                   &RNWebGPU::MakeWebGPUCanvasContext);
++    installMethod(runtime, prototype, "MakeWebGPUCanvasContextFromNativeWindow",
++                  &RNWebGPU::MakeWebGPUCanvasContextFromNativeWindow);
+     installMethod(runtime, prototype, "loadVideoFrame",
+                   &RNWebGPU::loadVideoFrame);
+     installMethod(runtime, prototype, "createTestVideoFrame",
+diff --git a/lib/typescript/src/index.d.ts b/lib/typescript/src/index.d.ts
+index be92def6dc97232eb7945de7dfbae650f7746c54..200114b3831174b1ef4b18627142ad7cf3d177d6 100644
+--- a/lib/typescript/src/index.d.ts
++++ b/lib/typescript/src/index.d.ts
+@@ -14,6 +14,7 @@ declare global {
+         fabric: boolean;
+         getNativeSurface: (contextId: number) => NativeCanvas;
+         MakeWebGPUCanvasContext: (contextId: number, width: number, height: number) => RNCanvasContext;
++        MakeWebGPUCanvasContextFromNativeWindow: (window: bigint, width: number, height: number) => RNCanvasContext;
+         destroyContext: (contextId: number) => void;
+         DecodeToUTF8: (buffer: NodeJS.ArrayBufferView | ArrayBuffer) => string;
+         createImageBitmap: typeof createImageBitmap;
+diff --git a/src/index.tsx b/src/index.tsx
+index 9539af9a13fbf4c48156055feae8db0bc7c5ddb0..0f882fdf955bdc09ffe295e49c2eba39c669d0e3 100644
+--- a/src/index.tsx
++++ b/src/index.tsx
+@@ -76,6 +76,14 @@ declare global {
+       width: number,
+       height: number,
+     ) => RNCanvasContext;
++    // A canvas context presenting to a native window that is not a WebGPU
++    // view, e.g. a MediaCodec encoder's input Surface: an ANativeWindow*
++    // (Android only).
++    MakeWebGPUCanvasContextFromNativeWindow: (
++      window: bigint,
++      width: number,
++      height: number,
++    ) => RNCanvasContext;
+     // Retires a canvas context; called by Canvas on unmount (the Canvas owns
+     // the native registry entry for its contextId).
+     destroyContext: (contextId: number) => void;

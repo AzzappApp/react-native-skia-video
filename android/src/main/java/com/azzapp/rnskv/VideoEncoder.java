@@ -1,11 +1,9 @@
 package com.azzapp.rnskv;
 
-import android.hardware.HardwareBuffer;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
-import android.opengl.GLES20;
 import android.util.Log;
 import android.view.Surface;
 
@@ -16,7 +14,8 @@ import java.util.List;
 
 /**
  * Helper class for encoding video (and the audio of the composition items,
- * if any).
+ * if any). React Native Skia renders the frames straight into the encoder's
+ * input surface, through a WebGPU canvas context (see {@link #getInputSurface}).
  */
 public class VideoEncoder {
 
@@ -51,13 +50,6 @@ public class VideoEncoder {
   private MediaCodec encoder;
 
   private Surface inputSurface;
-
-  private EGLResourcesHolder eglResourcesHolder;
-
-  private TextureRenderer textureRenderer;
-
-  // The buffer React Native Skia draws the frames into (beginFrame/endFrame).
-  private HardwareBufferTexture frameTexture;
 
   private MediaMuxer muxer;
 
@@ -165,9 +157,6 @@ public class VideoEncoder {
     }
 
     inputSurface = encoder.createInputSurface();
-    eglResourcesHolder = EGLResourcesHolder.createWithWindowedSurface(inputSurface);
-    eglResourcesHolder.makeCurrent();
-    textureRenderer = new TextureRenderer();
     encoder.start();
 
     try {
@@ -216,61 +205,24 @@ public class VideoEncoder {
     }
   }
 
-  public void makeGLContextCurrent() {
-    eglResourcesHolder.makeCurrent();
+  /**
+   * @return the surface the frames are rendered into: React Native WebGPU presents them to it,
+   * each one stamped with its presentation time (see VideoEncoderHostObject's beginFrame)
+   */
+  public Surface getInputSurface() {
+    return inputSurface;
   }
 
   /**
-   * Returns the buffer to draw the next frame into, without copy (React
-   * Native Skia imports it with React Native WebGPU). The frame is encoded by
-   * {@link #endFrame}. Every frame is drawn into the same GPU-only buffer.
-   * <p>
-   * Must be called with the encoder's GL context current.
+   * Writes the frames the encoder encoded so far, after a frame was presented to the input
+   * surface.
    */
-  public HardwareBuffer beginFrame() {
-    if (frameTexture == null) {
-      frameTexture = new HardwareBufferTexture(width, height);
-    } else {
-      // Vulkan draws the frame into the buffer the encoder read the previous
-      // frame from: the encoder must be done reading it. Waiting here rather
-      // than at the end of endFrame lets that read (and the drawing it waits
-      // for on the GPU) run while the next frame is decoded.
-      GLES20.glFinish();
-    }
-    return frameTexture.getHardwareBuffer();
-  }
-
-  /**
-   * Encodes the frame drawn into the buffer returned by {@link #beginFrame}.
-   * The caller must have made the GL context wait for the drawing to be
-   * complete.
-   * <p>
-   * Must be called with the encoder's GL context current.
-   *
-   * @param time the presentation time of the frame in seconds
-   */
-  public void endFrame(double time) {
-    if (frameTexture == null) {
-      throw new IllegalStateException("endFrame called without beginFrame");
-    }
-    encodeFrame(frameTexture.getTextureId(), time);
-  }
-
-  public void encodeFrame(int texture, double time) {
+  public void endFrame() {
     // Fail fast if the audio pipeline died: the muxer cannot start without
     // the audio track and every video sample would pile up in
     // pendingVideoSamples until the end of the export.
     if (audioException != null) {
       throw new RuntimeException("Could not encode composition audio", audioException);
-    }
-    long timeUS = TimeHelpers.secToUs(time);
-    GLES20.glClearColor(0, 0, 0, 0);
-    GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
-    GLES20.glViewport(0, 0, width, height);
-    textureRenderer.draw(texture, EGLUtils.IDENTITY_MATRIX);
-    eglResourcesHolder.setPresentationTime(timeUS * 1000);
-    if (!eglResourcesHolder.swapBuffers()) {
-      throw new RuntimeException("eglSwapBuffer failed");
     }
     drainEncoder(false);
   }
@@ -433,14 +385,6 @@ public class VideoEncoder {
         Thread.currentThread().interrupt();
       }
       audioThread = null;
-    }
-    if (eglResourcesHolder != null) {
-      if (frameTexture != null) {
-        eglResourcesHolder.makeCurrent();
-        frameTexture.release();
-        frameTexture = null;
-      }
-      eglResourcesHolder.release();
     }
     if (encoder != null) {
       try {

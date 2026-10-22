@@ -458,26 +458,35 @@ export type VideoEncoder = {
    */
   prepare(): void;
   /**
-   * Hands out the buffer of the encoder for the next frame, to render into:
-   * the `IOSurfaceRef` of the BGRA buffer the encoder converts every frame
-   * from on iOS (`endFrame` appends an NV12 conversion of it: the encoder may
-   * still be reading a frame when the next one is drawn), the
-   * `AHardwareBuffer*` the encoder reads every frame from on
-   * Android, as a `BigInt` pointer. It is the same buffer for every frame: it
-   * can be imported once. The frame is encoded by `endFrame`.
+   * Android: the input window of the encoder (`ANativeWindow*`, as a `BigInt`
+   * pointer), once prepared. The frames are rendered straight into it,
+   * through a WebGPU canvas context (React Native WebGPU's
+   * `MakeWebGPUCanvasContextFromNativeWindow`), each one presented between
+   * `beginFrame` and `endFrame`. Undefined on iOS.
    */
-  beginFrame(): bigint;
+  readonly nativeWindow?: bigint;
   /**
-   * Encodes the frame rendered into the buffer handed out by `beginFrame`.
-   * The rendering must be complete (flushed synchronously).
+   * Starts the frame of `time`, its presentation time in seconds.
    *
-   * @param time The presentation time of the frame in seconds.
-   * @param fences Android: the sync fences (`sync_file` descriptors, as
-   * `BigInt`s) to wait for before reading the buffer, e.g. the ones React
-   * Native WebGPU exports at the end of its access to the buffer. The encoder
-   * takes ownership of them.
+   * iOS: hands out the buffer of the encoder to render the frame into, the
+   * `IOSurfaceRef` of the BGRA buffer the encoder converts every frame from
+   * (`endFrame` appends an NV12 conversion of it: the encoder may still be
+   * reading a frame when the next one is drawn), as a `BigInt` pointer. It is
+   * the same buffer for every frame: it can be imported once.
+   *
+   * Android: stamps the next frame presented to `nativeWindow` with `time`.
    */
-  endFrame(time: number, fences?: bigint[]): void;
+  beginFrame(time: number): bigint | undefined;
+  /**
+   * Ends the frame of `time`, its presentation time in seconds.
+   *
+   * iOS: encodes the frame rendered into the buffer handed out by
+   * `beginFrame`. The rendering must be complete (flushed synchronously).
+   *
+   * Android: writes what the encoder encoded, once the frame was presented to
+   * `nativeWindow`.
+   */
+  endFrame(time: number): void;
   /*
    * Finish writing the video to the output file.
    */

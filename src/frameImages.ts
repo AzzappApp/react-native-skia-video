@@ -22,7 +22,10 @@ import type { DecodedFrame, VideoFrame } from './types';
  */
 export type FrameImageContext = {
   device: GPUDevice;
-  webgpu: Pick<typeof RNWebGPU, 'createVideoFrameFromNativeBuffer'>;
+  webgpu: Pick<typeof RNWebGPU, 'createVideoFrameFromNativeBuffer'> &
+    // Android exports: only in a React Native WebGPU that has it (see
+    // exportVideoComposition).
+    Partial<Pick<typeof RNWebGPU, 'MakeWebGPUCanvasContextFromNativeWindow'>>;
 };
 
 let frameImageContext: FrameImageContext | null = null;
