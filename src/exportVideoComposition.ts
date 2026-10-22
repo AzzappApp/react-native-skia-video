@@ -13,10 +13,7 @@ import {
 import { BlendMode, Skia } from 'react-native-skia';
 import type { SkCanvas, SkSurface } from 'react-native-skia';
 import { Platform } from 'react-native';
-import type {
-  GPUSharedTextureMemory,
-  GPUSharedTextureMemoryEndAccessState,
-} from 'react-native-webgpu';
+import type { GPUSharedTextureMemory } from 'react-native-webgpu';
 import type {
   ExportOptions,
   FrameDrawer,
@@ -220,88 +217,100 @@ export const exportVideoComposition = async <T = undefined>({
                 decodedFrames
               );
               const context = beforeDrawFrame?.() as any;
-              const handle = currentEncoder.beginFrame();
-              let target = targets.find(
-                (candidate) => candidate.handle === handle
-              );
-              if (target == null) {
-                const memory =
-                  frameImageContext.device.importSharedTextureMemory({
-                    handle,
-                  });
-                let texture: GPUTexture | undefined;
+              try {
+                const handle = currentEncoder.beginFrame();
+                let target = targets.find(
+                  (candidate) => candidate.handle === handle
+                );
+                if (target == null) {
+                  const memory =
+                    frameImageContext.device.importSharedTextureMemory({
+                      handle,
+                    });
+                  let texture: GPUTexture | undefined;
+                  try {
+                    texture = memory.createTexture();
+                    const targetSurface =
+                      Skia.Surface.MakeFromGPUTexture(texture);
+                    target = {
+                      handle,
+                      memory,
+                      texture,
+                      surface: targetSurface,
+                      canvas: targetSurface.getCanvas(),
+                    };
+                  } catch (error) {
+                    // Not in `targets` yet: released here rather than when the
+                    // export runtime, idle once the export failed, collects it.
+                    texture?.destroy();
+                    memory.destroy();
+                    throw error;
+                  }
+                  targets.push(target);
+                }
+                target.memory.beginAccess(target.texture, false);
                 try {
-                  texture = memory.createTexture();
-                  const targetSurface =
-                    Skia.Surface.MakeFromGPUTexture(texture);
-                  target = {
-                    handle,
-                    memory,
-                    texture,
-                    surface: targetSurface,
-                    canvas: targetSurface.getCanvas(),
-                  };
+                  target.canvas.drawColor(clearColor, BlendMode.Clear);
+                  drawFrame({
+                    context,
+                    canvas: target.canvas,
+                    videoComposition,
+                    currentTime,
+                    frames,
+                    width: options.width,
+                    height: options.height,
+                  });
+                  // iOS: the encoder reads the buffer as soon as it is handed
+                  // back, wait for the GPU to finish drawing into it. Android:
+                  // the encoder waits for it on the GPU (see below).
+                  target.surface.flush(!IS_ANDROID);
                 } catch (error) {
-                  // Not in `targets` yet: released here rather than when the
-                  // export runtime, idle once the export failed, collects it.
-                  texture?.destroy();
-                  memory.destroy();
+                  // The fences of the access go to no encoder: released now
+                  // (their sync fds on Android) rather than when collected.
+                  for (const { fence } of target.memory.endAccess(
+                    target.texture
+                  ).fences) {
+                    fence.destroy();
+                  }
                   throw error;
                 }
-                targets.push(target);
-              }
-              target.memory.beginAccess(target.texture, false);
-              let accessState: GPUSharedTextureMemoryEndAccessState;
-              try {
-                target.canvas.drawColor(clearColor, BlendMode.Clear);
-                drawFrame({
-                  context,
-                  canvas: target.canvas,
-                  videoComposition,
-                  currentTime,
-                  frames,
-                  width: options.width,
-                  height: options.height,
-                });
-                // iOS: the encoder reads the buffer as soon as it is handed
-                // back, wait for the GPU to finish drawing into it. Android:
-                // the encoder waits for it on the GPU (see below).
-                target.surface.flush(!IS_ANDROID);
-              } finally {
-                accessState = target.memory.endAccess(target.texture);
-              }
-              // Android: Vulkan hands the buffer back to the encoder's GL
-              // context through sync fences (sync_file descriptors), that the
-              // encoder waits for on the GPU.
-              const fences: bigint[] = [];
-              if (IS_ANDROID) {
-                let gpuWait = accessState.fences.length > 0;
-                for (const { fence } of accessState.fences) {
-                  const exported = fence.export();
-                  if (exported.type === 'sync-fd') {
-                    fences.push(exported.handle);
-                  } else {
-                    gpuWait = false;
+                const accessState = target.memory.endAccess(target.texture);
+                // Android: Vulkan hands the buffer back to the encoder's GL
+                // context through sync fences (sync_file descriptors), that the
+                // encoder waits for on the GPU.
+                const fences: bigint[] = [];
+                if (IS_ANDROID) {
+                  let gpuWait = accessState.fences.length > 0;
+                  for (const { fence } of accessState.fences) {
+                    const exported = fence.export();
+                    if (exported.type === 'sync-fd') {
+                      fences.push(exported.handle);
+                    } else {
+                      gpuWait = false;
+                    }
+                    // Closes Dawn's sync fd now rather than when collected: the
+                    // encoder waits for its own duplicate.
+                    fence.destroy();
                   }
-                  // Closes Dawn's sync fd now rather than when collected: the
-                  // encoder waits for its own duplicate.
-                  fence.destroy();
+                  if (!gpuWait) {
+                    // No fence the encoder can wait for: wait for the drawing on
+                    // the CPU instead.
+                    target.surface.flush(true);
+                  }
+                } else {
+                  // iOS: the drawing was waited for on the CPU (see flush
+                  // above). Releases the fences (MTLSharedEvent) of the access
+                  // now rather than when collected.
+                  for (const { fence } of accessState.fences) {
+                    fence.destroy();
+                  }
                 }
-                if (!gpuWait) {
-                  // No fence the encoder can wait for: wait for the drawing on
-                  // the CPU instead.
-                  target.surface.flush(true);
-                }
-              } else {
-                // iOS: the drawing was waited for on the CPU (see flush
-                // above). Releases the fences (MTLSharedEvent) of the access
-                // now rather than when collected.
-                for (const { fence } of accessState.fences) {
-                  fence.destroy();
-                }
+                currentEncoder.endFrame(currentTime, fences);
+              } finally {
+                // Also when the frame could not be drawn: what beforeDrawFrame
+                // made for the frame is released all the same.
+                afterDrawFrame?.(context);
               }
-              currentEncoder.endFrame(currentTime, fences);
-              afterDrawFrame?.(context);
               if (onProgress) {
                 scheduleOnRN(onProgress, {
                   framesCompleted: i + 1,

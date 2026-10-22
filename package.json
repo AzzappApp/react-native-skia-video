@@ -64,6 +64,9 @@
     "registry": "https://registry.npmjs.org/",
     "access": "public"
   },
+  "dependencies": {
+    "@webgpu/types": "^0.1.74"
+  },
   "devDependencies": {
     "@babel/core": "^7.29.7",
     "@commitlint/config-conventional": "^21.2.3",
@@ -76,7 +79,6 @@
     "@types/jest": "^29.5.14",
     "@types/node": "^26.6.4",
     "@types/react": "^19.2.18",
-    "@webgpu/types": "^0.1.74",
     "commitlint": "^21.2.3",
     "del-cli": "^7.0.0",
     "eslint": "^10.12.0",
