@@ -625,7 +625,8 @@ export type RNSkiaVideoModule = {
    * Android: total PSS), or null if unavailable. Slow on Android: meant for
    * benchmarks, not to be called per frame.
    *
-   * Not part of the public API (exposed through `__RNSkiaVideoPrivateAPI`).
+   * Not part of the public API: read through `__RNSkiaVideoBenchmark`, in
+   * development builds or once enabled (see benchmarkStats.ts).
    */
   getMemoryFootprint: () => number | null;
   /**

@@ -26,6 +26,7 @@ import type {
   VideoCompositionFramesExtractorSync,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
+import { areBenchmarkStatsEnabled } from './benchmarkStats';
 import {
   createFrameImagesKey,
   getFrameImageContext,
@@ -201,6 +202,7 @@ export const exportVideoComposition = async <T = undefined>({
       return;
     }
     const framesKey = createFrameImagesKey();
+    const measureDecodeWait = areBenchmarkStatsEnabled();
 
     runOnRuntime(getExportRuntime(), () => {
       'worklet';
@@ -253,15 +255,19 @@ export const exportVideoComposition = async <T = undefined>({
             }
             const currentTime = i / options.frameRate;
             runPooled(() => {
-              const decodeStart = performance.now();
+              const decodeStart = measureDecodeWait ? performance.now() : 0;
               const decodedFrames =
                 currentExtractor.decodeCompositionFrames(currentTime);
-              // How long the frame waited for the decoders, apart from
-              // turning their frames into images: read by the benchmark of
-              // the example app (private).
-              (
-                globalThis as unknown as { __rnskvExportDecodeWaitMs?: number }
-              ).__rnskvExportDecodeWaitMs = performance.now() - decodeStart;
+              if (measureDecodeWait) {
+                // How long the frame waited for the decoders, apart from
+                // turning their frames into images: read by the benchmark of
+                // the example app (see benchmarkStats.ts).
+                (
+                  globalThis as unknown as {
+                    __rnskvExportDecodeWaitMs?: number;
+                  }
+                ).__rnskvExportDecodeWaitMs = performance.now() - decodeStart;
+              }
               const frames = makeVideoFrames(
                 frameImageContext,
                 framesKey,
