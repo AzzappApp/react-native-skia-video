@@ -226,52 +226,66 @@ export const useVideoCompositionPlayer = <T = undefined>({
       frames = makeVideoFrames(
         frameImageContext,
         framesKey,
-        framesExtractor.decodeCompositionFrames()
+        framesExtractor.decodeCompositionFrames(),
+        (itemId, error) =>
+          reportFrameError(
+            `failed to turn the frame of the item ${itemId} into an image`,
+            error
+          )
       );
     } catch (error) {
       reportFrameError('failed to turn the decoded frames into images', error);
     }
-    // The surface, hence its canvas, is kept from frame to frame: a drawing
-    // interrupted by an exception must not leave its save() calls behind.
-    const saveCount = canvas.save();
     let context: T;
     try {
       context = beforeDrawFrame?.() as T;
-      drawFrame({
-        canvas,
-        context,
-        videoComposition: composition!,
-        currentTime: framesExtractor.currentTime,
-        frames,
-        width: width * pixelRatio,
-        height: height * pixelRatio,
-      });
     } catch (error) {
-      reportFrameError('failed to draw the composition frame', error);
+      reportFrameError('beforeDrawFrame failed', error);
       return;
-    } finally {
-      canvas.restoreToCount(saveCount);
     }
     try {
-      // Submits the frame's recording: the image shares the texture of the
-      // surface (no copy), so a canvas drawing it shows this frame once the
-      // drawing reaches the GPU.
-      surface.flush();
-      if (currentFrame.value == null) {
-        currentFrame.value = surface.asImage();
-      } else {
-        // The image keeps the same identity from frame to frame, so the
-        // listeners (the Skia canvas) must be forced to re-run.
-        currentFrame.modify(undefined, true);
+      // The surface, hence its canvas, is kept from frame to frame: a drawing
+      // interrupted by an exception must not leave its save() calls behind.
+      const saveCount = canvas.save();
+      try {
+        drawFrame({
+          canvas,
+          context,
+          videoComposition: composition!,
+          currentTime: framesExtractor.currentTime,
+          frames,
+          width: width * pixelRatio,
+          height: height * pixelRatio,
+        });
+      } catch (error) {
+        reportFrameError('failed to draw the composition frame', error);
+        return;
+      } finally {
+        canvas.restoreToCount(saveCount);
       }
-    } catch (error) {
-      console.warn('Failed to flush the composition frame', error);
-      return;
-    }
-    try {
-      afterDrawFrame?.(context);
-    } catch (error) {
-      reportFrameError('afterDrawFrame failed', error);
+      try {
+        // Submits the frame's recording: the image shares the texture of the
+        // surface (no copy), so a canvas drawing it shows this frame once the
+        // drawing reaches the GPU.
+        surface.flush();
+        if (currentFrame.value == null) {
+          currentFrame.value = surface.asImage();
+        } else {
+          // The image keeps the same identity from frame to frame, so the
+          // listeners (the Skia canvas) must be forced to re-run.
+          currentFrame.modify(undefined, true);
+        }
+      } catch (error) {
+        console.warn('Failed to flush the composition frame', error);
+      }
+    } finally {
+      // Also when the frame could not be drawn: what beforeDrawFrame made for
+      // the frame is released all the same.
+      try {
+        afterDrawFrame?.(context);
+      } catch (error) {
+        reportFrameError('afterDrawFrame failed', error);
+      }
     }
   }, true);
 

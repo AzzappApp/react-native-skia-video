@@ -159,7 +159,9 @@ void VideoPlayerHostObject::handleEvent(std::string eventName,
       return dimensions;
     });
   } else if (eventName == "error") {
-    auto message = static_ref_cast<JString>(data)->toStdString();
+    // A Java exception can have no message.
+    auto message = data ? static_ref_cast<JString>(data)->toStdString()
+                        : std::string("Unknown error");
     emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {
       auto dimensions = jsi::Object(runtime);
       dimensions.setProperty(runtime, "message",

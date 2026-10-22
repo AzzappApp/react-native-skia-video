@@ -252,10 +252,15 @@ void VideoCompositionFramesExtractorHostObject::prepare() {
                 closing.push_back(decoder);
                 continue;
               }
-              futures.push_back(std::async(std::launch::async,
-                                           [decoder, time = *decodingTime]() {
-                                             decoder->advanceDecoder(time);
-                                           }));
+              // The generation is read under the lock seekTo and release
+              // take: a seek or a release made before the decoding starts
+              // cancels it (see advanceDecoder).
+              futures.push_back(
+                  std::async(std::launch::async,
+                             [decoder, time = *decodingTime,
+                              generation = decoder->getGeneration()]() {
+                               decoder->advanceDecoder(time, generation);
+                             }));
             }
           }
           // Outside of the lock decodeCompositionFrames takes on the UI

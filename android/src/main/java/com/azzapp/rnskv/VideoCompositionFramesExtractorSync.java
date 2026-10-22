@@ -172,7 +172,7 @@ public class VideoCompositionFramesExtractorSync {
         allItemsReady = false;
       }
     }
-    Map<String, Long> renderedTimes = decoder.render(decodingTimeUs);
+    Map<String, Long> renderedTimes = decoder.render(decodingTimeUs, false);
     renderedTimes.forEach((itemId, time) -> {
       if (time != null) {
         this.renderedTimes.put(itemId, time);

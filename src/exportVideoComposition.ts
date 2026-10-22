@@ -230,15 +230,25 @@ export const exportVideoComposition = async <T = undefined>({
                   frameImageContext.device.importSharedTextureMemory({
                     handle,
                   });
-                const texture = memory.createTexture();
-                const targetSurface = Skia.Surface.MakeFromGPUTexture(texture);
-                target = {
-                  handle,
-                  memory,
-                  texture,
-                  surface: targetSurface,
-                  canvas: targetSurface.getCanvas(),
-                };
+                let texture: GPUTexture | undefined;
+                try {
+                  texture = memory.createTexture();
+                  const targetSurface =
+                    Skia.Surface.MakeFromGPUTexture(texture);
+                  target = {
+                    handle,
+                    memory,
+                    texture,
+                    surface: targetSurface,
+                    canvas: targetSurface.getCanvas(),
+                  };
+                } catch (error) {
+                  // Not in `targets` yet: released here rather than when the
+                  // export runtime, idle once the export failed, collects it.
+                  texture?.destroy();
+                  memory.destroy();
+                  throw error;
+                }
                 targets.push(target);
               }
               target.memory.beginAccess(target.texture, false);

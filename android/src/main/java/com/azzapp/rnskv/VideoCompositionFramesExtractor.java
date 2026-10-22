@@ -72,9 +72,13 @@ public class VideoCompositionFramesExtractor {
 
   private volatile long decoderUpdatePositionUs = 0;
 
+  private final AtomicBoolean decoderSeekPosted = new AtomicBoolean(false);
+
+  private volatile long decoderSeekPositionUs = 0;
+
   /**
-   * The seeks of the decoders not done yet, on the playback thread: the frames are not rendered
-   * meanwhile, not to show the frames of before a seek.
+   * The seeks of the decoders posted to the codec thread and not done yet, on the playback thread:
+   * the frames are not rendered meanwhile, not to show the frames of before a seek.
    */
   private int pendingDecoderSeeks = 0;
 
@@ -409,7 +413,7 @@ public class VideoCompositionFramesExtractor {
     // display stopped refreshing.
     if (pendingDecoderSeeks == 0
       && System.nanoTime() - lastRefreshRenderNs > REFRESH_RENDER_TIMEOUT_NS) {
-      decoder.render(currentPosition);
+      decoder.render(currentPosition, looping);
     }
     if (isEOS && looping) {
       playInternal();
@@ -432,15 +436,7 @@ public class VideoCompositionFramesExtractor {
       pendingSeek = position;
       return;
     }
-    pendingDecoderSeeks++;
-    boolean seekLooping = looping;
-    runOnCodecThread(() -> {
-      try {
-        decoder.seekTo(position, seekLooping);
-      } finally {
-        handler.sendEmptyMessage(PLAYBACK_DECODERS_SEEKED);
-      }
-    });
+    seekDecoders(position);
     if (audioPlayer != null) {
       audioPlayer.seekTo(position);
     }
@@ -494,6 +490,27 @@ public class VideoCompositionFramesExtractor {
         }
       }
     });
+  }
+
+  /**
+   * Has the codec thread seek the decoders to the given position: once for the latest position
+   * requested while it was busy. A slider seeks on each move, and a seek takes the codec thread
+   * tens of milliseconds: each one done in turn, the preview froze during the move, then went
+   * through every position of it.
+   */
+  private void seekDecoders(long positionUs) {
+    decoderSeekPositionUs = positionUs;
+    if (decoderSeekPosted.compareAndSet(false, true)) {
+      pendingDecoderSeeks++;
+      runOnCodecThread(() -> {
+        decoderSeekPosted.set(false);
+        try {
+          decoder.seekTo(decoderSeekPositionUs, looping);
+        } finally {
+          handler.sendEmptyMessage(PLAYBACK_DECODERS_SEEKED);
+        }
+      });
+    }
   }
 
   /**
@@ -551,7 +568,7 @@ public class VideoCompositionFramesExtractor {
           }
           case PLAYBACK_RENDER -> {
             if (prepared && pendingDecoderSeeks == 0) {
-              decoder.render((Long) msg.obj);
+              decoder.render((Long) msg.obj, looping);
             }
             lastRefreshRenderNs = System.nanoTime();
             return true;
