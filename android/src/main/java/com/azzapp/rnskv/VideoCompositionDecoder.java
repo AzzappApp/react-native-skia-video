@@ -154,19 +154,29 @@ public class VideoCompositionDecoder {
     if (!started) {
       return;
     }
+    // Its last frames are released by updateVideosFrames, on the thread that hands them out.
+    closeDecoders(positionUs, looping);
     List<VideoCompositionItemDecoder> opened = new ArrayList<>();
     for (Map.Entry<VideoComposition.Item, VideoCompositionItemDecoder> entry : decoders.entrySet()) {
-      VideoComposition.Item item = entry.getKey();
-      VideoCompositionItemDecoder decoder = entry.getValue();
-      Long decodingPositionUs = getDecodingPosition(item, positionUs, looping);
-      if (decodingPositionUs == null) {
-        // Its last frames are released by updateVideosFrames, on the thread that hands them out.
-        decoder.close();
-      } else if (decoder.open(decodingPositionUs, callbackHandler)) {
-        opened.add(decoder);
+      Long decodingPositionUs = getDecodingPosition(entry.getKey(), positionUs, looping);
+      if (decodingPositionUs != null && entry.getValue().open(decodingPositionUs, callbackHandler)) {
+        opened.add(entry.getValue());
       }
     }
     startDecoders(opened);
+  }
+
+  /**
+   * Closes the decoders of the items not decoded at the given position, before any other is
+   * opened: the decoder instances of the device are limited, those of the items ending are needed
+   * by the items starting.
+   */
+  private void closeDecoders(long positionUs, boolean looping) {
+    for (Map.Entry<VideoComposition.Item, VideoCompositionItemDecoder> entry : decoders.entrySet()) {
+      if (getDecodingPosition(entry.getKey(), positionUs, looping) == null) {
+        entry.getValue().close();
+      }
+    }
   }
 
   /**
@@ -315,14 +325,15 @@ public class VideoCompositionDecoder {
    * @param looping  Whether the composition loops.
    */
   public void seekTo(long position, boolean looping) throws IOException {
+    closeDecoders(position, looping);
     List<VideoCompositionItemDecoder> opened = new ArrayList<>();
     for (Map.Entry<VideoComposition.Item, VideoCompositionItemDecoder> entry : decoders.entrySet()) {
-      VideoComposition.Item item = entry.getKey();
       VideoCompositionItemDecoder decoder = entry.getValue();
-      Long decodingPositionUs = getDecodingPosition(item, position, looping);
+      Long decodingPositionUs = getDecodingPosition(entry.getKey(), position, looping);
       if (decodingPositionUs == null) {
-        decoder.close();
-      } else if (decoder.isOpen()) {
+        continue;
+      }
+      if (decoder.isOpen()) {
         decoder.seekTo(decodingPositionUs);
       } else if (started && decoder.open(decodingPositionUs, callbackHandler)) {
         opened.add(decoder);

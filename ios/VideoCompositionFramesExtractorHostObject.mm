@@ -255,12 +255,13 @@ void VideoCompositionFramesExtractorHostObject::prepare() {
               // The generation is read under the lock seekTo and release
               // take: a seek or a release made before the decoding starts
               // cancels it (see advanceDecoder).
-              futures.push_back(
-                  std::async(std::launch::async,
-                             [decoder, time = *decodingTime,
-                              generation = decoder->getGeneration()]() {
-                               decoder->advanceDecoder(time, generation);
-                             }));
+              futures.push_back(std::async(
+                  std::launch::async,
+                  [decoder, time = *decodingTime,
+                   nextLoop = decodesNextLoop(*decoder->getItem()),
+                   generation = decoder->getGeneration()]() {
+                    decoder->advanceDecoder(time, nextLoop, generation);
+                  }));
             }
           }
           // Outside of the lock decodeCompositionFrames takes on the UI
@@ -404,6 +405,12 @@ VideoCompositionFramesExtractorHostObject::getDecodingTime(
         time, CMTimeMakeWithSeconds(composition->duration, NSEC_PER_SEC));
   }
   return std::nullopt;
+}
+
+bool VideoCompositionFramesExtractorHostObject::decodesNextLoop(
+    const VideoCompositionItem& item) {
+  return isLooping && item.isDecodedAt(composition->duration) &&
+         item.isDecodedAt(0);
 }
 
 CMTime VideoCompositionFramesExtractorHostObject::getCurrentTime() {

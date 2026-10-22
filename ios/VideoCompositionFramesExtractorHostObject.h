@@ -73,6 +73,11 @@ private:
   // Only the readers of the items around the current time are kept.
   std::optional<CMTime> getDecodingTime(const VideoCompositionItem& item,
                                         CMTime time);
+  // Whether the reader of an item decodes the first frames of the next loop
+  // before the composition loops (see advanceDecoder): the composition loops
+  // and the item is decoded both at its end and at its start. The reader of
+  // any other item is released at the item's end.
+  bool decodesNextLoop(const VideoCompositionItem& item);
   void release();
 };
 
