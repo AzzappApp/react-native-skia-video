@@ -6,7 +6,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
 #import <algorithm>
-#import <future>
+#import <mutex>
 
 namespace RNSkiaVideo {
 
@@ -186,6 +186,7 @@ void VideoCompositionFramesExtractorHostObject::set(
   auto propName = propNameId.utf8(runtime);
   if (propName == "isLooping") {
     isLooping = value.asBool();
+    pausedFramesDecoded = false;
   } else if (propName == "volume") {
     volume = (float)std::max(0.0, std::min(1.0, value.asNumber()));
     @synchronized(lock) {
@@ -197,6 +198,10 @@ void VideoCompositionFramesExtractorHostObject::set(
 }
 
 void VideoCompositionFramesExtractorHostObject::prepare() {
+  // Once: a second display link would decode along with the first.
+  if (prepared.test_and_set()) {
+    return;
+  }
   dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(
       DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0);
   decoderQueue =
@@ -205,85 +210,111 @@ void VideoCompositionFramesExtractorHostObject::prepare() {
     this->init();
   });
 
+  // Each refresh of the display queues a decoding pass, unless one is
+  // already queued: a pass longer than a refresh doesn't pile up others.
+  // `this` outlives the passes: no tick queues one once the display link is
+  // invalidated (see RNSVDisplayLinkWrapper), and the destructor waits for
+  // the queued ones.
+  dispatch_queue_t queue = decoderQueue;
   displayLink = [[RNSVDisplayLinkWrapper alloc]
       initWithUpdateBlock:^(CADisplayLink* displayLink) {
-        dispatch_async(decoderQueue, ^{
-          std::vector<std::future<void>> futures;
-          std::vector<std::shared_ptr<VideoCompositionItemDecoder>> closing;
-          @synchronized(lock) {
-            if (released.test() || !initialized) {
-              return;
-            }
-            auto currentTime = getCurrentTime();
-            if (CMTimeGetSeconds(currentTime) >= composition->duration) {
-              if (!completeEmitted) {
-                completeEmitted = true;
-                emit("complete", jsi::Value::null());
-              }
-              if (isLooping) {
-                currentTime = kCMTimeZero;
-                startDate = [NSDate date];
-                if (audioPlayer) {
-                  [audioPlayer seekToTime:kCMTimeZero
-                          toleranceBefore:kCMTimeZero
-                           toleranceAfter:kCMTimeZero
-                        completionHandler:^(BOOL){
-                        }];
-                }
-              } else {
-                isPlaying = false;
-                if (audioPlayer) {
-                  [audioPlayer pause];
-                }
-                return;
-              }
-            } else {
-              completeEmitted = false;
-            }
-            for (const auto& entry : itemDecoders) {
-              auto decoder = entry.second;
-              if (!decoder) {
-                continue;
-              }
-              auto decodingTime =
-                  getDecodingTime(*decoder->getItem(), currentTime);
-              if (!decodingTime) {
-                // Not decoded: the reader and its frames are released, below.
-                closing.push_back(decoder);
-                continue;
-              }
-              // The generation is read under the lock seekTo and release
-              // take: a seek or a release made before the decoding starts
-              // cancels it (see advanceDecoder).
-              futures.push_back(std::async(
-                  std::launch::async,
-                  [decoder, time = *decodingTime,
-                   nextLoop = decodesNextLoop(*decoder->getItem()),
-                   generation = decoder->getGeneration()]() {
-                    decoder->advanceDecoder(time, nextLoop, generation);
-                  }));
-            }
-          }
-          // Outside of the lock decodeCompositionFrames takes on the UI
-          // thread: cancelling a reader takes a while.
-          for (const auto& decoder : closing) {
-            decoder->release();
-          }
-          for (auto& future : futures) {
-            try {
-              future.get();
-            } catch (NSError* error) {
-              // A reader that could not be set up (reported once, see
-              // advanceDecoder).
-              emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {
-                return RNSkiaVideo::NSErrorToJSI(runtime, error);
-              });
-            }
-          }
+        if (passQueued.test_and_set()) {
+          return;
+        }
+        dispatch_async(queue, ^{
+          passQueued.clear();
+          decodeFrames();
         });
       }];
   [displayLink start];
 }
+
+void VideoCompositionFramesExtractorHostObject::decodeFrames() {
+  // The items are decoded in parallel, on GCD's threads rather than a new
+  // thread per item and per refresh.
+  dispatch_group_t group = dispatch_group_create();
+  dispatch_queue_t decodingQueue =
+      dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0);
+  std::mutex errorsMutex;
+  std::vector<NSError*> errors;
+  auto errorsMutexPtr = &errorsMutex;
+  auto errorsPtr = &errors;
+  std::vector<std::shared_ptr<VideoCompositionItemDecoder>> closing;
+  @synchronized(lock) {
+    if (released.test() || !initialized) {
+      return;
+    }
+    if (!isPlaying && pausedFramesDecoded) {
+      return;
+    }
+    auto currentTime = getCurrentTime();
+    if (CMTimeGetSeconds(currentTime) >= composition->duration) {
+      if (!completeEmitted) {
+        completeEmitted = true;
+        emit("complete", jsi::Value::null());
+      }
+      if (isLooping) {
+        currentTime = kCMTimeZero;
+        startDate = [NSDate date];
+        if (audioPlayer) {
+          [audioPlayer seekToTime:kCMTimeZero
+                  toleranceBefore:kCMTimeZero
+                   toleranceAfter:kCMTimeZero
+                completionHandler:^(BOOL){
+                }];
+        }
+      } else {
+        isPlaying = false;
+        if (audioPlayer) {
+          [audioPlayer pause];
+        }
+        return;
+      }
+    } else {
+      completeEmitted = false;
+    }
+    for (const auto& entry : itemDecoders) {
+      auto decoder = entry.second;
+      if (!decoder) {
+        continue;
+      }
+      auto decodingTime = getDecodingTime(*decoder->getItem(), currentTime);
+      if (!decodingTime) {
+        // Not decoded: the reader and its frames are released, below.
+        closing.push_back(decoder);
+        continue;
+      }
+      // The generation is read under the lock seekTo and release take: a
+      // seek or a release made before the decoding starts cancels it (see
+      // advanceDecoder).
+      CMTime time = *decodingTime;
+      bool nextLoop = decodesNextLoop(*decoder->getItem());
+      uint64_t generation = decoder->getGeneration();
+      dispatch_group_async(group, decodingQueue, ^{
+        try {
+          decoder->advanceDecoder(time, nextLoop, generation);
+        } catch (NSError* error) {
+          std::lock_guard<std::mutex> errorsLock(*errorsMutexPtr);
+          errorsPtr->push_back(error);
+        }
+      });
+    }
+    pausedFramesDecoded = !isPlaying;
+  }
+  // Outside of the lock decodeCompositionFrames takes on the UI thread:
+  // cancelling a reader takes a while.
+  for (const auto& decoder : closing) {
+    decoder->release();
+  }
+  dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+  for (NSError* error : errors) {
+    // A reader that could not be set up (reported once, see advanceDecoder).
+    emit("error", [=](jsi::Runtime& runtime) -> jsi::Value {
+      return RNSkiaVideo::NSErrorToJSI(runtime, error);
+    });
+  }
+}
+
 void VideoCompositionFramesExtractorHostObject::init() {
   @synchronized(lock) {
     if (released.test()) {
@@ -368,6 +399,7 @@ void VideoCompositionFramesExtractorHostObject::pause() {
   }
   pausePosition = getCurrentTime();
   isPlaying = false;
+  pausedFramesDecoded = false;
   if (audioPlayer) {
     [audioPlayer pause];
   }
@@ -388,6 +420,8 @@ void VideoCompositionFramesExtractorHostObject::seekTo(CMTime time) {
     for (const auto& entry : itemDecoders) {
       entry.second->seekTo(time);
     }
+    // After the decoders' seek: a pass made before it decoded for nothing.
+    pausedFramesDecoded = false;
   }
 }
 
@@ -476,8 +510,12 @@ void VideoCompositionFramesExtractorHostObject::release() {
 }
 
 - (void)displayLinkFired:(CADisplayLink*)displayLink {
-  if (self.updateBlock) {
-    self.updateBlock(displayLink);
+  // Under the lock invalidate takes: once it returns, no tick runs the block
+  // anymore, and what the ticks queued was queued before.
+  @synchronized(self) {
+    if (self.updateBlock) {
+      self.updateBlock(displayLink);
+    }
   }
 }
 
@@ -487,8 +525,11 @@ void VideoCompositionFramesExtractorHostObject::release() {
 }
 
 - (void)invalidate {
-  [self.displayLink invalidate];
-  self.displayLink = nil;
+  @synchronized(self) {
+    [self.displayLink invalidate];
+    self.displayLink = nil;
+    self.updateBlock = nil;
+  }
 }
 
 @end

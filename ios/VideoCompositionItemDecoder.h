@@ -47,7 +47,7 @@ private:
   NSObject* lock;
   // Guards the two frame lists below, `hasLooped` (which one the decoder
   // fills) and `lastRequestedTime`. advanceDecoder appends to the lists on
-  // its own thread (std::async, see the frames extractor) while
+  // a decoding thread (see the frames extractor's decodeFrames) while
   // acquireFrameForTime erases from them and swaps them on the thread that
   // draws: a std::list mutated from both at once corrupts.
   //
