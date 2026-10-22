@@ -58,10 +58,18 @@ private:
   // Plays the audio of the composition; when present it is also the master
   // clock of the playback.
   AVPlayer* audioPlayer;
+  std::atomic_flag prepared = ATOMIC_FLAG_INIT;
   std::atomic_flag released = ATOMIC_FLAG_INIT;
+  // A decoding pass is queued on the decoder queue (see prepare).
+  std::atomic_flag passQueued = ATOMIC_FLAG_INIT;
+  // The composition is paused and a decoding pass ran at its time: the next
+  // ticks have nothing to decode until it plays, seeks or loops differently.
+  std::atomic<bool> pausedFramesDecoded{false};
 
   void prepare();
   void init();
+  // Decodes the frames of the items at the current time (see prepare).
+  void decodeFrames();
   void play();
   void pause();
   void seekTo(CMTime time);
