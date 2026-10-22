@@ -365,8 +365,9 @@ export const exportVideoComposition = async <T = undefined>({
             });
           }
         } finally {
-          // Also on cancellation or failure. Releases the swapchain, before
-          // the encoder is.
+          // Also on cancellation or failure. Releases the swapchain and the
+          // surface, with the buffers the encoder's window keeps until then,
+          // before the encoder is released.
           windowContext?.unconfigure();
           for (const target of targets) {
             // Also detaches its canvas.

@@ -23,8 +23,30 @@ index e734e65f6cd01ec02cd8e69673f85bd27e4b4ffd..16523130f379ced5931233aac3dfdac4
    // DAWN_WORKAROUND_DEVICE_DESTROY_BEFORE_SURFACE_RELEASE
    // See SurfaceInfo::releaseSurfaceForDevice. Lock order is registry ->
    // SurfaceInfo, matching every other path.
+diff --git a/cpp/rnwgpu/api/GPUCanvasContext.cpp b/cpp/rnwgpu/api/GPUCanvasContext.cpp
+index 168b01a985660ff72e9dff5e6d045df403645768..4ccda94a0b978611712967dc5877c3ab452700c9 100644
+--- a/cpp/rnwgpu/api/GPUCanvasContext.cpp
++++ b/cpp/rnwgpu/api/GPUCanvasContext.cpp
+@@ -32,7 +32,16 @@ void GPUCanvasContext::configure(
+   _surfaceInfo->configure(surfaceConfiguration, std::move(viewFormats));
+ }
+ 
+-void GPUCanvasContext::unconfigure() { _surfaceInfo->unconfigure(); }
++void GPUCanvasContext::unconfigure() {
++  _surfaceInfo->unconfigure();
++  // A context made from a native window releases its surface, and its
++  // reference to the window, now rather than when it is garbage collected: on
++  // Android, the window keeps the buffers it handed to the swapchain until
++  // the surface is destroyed. The context no longer presents.
++  if (_ownsSurface) {
++    _surfaceInfo->detachSurface();
++  }
++}
+ 
+ std::shared_ptr<GPUTexture> GPUCanvasContext::getCurrentTexture() {
+   if (!_surfaceInfo->isConfigured()) {
 diff --git a/cpp/rnwgpu/api/GPUCanvasContext.h b/cpp/rnwgpu/api/GPUCanvasContext.h
-index eac142800852a45d911200a2e826a32d5f173456..72922d827c949c9bbffa03750163bd2705fdd913 100644
+index eac142800852a45d911200a2e826a32d5f173456..a43a0c8ca878ba4c66b298aacf4aea33bb1e5c1e 100644
 --- a/cpp/rnwgpu/api/GPUCanvasContext.h
 +++ b/cpp/rnwgpu/api/GPUCanvasContext.h
 @@ -35,6 +35,16 @@ public:
@@ -37,15 +59,25 @@ index eac142800852a45d911200a2e826a32d5f173456..72922d827c949c9bbffa03750163bd27
 +                   std::shared_ptr<SurfaceInfo> surfaceInfo, int width,
 +                   int height)
 +      : NativeObject(CLASS_NAME), _surfaceInfo(std::move(surfaceInfo)),
-+        _gpu(std::move(gpu)) {
++        _gpu(std::move(gpu)), _ownsSurface(true) {
 +    _canvas = std::make_shared<Canvas>(nullptr, width, height);
 +  }
 +
  public:
    std::string getBrand() { return CLASS_NAME; }
  
+@@ -68,6 +78,9 @@ private:
+   std::shared_ptr<Canvas> _canvas;
+   std::shared_ptr<SurfaceInfo> _surfaceInfo;
+   std::shared_ptr<GPU> _gpu;
++  // Whether the context owns its surface (made from a native window): see
++  // unconfigure().
++  bool _ownsSurface = false;
+   // The current frame's texture, valid while
+   // _surfaceInfo->isCurrentFrame(_currentTextureEpoch). Guarded by
+   // _currentTextureMutex: contexts can be driven from worklet runtimes.
 diff --git a/cpp/rnwgpu/api/RNWebGPU.h b/cpp/rnwgpu/api/RNWebGPU.h
-index 9274f13507e185c8f4147695369df8baff36aa80..356269de9e2d6b6d87433476ad108f340d498a6a 100644
+index 9274f13507e185c8f4147695369df8baff36aa80..714d90cd029088c0eec7df8595d9cb3aa24ceb84 100644
 --- a/cpp/rnwgpu/api/RNWebGPU.h
 +++ b/cpp/rnwgpu/api/RNWebGPU.h
 @@ -18,6 +18,14 @@
@@ -72,8 +104,8 @@ index 9274f13507e185c8f4147695369df8baff36aa80..356269de9e2d6b6d87433476ad108f34
 +  // (Android) or a CAMetalLayer* (Apple), passed as a BigInt. Unlike a view's,
 +  // the context owns its surface, outside of the SurfaceRegistry: the caller
 +  // keeps the window alive and drives the context from one thread at a time.
-+  // The context still holds a reference to the window until it is destroyed;
-+  // unconfigure() releases the swapchain right away.
++  // The context holds a reference to the window until unconfigure(), which
++  // releases the surface and the window: the context no longer presents.
 +  std::shared_ptr<GPUCanvasContext>
 +  MakeWebGPUCanvasContextFromNativeWindow(void *window, float width,
 +                                          float height) {
