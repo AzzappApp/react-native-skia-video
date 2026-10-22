@@ -134,10 +134,10 @@ void VideoEncoderHostObject::prepare() {
   assetWriterInput =
       [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo
                                          outputSettings:videoSettings];
-  // Not real time, the encoder kept about 55 frames ahead (the frame
-  // buffers of the pool: ~480 MB at 1080×1920, 1.8 GB in 4K).
-  // In real time, it should only keep a few.
-  assetWriterInput.expectsMediaDataInRealTime = YES;
+  // Not real time: the encoder works at its own pace, the export waits for
+  // it. Its memory is bounded by the NV12 buffers it can hold at once (see
+  // createEncoderBuffer()): AVAssetWriter alone kept about 55 frames ahead.
+  assetWriterInput.expectsMediaDataInRealTime = NO;
   assetWriterInput.performsMultiPassEncodingIfSupported = NO;
   if ([assetWriter canAddInput:assetWriterInput]) {
     [assetWriter addInput:assetWriterInput];
@@ -186,7 +186,8 @@ void VideoEncoderHostObject::prepare() {
   }
 
   // NV12, the encoder's own input format: a 1080x1920 frame is 3.1 MB
-  // instead of 8.3 MB in BGRA, and AVAssetWriter keeps dozens of them.
+  // instead of 8.3 MB in BGRA, and the encoder holds several of them (see
+  // createEncoderBuffer()).
   NSDictionary* encoderAttributes = @{
     (NSString*)kCVPixelBufferPixelFormatTypeKey :
         @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
@@ -225,6 +226,41 @@ VideoEncoderHostObject::createPoolBuffer(CVPixelBufferPoolRef pool) {
     throw createErrorWithMessage(@"Could not allocate pixel buffer from pool");
   }
   return pixelBuffer;
+}
+
+// The NV12 buffers the encoder can hold at once: enough for it to encode a
+// frame while the next ones are drawn, few enough to bound its memory (25 MB
+// at 1080×1920, 100 MB in 4K).
+static const int MAX_ENCODER_BUFFERS = 8;
+
+CVPixelBufferRef VideoEncoderHostObject::createEncoderBuffer() {
+  NSDictionary* auxAttributes = @{
+    (NSString*)kCVPixelBufferPoolAllocationThresholdKey : @(MAX_ENCODER_BUFFERS)
+  };
+  const CFAbsoluteTime deadline = CFAbsoluteTimeGetCurrent() + 10;
+  while (true) {
+    CVPixelBufferRef pixelBuffer = NULL;
+    CVReturn status = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(
+        kCFAllocatorDefault, encoderBufferPool,
+        (__bridge CFDictionaryRef)auxAttributes, &pixelBuffer);
+    if (status == kCVReturnSuccess && pixelBuffer != NULL) {
+      return pixelBuffer;
+    }
+    if (status != kCVReturnWouldExceedAllocationThreshold) {
+      throw createErrorWithMessage(
+          @"Could not allocate pixel buffer from pool");
+    }
+    // The encoder holds every buffer: wait for it to be done with one.
+    if (assetWriter.status == AVAssetWriterStatusFailed) {
+      throw assetWriter.error
+          ?: createErrorWithMessage(@"AVAssetWriter failed");
+    }
+    if (CFAbsoluteTimeGetCurrent() > deadline) {
+      throw createErrorWithMessage(
+          @"The encoder held its buffers for more than 10 seconds");
+    }
+    usleep(1000);
+  }
 }
 
 void VideoEncoderHostObject::appendFrameBuffer(CVPixelBufferRef pixelBuffer,
@@ -323,16 +359,16 @@ void VideoEncoderHostObject::endFrame(CMTime time) {
     throw createErrorWithMessage(@"endFrame called without beginFrame");
   }
   framePending = false;
-  // The buffer drawn into is not appended itself. In real time (see
-  // prepare()), AVAssetWriter releases a buffer while the video encoder, out
-  // of process on a device, still reads its IOSurface, and nothing in this
-  // process tells when it is done: the IOSurface's use count is per process.
+  // The buffer drawn into is not appended itself. AVAssetWriter releases a
+  // buffer while the video encoder, out of process on a device, still reads
+  // its IOSurface, and nothing in this process tells when it is done: the
+  // IOSurface's use count is per process.
   // Handed out again, the buffer was drawn into while being encoded, and the
   // export showed the next frame in place of this one (that frame lost), or
   // a cleared one. The frame is converted into a fresh NV12 buffer of a pool
   // instead (see convertFrameBuffer()): a pool recycles a buffer only once its
   // IOSurface is used by no process. One conversion, no GPU readback.
-  CVPixelBufferRef pixelBuffer = createPoolBuffer(encoderBufferPool);
+  CVPixelBufferRef pixelBuffer = createEncoderBuffer();
   try {
     convertFrameBuffer(frameBuffer, pixelBuffer);
     appendFrameBuffer(pixelBuffer, time);
