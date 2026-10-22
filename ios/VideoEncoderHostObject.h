@@ -52,6 +52,7 @@ private:
 
   void prepare();
   CVPixelBufferRef createPoolBuffer(CVPixelBufferPoolRef pool);
+  CVPixelBufferRef createEncoderBuffer();
   void convertFrameBuffer(CVPixelBufferRef source,
                           CVPixelBufferRef destination);
   void appendFrameBuffer(CVPixelBufferRef pixelBuffer, CMTime time);
