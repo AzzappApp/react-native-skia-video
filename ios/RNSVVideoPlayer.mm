@@ -71,7 +71,8 @@ static void* rateContext = &rateContext;
   // GPU when the frame is drawn into a texture (React Native WebGPU's
   // importExternalTexture), which needs IOSurface-backed buffers. The frames
   // are SDR BT.709, HDR video (an iPhone's HLG) tone mapped by VideoToolbox:
-  // the GPU conversion applies the BT.709 matrix only (see frameImages.ts).
+  // the GPU conversion applies the BT.709 matrix only (see
+  // src/frameImages/gpuConversion.ts).
   NSDictionary* pixBuffAttributes = @{
     (id)kCVPixelBufferPixelFormatTypeKey :
         @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
