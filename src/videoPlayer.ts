@@ -19,6 +19,7 @@ import {
   getFrameImageContext,
   makeVideoFrame,
   releaseFrameImages,
+  type FrameImageContext,
 } from './frameImages';
 
 type UseVideoPlayerOptions = {
@@ -141,27 +142,6 @@ export const useVideoPlayer = ({
   onSeekComplete,
 }: UseVideoPlayerOptions): UseVideoPlayerReturnType => {
   const [isErrored, setIsErrored] = useState(false);
-  const player = useMemo(() => {
-    if (uri && !isErrored) {
-      return RNSkiaVideoModule.createVideoPlayer(uri, resolution, maxLongSide);
-    }
-    return null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isErrored, resolution?.width, resolution?.height, maxLongSide, uri]);
-
-  const frameImageContext = useMemo(() => getFrameImageContext(), []);
-  const framesKey = useMemo(() => createFrameImagesKey(), []);
-
-  const currentFrame = useSharedValue<null | VideoFrame>(null);
-  useEffect(
-    () => () => {
-      currentFrame.value = null;
-      player?.dispose();
-      runOnUI(releaseFrameImages)(framesKey);
-    },
-    [player, currentFrame, framesKey]
-  );
-
   const retry = useCallback(() => {
     setIsErrored(false);
   }, []);
@@ -172,6 +152,45 @@ export const useVideoPlayer = ({
       setIsErrored(true);
     },
     [onError, retry]
+  );
+
+  // The context the frames are turned into images with comes first: on a
+  // device whose GPU can't draw them, there is no player, and the error goes
+  // to onError (below) rather than failing the render.
+  const { player, frameImageContext, contextError } = useMemo(() => {
+    if (!uri || isErrored) {
+      return { player: null, frameImageContext: null, contextError: null };
+    }
+    let context: FrameImageContext;
+    try {
+      context = getFrameImageContext();
+    } catch (error) {
+      return { player: null, frameImageContext: null, contextError: { error } };
+    }
+    return {
+      player: RNSkiaVideoModule.createVideoPlayer(uri, resolution, maxLongSide),
+      frameImageContext: context,
+      contextError: null,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isErrored, resolution?.width, resolution?.height, maxLongSide, uri]);
+
+  useEffect(() => {
+    if (contextError) {
+      errorHandler(contextError.error);
+    }
+  }, [contextError, errorHandler]);
+
+  const framesKey = useMemo(() => createFrameImagesKey(), []);
+
+  const currentFrame = useSharedValue<null | VideoFrame>(null);
+  useEffect(
+    () => () => {
+      currentFrame.value = null;
+      player?.dispose();
+      runOnUI(releaseFrameImages)(framesKey);
+    },
+    [player, currentFrame, framesKey]
   );
 
   useEffect(() => {
@@ -208,7 +227,11 @@ export const useVideoPlayer = ({
   }, [player, autoPlay]);
 
   useFrameCallback(() => {
-    if (!player || (!player.isPlaying && currentFrame.value)) {
+    if (
+      !player ||
+      !frameImageContext ||
+      (!player.isPlaying && currentFrame.value)
+    ) {
       return;
     }
     // An exception thrown by a frame callback is fatal: in release builds,
