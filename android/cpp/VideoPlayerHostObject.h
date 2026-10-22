@@ -3,6 +3,7 @@
 #include <fbjni/fbjni.h>
 #include <jsi/jsi.h>
 #include <map>
+#include <mutex>
 
 #include "RNSVEventEmitter.h"
 #include "VideoPlayer.h"
@@ -26,8 +27,12 @@ public:
 
 private:
   global_ref<NativeEventDispatcher> jEventDispatcher;
+  // Read on the UI thread (decodeNextFrame) and the JS thread, reset by
+  // release(): accessed through getPlayer().
   jni::global_ref<VideoPlayer> player;
+  std::mutex playerMutex;
   std::atomic_flag released = ATOMIC_FLAG_INIT;
+  jni::global_ref<VideoPlayer> getPlayer();
   void release();
 };
 

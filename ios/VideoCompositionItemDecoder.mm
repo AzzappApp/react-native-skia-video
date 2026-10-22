@@ -153,7 +153,8 @@ double VideoCompositionItemDecoder::mapSourceTimeToTarget(CMTime sourceTime) {
 #define DECODER_INPUT_TIME_ADVANCE 0.1
 
 void VideoCompositionItemDecoder::advanceDecoder(
-    CMTime currentTime, std::optional<uint64_t> expectedGeneration) {
+    CMTime currentTime, bool decodeNextLoop,
+    std::optional<uint64_t> expectedGeneration) {
   @synchronized(lock) {
     if (expectedGeneration && *expectedGeneration != generation) {
       return;
@@ -191,7 +192,8 @@ void VideoCompositionItemDecoder::advanceDecoder(
       std::lock_guard<std::mutex> frames(framesMutex);
       looped = hasLooped;
     }
-    if (realTime && CMTimeCompare(endTime, inputPosition) < 0 && !looped) {
+    if (decodeNextLoop && CMTimeCompare(endTime, inputPosition) < 0 &&
+        !looped) {
       setupReader(kCMTimeZero);
       {
         std::lock_guard<std::mutex> frames(framesMutex);

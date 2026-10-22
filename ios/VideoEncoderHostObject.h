@@ -16,6 +16,7 @@ public:
                          int frameRate, int bitRate, int audioBitRate,
                          int audioSampleRate, int audioChannelCount,
                          std::shared_ptr<VideoComposition> composition);
+  ~VideoEncoderHostObject();
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
   std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime& rt) override;
 

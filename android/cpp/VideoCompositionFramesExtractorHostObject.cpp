@@ -46,7 +46,8 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "prepare"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released.test() && !prepared.test_and_set()) {
+          auto player = getPlayer();
+          if (player && !prepared.test_and_set()) {
             player->prepare();
           }
           return jsi::Value::undefined();
@@ -58,7 +59,8 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           auto result = jsi::Object(runtime);
-          if (released.test() || !prepared.test()) {
+          auto player = getPlayer();
+          if (!player || !prepared.test()) {
             return result;
           }
           auto frames = player->decodeCompositionFrames();
@@ -76,7 +78,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "play"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released.test()) {
+          if (auto player = getPlayer()) {
             player->play();
           }
           return jsi::Value::undefined();
@@ -86,7 +88,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "pause"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released.test()) {
+          if (auto player = getPlayer()) {
             player->pause();
           }
           return jsi::Value::undefined();
@@ -96,7 +98,7 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
         runtime, jsi::PropNameID::forAscii(runtime, "seekTo"), 1,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released.test()) {
+          if (auto player = getPlayer()) {
             if (count != 1) {
               throw jsi::JSError(
                   runtime,
@@ -134,14 +136,17 @@ jsi::Value VideoCompositionFramesExtractorHostObject::get(
           return jsi::Value::undefined();
         });
   } else if (propName == "currentTime") {
-    return {released.test() ? 0
-                            : (double)player->getCurrentPosition() / 1000000.0};
+    auto player = getPlayer();
+    return {player ? (double)player->getCurrentPosition() / 1000000.0 : 0};
   } else if (propName == "isLooping") {
-    return {!released.test() && player->getIsLooping()};
+    auto player = getPlayer();
+    return {player && player->getIsLooping()};
   } else if (propName == "isPlaying") {
-    return {!released.test() && player->getIsPlaying()};
+    auto player = getPlayer();
+    return {player && player->getIsPlaying()};
   } else if (propName == "volume") {
-    return {released.test() ? 0.0 : (double)player->getVolume()};
+    auto player = getPlayer();
+    return {player ? (double)player->getVolume() : 0.0};
   }
   return jsi::Value::undefined();
 }
@@ -150,7 +155,8 @@ void VideoCompositionFramesExtractorHostObject::set(
     facebook::jsi::Runtime& runtime,
     const facebook::jsi::PropNameID& propNameId,
     const facebook::jsi::Value& value) {
-  if (released.test()) {
+  auto player = getPlayer();
+  if (!player) {
     return;
   }
   auto propName = propNameId.utf8(runtime);
@@ -178,12 +184,24 @@ void VideoCompositionFramesExtractorHostObject::handleEvent(
   }
 }
 
+// A copy: release() can reset the player on the JS thread while it is used on
+// the UI thread. The Java player is safe to call once released.
+global_ref<VideoCompositionFramesExtractor>
+VideoCompositionFramesExtractorHostObject::getPlayer() {
+  std::lock_guard<std::mutex> lock(playerMutex);
+  return player;
+}
+
 void VideoCompositionFramesExtractorHostObject::release() {
   if (!released.test_and_set()) {
     jEventDispatcher->invalidate();
     removeAllListeners();
+    global_ref<VideoCompositionFramesExtractor> player;
+    {
+      std::lock_guard<std::mutex> lock(playerMutex);
+      std::swap(player, this->player);
+    }
     player->release();
-    player = nullptr;
     jEventDispatcher = nullptr;
   }
 }

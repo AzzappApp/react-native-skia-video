@@ -26,6 +26,14 @@ VideoEncoderHostObject::VideoEncoderHostObject(
   this->composition = composition;
 }
 
+// An export that never called dispose() (its runtime torn down mid-export):
+// the writer, the audio reading and the pools are released all the same.
+VideoEncoderHostObject::~VideoEncoderHostObject() {
+  @autoreleasepool {
+    release();
+  }
+}
+
 std::vector<jsi::PropNameID>
 VideoEncoderHostObject::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> result;
