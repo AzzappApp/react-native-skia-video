@@ -26,7 +26,6 @@ import type {
   VideoCompositionFramesExtractorSync,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
-import disposeCanvas from './utils/disposeCanvas';
 import {
   createFrameImagesKey,
   getFrameImageContext,
@@ -52,10 +51,7 @@ type ExportTarget = {
   memory: GPUSharedTextureMemory;
   texture: GPUTexture;
   surface: SkSurface;
-  /**
-   * The canvas of the surface, made once: each getCanvas() call makes a new
-   * canvas, which keeps the surface alive until the runtime collects it.
-   */
+  /** The canvas of the surface. */
   canvas: SkCanvas;
 };
 
@@ -295,8 +291,8 @@ export const exportVideoComposition = async <T = undefined>({
                   // Submits the drawing: the present waits for it on the GPU.
                   targetSurface.flush();
                 } finally {
-                  // The swapchain's texture changes with each frame.
-                  disposeCanvas(canvas);
+                  // The swapchain's texture changes with each frame: released
+                  // now, its canvas detached with it.
                   targetSurface.dispose();
                 }
                 windowContext.present();
@@ -373,7 +369,7 @@ export const exportVideoComposition = async <T = undefined>({
           // the encoder is.
           windowContext?.unconfigure();
           for (const target of targets) {
-            disposeCanvas(target.canvas);
+            // Also detaches its canvas.
             target.surface.dispose();
             target.texture.destroy();
             target.memory.destroy();

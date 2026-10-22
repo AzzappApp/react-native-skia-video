@@ -22,7 +22,6 @@ import {
 } from './frameImages';
 import useEventListener from './utils/useEventListener';
 import reportFrameError from './utils/reportFrameError';
-import disposeCanvas from './utils/disposeCanvas';
 import { PixelRatio } from 'react-native';
 
 type UseVideoCompositionPlayerOptions<T = undefined> = {
@@ -133,8 +132,7 @@ export const useVideoCompositionPlayer = <T = undefined>({
   // image (surface.asImage()): the same image for every frame, sharing the
   // texture of the surface.
   const surfaceSharedValue = useSharedValue<SkSurface | null>(null);
-  // The canvas of the surface, made once: each getCanvas() call makes a new
-  // canvas, which keeps the surface alive until the UI runtime collects it.
+  // The canvas of the surface.
   const canvasSharedValue = useSharedValue<SkCanvas | null>(null);
   const currentFrame = useSharedValue<SkImage | null>(null);
   useEffect(
@@ -145,15 +143,14 @@ export const useVideoCompositionPlayer = <T = undefined>({
         releaseFrameImages(framesKey);
         // Released now rather than when the UI runtime collects them: a
         // collected surface is only destroyed once the UI thread creates
-        // another Skia surface or image.
+        // another Skia surface or image. Disposing the surface detaches its
+        // canvas, which no longer keeps it alive.
         const frame = currentFrame.value;
         currentFrame.value = null;
         frame?.dispose();
         const surface = surfaceSharedValue.value;
         surfaceSharedValue.value = null;
-        const canvas = canvasSharedValue.value;
         canvasSharedValue.value = null;
-        disposeCanvas(canvas);
         surface?.dispose();
       })();
     },

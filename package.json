@@ -92,7 +92,7 @@
     "react-native": "0.87.1",
     "react-native-builder-bob": "^0.43.1",
     "react-native-reanimated": "^4.7.1",
-    "react-native-skia": "^3.7.2",
+    "react-native-skia": "^3.7.3",
     "react-native-webgpu": "patch:react-native-webgpu@npm%3A0.17.0#~/.yarn/patches/react-native-webgpu-npm-0.17.0-86dc22aad7.patch",
     "react-native-worklets": "^0.13.0",
     "react-test-renderer": "19.3.0",
@@ -105,7 +105,7 @@
     "react": "*",
     "react-native": ">= 0.81.0",
     "react-native-reanimated": ">= 4.2.1",
-    "react-native-skia": ">= 3.7.0",
+    "react-native-skia": ">= 3.7.3",
     "react-native-webgpu": ">= 0.17.0",
     "react-native-worklets": ">= 0.10.0"
   },
