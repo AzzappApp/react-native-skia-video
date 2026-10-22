@@ -17,9 +17,12 @@ you an `SkImage`.
 ## 1. Upgrade React Native Skia and install React Native WebGPU
 
 Follow the [React Native Skia v3 migration guide](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/):
-the package is now `react-native-skia` (instead of `@shopify/react-native-skia`)
-and Android requires API level 26 or above (this library requires 28, Android 9,
-and iOS 16).
+the package is now `react-native-skia` (instead of `@shopify/react-native-skia`).
+
+:::caution Minimum versions
+This library now requires **iOS 16** and **Android 9 (API level 28)**, React
+Native Skia 3.7.3 and React Native WebGPU 0.17.0 or above.
+:::
 
 ```sh
 yarn remove @shopify/react-native-skia
@@ -71,6 +74,45 @@ The images are owned by the player (or composition player): an image only
 shows its frame until the next one is produced. Don't dispose them, and use
 `image.makeRasterImageSync()` if you need a lasting copy (a thumbnail for
 instance).
+
+## 4. Android frames are upright
+
+On Android, frames are now rotated upright when they are converted: their
+`rotation` is always 0, and `width` / `height` are the displayed size (a
+portrait phone clip is a 1080×1920 frame). On iOS nothing changes: frames are as
+stored in the file, with the rotation to apply (the same clip is a 1920×1080
+frame with a `rotation` of 90). Code that applies `frame.rotation` keeps working
+on both; code that rotated Android frames by the video's rotation must stop.
+The `rotation` of the `ready` event of `useVideoPlayer` follows the same rule.
+
+## 5. Low-level APIs
+
+Only if you call the native objects directly (the hooks and
+`exportVideoComposition` do it for you):
+
+- `VideoPlayer.decodeNextFrame()` and `decodeCompositionFrames()` return
+  `DecodedFrame`s, the native buffers of the decoders (a `CVPixelBufferRef` on
+  iOS, an `AHardwareBuffer*` on Android), rather than `VideoFrame`s: the library
+  turns them into Skia images.
+- `VideoEncoder.encodeFrame(texture, time)` is replaced by `beginFrame()`, which
+  hands out the native buffer to render the frame into, and
+  `endFrame(time, fences?)`, which encodes it.
+
+## 6. TypeScript
+
+`VideoFrame.texture` is typed `GPUTexture`, a global type of
+[`@webgpu/types`](https://www.npmjs.com/package/@webgpu/types): it is a
+dependency of the library and its declarations reference it, there is nothing to
+install or configure.
+
+## What's new
+
+- `maxLongSide` (`useVideoPlayer` and composition video items): caps the long
+  side of the decoded frames, keeping the aspect ratio. Safe for rotated videos,
+  unlike `resolution`.
+- `volume` on the composition player: a master volume on top of the items'.
+- `audioFadeIn` / `audioFadeOut` on composition items: linear volume ramps,
+  during playback and in the export.
 
 ## What doesn't change
 
