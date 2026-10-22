@@ -11,8 +11,8 @@ dedicated worklet thread: a synchronous extractor decodes the exact frame for
 each timestamp, and your `drawFrame` renders it with Skia straight into a
 video buffer of the encoder, never read back from the GPU: the hardware
 encoder reads it on Android (MediaCodec), and on iOS it is converted once, in
-hardware, to the encoder's own NV12 format (copied as is before iOS 16), into a
-buffer AVAssetWriter can keep while it encodes. Audio items are mixed and encoded alongside.
+hardware, to the encoder's own NV12 format, into a buffer AVAssetWriter can
+keep while it encodes. Audio items are mixed and encoded alongside.
 
 ```ts
 import { exportVideoComposition } from '@azzapp/react-native-skia-video';

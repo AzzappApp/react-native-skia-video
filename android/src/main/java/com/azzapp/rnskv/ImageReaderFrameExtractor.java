@@ -10,8 +10,6 @@ import android.os.Build;
 import android.util.Log;
 import android.view.Surface;
 
-import androidx.annotation.RequiresApi;
-
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayDeque;
@@ -19,10 +17,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Receives the frames of a decoder in GPU-sampleable buffers, in the decoder's own YUV layout
- * ({@link ImageFormat#PRIVATE}). JS converts them to RGB on React Native Skia's device: unlike
- * {@link GLFrameExtractor}, there is no OpenGL pass into an RGBA buffer.
+ * ({@link ImageFormat#PRIVATE}). JS converts them to RGB on React Native Skia's device.
  */
-@RequiresApi(api = Build.VERSION_CODES.Q)
 public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableListener {
 
   private static final String TAG = "ImageReaderFrameExtractor";
@@ -48,22 +44,27 @@ public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableLi
 
   private AcquiredImage currentImage;
 
-  private GLFrameExtractor.OnFrameAvailableListener onFrameAvailableListener;
+  private OnFrameAvailableListener onFrameAvailableListener;
 
   /**
    * @param width  the width of the decoded frames (the decoder sets the size of its buffers)
    * @param height the height of the decoded frames
    */
   public ImageReaderFrameExtractor(int width, int height) {
-    reader = ImageReader.newInstance(
-      width, height, ImageFormat.PRIVATE, MAX_IMAGES, HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE);
-    // Called on the looper of the calling thread, like the frames of a SurfaceTexture.
+    // The buffers must be sampleable by the GPU: React Native Skia's device imports them as
+    // textures. Android 10 lets the reader ask for it. On Android 9 the reader asks for nothing,
+    // and the buffers carry the usage of the decoder alone, which renders to a surface for the
+    // GPU (MediaCodec's default output usage includes GPU sampling): a decoder that doesn't
+    // fails the import of its frames.
+    reader = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+      ? ImageReader.newInstance(
+          width, height, ImageFormat.PRIVATE, MAX_IMAGES, HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE)
+      : ImageReader.newInstance(width, height, ImageFormat.PRIVATE, MAX_IMAGES);
+    // Called on the looper of the calling thread.
     reader.setOnImageAvailableListener(this, null);
   }
 
-  public void setOnFrameAvailableListener(
-    GLFrameExtractor.OnFrameAvailableListener onFrameAvailableListener
-  ) {
+  public void setOnFrameAvailableListener(OnFrameAvailableListener onFrameAvailableListener) {
     this.onFrameAvailableListener = onFrameAvailableListener;
   }
 
@@ -200,5 +201,12 @@ public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableLi
       buffer.close();
       image.close();
     }
+  }
+
+  /**
+   * Listener called when the decoder rendered a frame.
+   */
+  public interface OnFrameAvailableListener {
+    void onFrameAvailable();
   }
 }

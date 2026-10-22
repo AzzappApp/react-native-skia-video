@@ -100,8 +100,6 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
   RNSVModule.setProperty(runtime, "getMemoryFootprint",
                          std::move(getMemoryFootprint));
 
-  runtime.global().setProperty(runtime, "RNSkiaVideo", RNSVModule);
-
   auto createVideoCompositionFramesExtractor =
       jsi::Function::createFromHostFunction(
           runtime,

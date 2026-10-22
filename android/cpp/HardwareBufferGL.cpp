@@ -2,8 +2,10 @@
 
 #include <GLES2/gl2ext.h>
 #include <android/hardware_buffer_jni.h>
-#include <jni.h>
+#include <cerrno>
 #include <poll.h>
+#include <string_view>
+#include <sys/system_properties.h>
 #include <unistd.h>
 
 namespace RNSkiaVideo {
@@ -87,200 +89,131 @@ void destroyHardwareBufferImage(EGLImageKHR image) {
   }
 }
 
-void waitForSyncFence(int fd) {
-  if (fd < 0) {
-    return;
+namespace {
+
+  // How long the CPU waits for a frame to be drawn, when the GPU can't: a
+  // frame that isn't drawn by then fails the export rather than being encoded
+  // unfinished.
+  constexpr int kCPUWaitTimeoutMs = 1000;
+
+  bool hasExtension(EGLDisplay display, std::string_view name) {
+    const char* extensions = eglQueryString(display, EGL_EXTENSIONS);
+    if (extensions == nullptr) {
+      return false;
+    }
+    // A space-separated list: match whole names only.
+    std::string_view list(extensions);
+    for (size_t start = 0; start < list.size();) {
+      size_t end = list.find(' ', start);
+      if (end == std::string_view::npos) {
+        end = list.size();
+      }
+      if (list.substr(start, end - start) == name) {
+        return true;
+      }
+      start = end + 1;
+    }
+    return false;
   }
-  static const auto createSync = reinterpret_cast<PFNEGLCREATESYNCKHRPROC>(
-      eglGetProcAddress("eglCreateSyncKHR"));
-  static const auto waitSync = reinterpret_cast<PFNEGLWAITSYNCKHRPROC>(
-      eglGetProcAddress("eglWaitSyncKHR"));
-  static const auto destroySync = reinterpret_cast<PFNEGLDESTROYSYNCKHRPROC>(
-      eglGetProcAddress("eglDestroySyncKHR"));
-  EGLDisplay display = eglGetCurrentDisplay();
-  if (createSync != nullptr && waitSync != nullptr && destroySync != nullptr &&
-      display != EGL_NO_DISPLAY) {
-    const EGLint attributes[] = {EGL_SYNC_NATIVE_FENCE_FD_ANDROID, fd,
+
+  // Testing: `adb shell setprop debug.rnskv.cpu_fence_wait 1`, then restart
+  // the app, forces the wait on the CPU.
+  bool isCPUWaitForced() {
+    static const bool forced = [] {
+      char value[PROP_VALUE_MAX] = {0};
+      return __system_property_get("debug.rnskv.cpu_fence_wait", value) > 0 &&
+             value[0] == '1';
+    }();
+    return forced;
+  }
+
+  // Has the current GL context wait for the fence on the GPU. False if it
+  // can't, the fence then still to wait for. Doesn't take ownership of fd.
+  bool waitOnGPU(int fd) {
+    EGLDisplay display = eglGetCurrentDisplay();
+    if (display == EGL_NO_DISPLAY || isCPUWaitForced() ||
+        !hasExtension(display, "EGL_ANDROID_native_fence_sync") ||
+        !hasExtension(display, "EGL_KHR_wait_sync")) {
+      return false;
+    }
+    static const auto createSync = reinterpret_cast<PFNEGLCREATESYNCKHRPROC>(
+        eglGetProcAddress("eglCreateSyncKHR"));
+    static const auto waitSync = reinterpret_cast<PFNEGLWAITSYNCKHRPROC>(
+        eglGetProcAddress("eglWaitSyncKHR"));
+    static const auto destroySync = reinterpret_cast<PFNEGLDESTROYSYNCKHRPROC>(
+        eglGetProcAddress("eglDestroySyncKHR"));
+    if (createSync == nullptr || waitSync == nullptr ||
+        destroySync == nullptr) {
+      return false;
+    }
+    // eglCreateSyncKHR takes ownership of the fd it is given, even when it
+    // fails: give it a duplicate, the original is kept for the CPU wait.
+    int eglFd = dup(fd);
+    if (eglFd < 0) {
+      return false;
+    }
+    const EGLint attributes[] = {EGL_SYNC_NATIVE_FENCE_FD_ANDROID, eglFd,
                                  EGL_NONE};
     EGLSyncKHR sync =
         createSync(display, EGL_SYNC_NATIVE_FENCE_ANDROID, attributes);
-    if (sync != EGL_NO_SYNC_KHR) {
-      // EGL owns the fd now. The wait is queued on the GPU: the sync can be
-      // destroyed right away.
-      waitSync(display, sync, 0);
-      destroySync(display, sync);
-      return;
+    if (sync == EGL_NO_SYNC_KHR) {
+      return false;
     }
+    // The wait is queued on the GPU: the sync can be destroyed right away.
+    EGLBoolean waiting = waitSync(display, sync, 0);
+    destroySync(display, sync);
+    return waiting == EGL_TRUE;
   }
-  struct pollfd pollFd = {fd, POLLIN, 0};
-  poll(&pollFd, 1, 5000);
+
+  // Waits on the CPU until the fence signals, for kCPUWaitTimeoutMs at most.
+  // Doesn't take ownership of fd.
+  bool waitOnCPU(int fd) {
+    struct pollfd pollFd = {fd, POLLIN, 0};
+    int result;
+    do {
+      result = poll(&pollFd, 1, kCPUWaitTimeoutMs);
+    } while (result < 0 && errno == EINTR);
+    // A sync_file is readable once signaled; POLLERR if it signaled an error.
+    return result > 0 && (pollFd.revents & POLLIN) != 0 &&
+           (pollFd.revents & (POLLERR | POLLNVAL)) == 0;
+  }
+
+} // namespace
+
+bool waitForSyncFence(int fd) {
+  if (fd < 0) {
+    return true;
+  }
+  bool waited = waitOnGPU(fd) || waitOnCPU(fd);
   close(fd);
-}
-
-int createSyncFence() {
-  static const auto createSync = reinterpret_cast<PFNEGLCREATESYNCKHRPROC>(
-      eglGetProcAddress("eglCreateSyncKHR"));
-  static const auto destroySync = reinterpret_cast<PFNEGLDESTROYSYNCKHRPROC>(
-      eglGetProcAddress("eglDestroySyncKHR"));
-  static const auto dupNativeFence =
-      reinterpret_cast<PFNEGLDUPNATIVEFENCEFDANDROIDPROC>(
-          eglGetProcAddress("eglDupNativeFenceFDANDROID"));
-  EGLDisplay display = eglGetCurrentDisplay();
-  if (createSync != nullptr && destroySync != nullptr &&
-      dupNativeFence != nullptr && display != EGL_NO_DISPLAY) {
-    const EGLint attributes[] = {EGL_SYNC_NATIVE_FENCE_FD_ANDROID,
-                                 EGL_NO_NATIVE_FENCE_FD_ANDROID, EGL_NONE};
-    EGLSyncKHR sync =
-        createSync(display, EGL_SYNC_NATIVE_FENCE_ANDROID, attributes);
-    if (sync != EGL_NO_SYNC_KHR) {
-      // The fence fd only exists once the commands are flushed.
-      glFlush();
-      int fd = dupNativeFence(display, sync);
-      destroySync(display, sync);
-      if (fd != EGL_NO_NATIVE_FENCE_FD_ANDROID) {
-        return fd;
-      }
-    }
-  }
-  glFinish();
-  return -1;
-}
-
-HardwareBufferFences& HardwareBufferFences::getInstance() {
-  static HardwareBufferFences instance;
-  return instance;
-}
-
-void HardwareBufferFences::setReadyFence(AHardwareBuffer* buffer, int fd) {
-  std::lock_guard<std::mutex> lock(mutex);
-  auto& entry = fences[buffer];
-  if (entry.ready >= 0) {
-    close(entry.ready);
-  }
-  entry.ready = fd;
-}
-
-int HardwareBufferFences::takeReadyFence(AHardwareBuffer* buffer) {
-  std::lock_guard<std::mutex> lock(mutex);
-  auto it = fences.find(buffer);
-  if (it == fences.end()) {
-    return -1;
-  }
-  int fd = it->second.ready;
-  it->second.ready = -1;
-  return fd;
-}
-
-int HardwareBufferFences::dupReadyFence(AHardwareBuffer* buffer) {
-  std::lock_guard<std::mutex> lock(mutex);
-  auto it = fences.find(buffer);
-  if (it == fences.end() || it->second.ready < 0) {
-    return -1;
-  }
-  return dup(it->second.ready);
-}
-
-void HardwareBufferFences::setReleaseFences(AHardwareBuffer* buffer,
-                                            std::vector<int> fds) {
-  std::vector<int> stale;
-  {
-    std::lock_guard<std::mutex> lock(mutex);
-    auto it = fences.find(buffer);
-    if (it == fences.end()) {
-      stale = std::move(fds);
-    } else {
-      // The new fences are signaled after the previous ones (the reads were
-      // submitted in order on the same queue).
-      stale = std::move(it->second.release);
-      it->second.release = std::move(fds);
-    }
-  }
-  for (int fd : stale) {
-    if (fd >= 0) {
-      close(fd);
-    }
-  }
-}
-
-std::vector<int>
-HardwareBufferFences::takeReleaseFences(AHardwareBuffer* buffer) {
-  std::lock_guard<std::mutex> lock(mutex);
-  auto it = fences.find(buffer);
-  if (it == fences.end()) {
-    return {};
-  }
-  return std::move(it->second.release);
-}
-
-void HardwareBufferFences::forget(AHardwareBuffer* buffer) {
-  Fences entry;
-  {
-    std::lock_guard<std::mutex> lock(mutex);
-    auto it = fences.find(buffer);
-    if (it == fences.end()) {
-      return;
-    }
-    entry = std::move(it->second);
-    fences.erase(it);
-  }
-  if (entry.ready >= 0) {
-    close(entry.ready);
-  }
-  for (int fd : entry.release) {
-    if (fd >= 0) {
-      close(fd);
-    }
-  }
+  return waited;
 }
 
 } // namespace RNSkiaVideo
 
-using namespace RNSkiaVideo;
+namespace RNSkiaVideo {
 
-extern "C" JNIEXPORT jlong JNICALL
-Java_com_azzapp_rnskv_HardwareBufferTexture_nativeBindHardwareBuffer(
-    JNIEnv* env, jclass clazz, jobject hardwareBuffer, jint texture) {
-  AHardwareBuffer* buffer =
-      AHardwareBuffer_fromHardwareBuffer(env, hardwareBuffer);
+void JHardwareBufferTexture::registerNatives() {
+  javaClassStatic()->registerNatives({
+      makeNativeMethod("nativeBindHardwareBuffer",
+                       JHardwareBufferTexture::nativeBindHardwareBuffer),
+      makeNativeMethod("nativeDestroyImage",
+                       JHardwareBufferTexture::nativeDestroyImage),
+  });
+}
+
+jlong JHardwareBufferTexture::nativeBindHardwareBuffer(
+    alias_ref<JClass>, alias_ref<JHardwareBuffer> hardwareBuffer,
+    jint texture) {
+  AHardwareBuffer* buffer = AHardwareBuffer_fromHardwareBuffer(
+      Environment::current(), hardwareBuffer.get());
   return reinterpret_cast<jlong>(
       bindHardwareBufferToTexture(buffer, static_cast<GLuint>(texture)));
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_azzapp_rnskv_HardwareBufferTexture_nativeDestroyImage(JNIEnv* env,
-                                                               jclass clazz,
-                                                               jlong image) {
+void JHardwareBufferTexture::nativeDestroyImage(alias_ref<JClass>,
+                                                jlong image) {
   destroyHardwareBufferImage(reinterpret_cast<EGLImageKHR>(image));
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_azzapp_rnskv_HardwareBufferTexture_nativeWaitForRelease(
-    JNIEnv* env, jclass clazz, jobject hardwareBuffer) {
-  AHardwareBuffer* buffer =
-      AHardwareBuffer_fromHardwareBuffer(env, hardwareBuffer);
-  auto& registry = HardwareBufferFences::getInstance();
-  // The frames handed out for the previous rendering hold their own
-  // duplicates of its ready fence.
-  int staleReadyFence = registry.takeReadyFence(buffer);
-  if (staleReadyFence >= 0) {
-    close(staleReadyFence);
-  }
-  for (int fd : registry.takeReleaseFences(buffer)) {
-    waitForSyncFence(fd);
-  }
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_azzapp_rnskv_HardwareBufferTexture_nativeSignalReady(
-    JNIEnv* env, jclass clazz, jobject hardwareBuffer) {
-  AHardwareBuffer* buffer =
-      AHardwareBuffer_fromHardwareBuffer(env, hardwareBuffer);
-  HardwareBufferFences::getInstance().setReadyFence(buffer, createSyncFence());
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_azzapp_rnskv_HardwareBufferTexture_nativeForget(
-    JNIEnv* env, jclass clazz, jobject hardwareBuffer) {
-  HardwareBufferFences::getInstance().forget(
-      AHardwareBuffer_fromHardwareBuffer(env, hardwareBuffer));
-}
+} // namespace RNSkiaVideo

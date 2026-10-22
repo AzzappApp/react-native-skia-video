@@ -1,10 +1,13 @@
 package com.azzapp.rnskv;
 
-import android.os.Build;
-import android.view.Surface;
+import android.os.Handler;
+
+import androidx.annotation.Nullable;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -17,49 +20,12 @@ import java.util.Map;
  */
 public class VideoCompositionDecoder {
 
-  /**
-   * Whether React Native Skia's device can sample the decoders' own YUV
-   * buffers: JS checks it once (see setYUVFramesSupported in JS).
-   */
-  private static volatile boolean yuvFramesSupported = false;
-
-  /**
-   * An explicit choice to hand the frames over in YUV buffers or not,
-   * overriding yuvFramesSupported, or null.
-   */
-  private static volatile Boolean yuvFramesEnabled = null;
-
-  /**
-   * Whether the decoders hand their frames over in their own YUV buffers,
-   * converted to RGB on React Native Skia's device
-   * ({@link ImageReaderFrameExtractor}), rather than rendered into RGBA buffers
-   * with OpenGL ({@link GLFrameExtractor}): when Skia's device can sample them,
-   * unless disabled. It applies to the decoders prepared next.
-   */
-  private static boolean useYUVFrames() {
-    Boolean enabled = yuvFramesEnabled;
-    // ImageReader only allocates GPU-sampleable buffers from Android 10 on.
-    return (enabled != null ? enabled : yuvFramesSupported)
-      && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
-  }
-
-  public static void setYUVFramesSupported(boolean supported) {
-    yuvFramesSupported = supported;
-  }
-
-  public static void setYUVFramesEnabled(boolean enabled) {
-    yuvFramesEnabled = enabled;
-  }
-
   private final VideoComposition composition;
 
   private final HashMap<VideoComposition.Item, VideoCompositionItemDecoder> decoders;
 
-  private EGLResourcesHolder eglResourcesHolder;
-
-  private final HashMap<VideoComposition.Item, GLFrameExtractor> glFrameExtractors;
-
-  private final HashMap<VideoComposition.Item, ImageReaderFrameExtractor> yuvFrameExtractors =
+  // The decoders hand their frames over in their own YUV buffers, converted to RGB by JS.
+  private final HashMap<VideoComposition.Item, ImageReaderFrameExtractor> frameExtractors =
     new HashMap<>();
 
   private final HashMap<String, VideoFrame> videoFrames = new HashMap<>();
@@ -75,19 +41,26 @@ public class VideoCompositionDecoder {
   private volatile boolean started = false;
 
   /**
+   * The handler the decoders' callbacks run on, or null for the looper of the thread opening them.
+   */
+  @Nullable
+  private Handler callbackHandler;
+
+  /**
    * Creates a new video composition decoder.
    *
    * @param composition The video composition to decode.
+   * @param forExport   Whether it decodes for an export, as fast as it can, rather than in real
+   *                    time.
    */
-  public VideoCompositionDecoder(VideoComposition composition) {
+  public VideoCompositionDecoder(VideoComposition composition, boolean forExport) {
     this.composition = composition;
     decoders = new HashMap<>();
-    glFrameExtractors = new HashMap<>();
     composition.getItems().forEach(item -> {
       if (!item.isVideo()) {
         return;
       }
-      VideoCompositionItemDecoder decoder = new VideoCompositionItemDecoder(item);
+      VideoCompositionItemDecoder decoder = new VideoCompositionItemDecoder(item, forExport);
       decoder.setOnErrorListener(error -> {
         if (onErrorListener != null) {
           onErrorListener.onError(error);
@@ -114,35 +87,20 @@ public class VideoCompositionDecoder {
    * {@link #updateDecoders}.
    */
   public void prepare() {
-    boolean yuvFrames = useYUVFrames();
-    if (!yuvFrames) {
-      eglResourcesHolder = EGLResourcesHolder.createWithPBBufferSurface();
-      eglResourcesHolder.makeCurrent();
-    }
     decoders.values().forEach(decoder -> {
       try {
         decoder.prepare();
 
         VideoComposition.Item item = decoder.getItem();
-        GLFrameExtractor.OnFrameAvailableListener onFrameAvailable = () -> {
+        ImageReaderFrameExtractor frameExtractor = new ImageReaderFrameExtractor(
+          decoder.getVideoWidth(), decoder.getVideoHeight());
+        frameExtractor.setOnFrameAvailableListener(() -> {
           if (onItemImageAvailableListener != null) {
             onItemImageAvailableListener.onItemImageAvailable(item);
           }
-        };
-        Surface surface;
-        if (yuvFrames) {
-          ImageReaderFrameExtractor yuvFrameExtractor = new ImageReaderFrameExtractor(
-            decoder.getVideoWidth(), decoder.getVideoHeight());
-          yuvFrameExtractor.setOnFrameAvailableListener(onFrameAvailable);
-          yuvFrameExtractors.put(item, yuvFrameExtractor);
-          surface = yuvFrameExtractor.getSurface();
-        } else {
-          GLFrameExtractor glFrameExtractor = new GLFrameExtractor();
-          glFrameExtractor.setOnFrameAvailableListener(onFrameAvailable);
-          glFrameExtractors.put(item, glFrameExtractor);
-          surface = glFrameExtractor.getSurface();
-        }
-        decoder.setSurface(surface);
+        });
+        frameExtractors.put(item, frameExtractor);
+        decoder.setSurface(frameExtractor.getSurface());
       } catch (Exception e) {
         throw new RuntimeException(e);
       }
@@ -154,6 +112,14 @@ public class VideoCompositionDecoder {
    */
   public void start() {
     started = true;
+  }
+
+  /**
+   * Sets the handler the decoders' callbacks run on, rather than the looper of the thread opening
+   * them (see {@link #updateDecoders}).
+   */
+  public void setCallbackHandler(@Nullable Handler callbackHandler) {
+    this.callbackHandler = callbackHandler;
   }
 
   /**
@@ -175,9 +141,11 @@ public class VideoCompositionDecoder {
 
   /**
    * Opens the decoders of the items decoded at the given position (see
-   * {@link VideoComposition.Item#isDecodedAt}), decoding from it, and closes the others. Called on the thread the decoders' callbacks run on (the looper of the decoding
-   * thread), outside of the lock of the frames: the frames of the open items are still handed out
-   * while a decoder is created.
+   * {@link VideoComposition.Item#isDecodedAt}), decoding from it, and closes the others. Their
+   * callbacks run on the callback handler (see {@link #setCallbackHandler}), or else on the looper
+   * of the calling thread. Creating or releasing a decoder takes tens of milliseconds, without the
+   * locks of the frames: the frames of the other items are still rendered and handed out
+   * meanwhile, unless this runs on the thread rendering them.
    *
    * @param positionUs The current position in microseconds.
    * @param looping    Whether the composition loops.
@@ -186,16 +154,39 @@ public class VideoCompositionDecoder {
     if (!started) {
       return;
     }
+    // Its last frames are released by updateVideosFrames, on the thread that hands them out.
+    closeDecoders(positionUs, looping);
+    List<VideoCompositionItemDecoder> opened = new ArrayList<>();
     for (Map.Entry<VideoComposition.Item, VideoCompositionItemDecoder> entry : decoders.entrySet()) {
-      VideoComposition.Item item = entry.getKey();
-      VideoCompositionItemDecoder decoder = entry.getValue();
-      Long decodingPositionUs = getDecodingPosition(item, positionUs, looping);
-      if (decodingPositionUs == null) {
-        // Its last frames are released by updateVideosFrames, on the thread that hands them out.
-        decoder.close();
-      } else {
-        decoder.open(decodingPositionUs);
+      Long decodingPositionUs = getDecodingPosition(entry.getKey(), positionUs, looping);
+      if (decodingPositionUs != null && entry.getValue().open(decodingPositionUs, callbackHandler)) {
+        opened.add(entry.getValue());
       }
+    }
+    startDecoders(opened);
+  }
+
+  /**
+   * Closes the decoders of the items not decoded at the given position, before any other is
+   * opened: the decoder instances of the device are limited, those of the items ending are needed
+   * by the items starting.
+   */
+  private void closeDecoders(long positionUs, boolean looping) {
+    for (Map.Entry<VideoComposition.Item, VideoCompositionItemDecoder> entry : decoders.entrySet()) {
+      if (getDecodingPosition(entry.getKey(), positionUs, looping) == null) {
+        entry.getValue().close();
+      }
+    }
+  }
+
+  /**
+   * Starts the decoders opened together once they are all created: the items starting at the same
+   * time show their first frames together, rather than one decoder creation (tens of milliseconds)
+   * after the other.
+   */
+  private static void startDecoders(List<VideoCompositionItemDecoder> opened) {
+    for (VideoCompositionItemDecoder decoder : opened) {
+      decoder.start();
     }
   }
 
@@ -239,12 +230,18 @@ public class VideoCompositionDecoder {
    * Renders the video composition at the given position.
    *
    * @param currentPositionUs The current position in microseconds.
+   * @param looping           Whether the composition loops: the items of its start, opened before
+   *                          it loops (see {@link #getDecodingPosition}), render the frames due at
+   *                          the same position of the next loop, their first one, rather than all
+   *                          the frames they decode until the composition loops.
    * @return A map with the rendered times for each item.
    */
-  public synchronized Map<String, Long> render(long currentPositionUs) {
+  public synchronized Map<String, Long> render(long currentPositionUs, boolean looping) {
     Map<String, Long> renderedTimes = new HashMap<>();
     decoders.forEach((item, decoder) -> {
-      renderedTimes.put(item.getId(), decoder.render(currentPositionUs));
+      Long decodingPositionUs = getDecodingPosition(item, currentPositionUs, looping);
+      renderedTimes.put(item.getId(), decoder.render(
+        decodingPositionUs != null ? decodingPositionUs : currentPositionUs));
     });
     return renderedTimes;
   }
@@ -266,9 +263,9 @@ public class VideoCompositionDecoder {
         videoFrames.remove(item.getId());
         // Here rather than when the decoder is closed: the frames handed out last are converted
         // on this thread, after this call.
-        ImageReaderFrameExtractor yuvFrameExtractor = yuvFrameExtractors.get(item);
-        if (yuvFrameExtractor != null) {
-          yuvFrameExtractor.releaseFrames();
+        ImageReaderFrameExtractor frameExtractor = frameExtractors.get(item);
+        if (frameExtractor != null) {
+          frameExtractor.releaseFrames();
         }
         continue;
       }
@@ -302,34 +299,17 @@ public class VideoCompositionDecoder {
         frameWidth = frameHeight;
         frameHeight = temp;
       }
-      VideoFrame nextFrame;
-      ImageReaderFrameExtractor yuvFrameExtractor = yuvFrameExtractors.get(item);
-      GLFrameExtractor glFrameExtractor = glFrameExtractors.get(item);
-      if (yuvFrameExtractor != null) {
-        if (!yuvFrameExtractor.decodeNextFrame()) {
-          continue;
-        }
-        nextFrame = new VideoFrame(
-          yuvFrameExtractor.getOutputBuffer(),
-          frameWidth, frameHeight,
-          yuvFrameExtractor.getLatestTimeStampNs(),
-          yuvFrameExtractor.getCropRect(decoder.getVideoWidth(), decoder.getVideoHeight()),
-          decoder.getRotation()
-        );
-      } else {
-        if (eglResourcesHolder == null || glFrameExtractor == null) {
-          continue;
-        }
-        eglResourcesHolder.makeCurrent();
-        if (!glFrameExtractor.decodeNextFrame(frameWidth, frameHeight)) {
-          continue;
-        }
-        nextFrame = new VideoFrame(
-          glFrameExtractor.getOutputBuffer(),
-          frameWidth, frameHeight, 0,
-          glFrameExtractor.getLatestTimeStampNs()
-        );
+      ImageReaderFrameExtractor frameExtractor = frameExtractors.get(item);
+      if (frameExtractor == null || !frameExtractor.decodeNextFrame()) {
+        continue;
       }
+      VideoFrame nextFrame = new VideoFrame(
+        frameExtractor.getOutputBuffer(),
+        frameWidth, frameHeight,
+        frameExtractor.getLatestTimeStampNs(),
+        frameExtractor.getCropRect(decoder.getVideoWidth(), decoder.getVideoHeight()),
+        decoder.getRotation()
+      );
       String id = item.getId();
       videoFrames.put(id, nextFrame);
     }
@@ -345,18 +325,21 @@ public class VideoCompositionDecoder {
    * @param looping  Whether the composition loops.
    */
   public void seekTo(long position, boolean looping) throws IOException {
+    closeDecoders(position, looping);
+    List<VideoCompositionItemDecoder> opened = new ArrayList<>();
     for (Map.Entry<VideoComposition.Item, VideoCompositionItemDecoder> entry : decoders.entrySet()) {
-      VideoComposition.Item item = entry.getKey();
       VideoCompositionItemDecoder decoder = entry.getValue();
-      Long decodingPositionUs = getDecodingPosition(item, position, looping);
+      Long decodingPositionUs = getDecodingPosition(entry.getKey(), position, looping);
       if (decodingPositionUs == null) {
-        decoder.close();
-      } else if (decoder.isOpen()) {
+        continue;
+      }
+      if (decoder.isOpen()) {
         decoder.seekTo(decodingPositionUs);
-      } else if (started) {
-        decoder.open(decodingPositionUs);
+      } else if (started && decoder.open(decodingPositionUs, callbackHandler)) {
+        opened.add(decoder);
       }
     }
+    startDecoders(opened);
   }
 
   /**
@@ -366,19 +349,8 @@ public class VideoCompositionDecoder {
     decoders.values().forEach(VideoCompositionItemDecoder::release);
     decoders.clear();
     videoFrames.clear();
-    yuvFrameExtractors.values().forEach(ImageReaderFrameExtractor::release);
-    yuvFrameExtractors.clear();
-    // The GL deletes below require this context to be current on the
-    // calling thread.
-    if (eglResourcesHolder != null) {
-      eglResourcesHolder.makeCurrent();
-    }
-    glFrameExtractors.values().forEach(GLFrameExtractor::release);
-    glFrameExtractors.clear();
-    if (eglResourcesHolder != null) {
-      eglResourcesHolder.release();
-      eglResourcesHolder = null;
-    }
+    frameExtractors.values().forEach(ImageReaderFrameExtractor::release);
+    frameExtractors.clear();
   }
 
   /**

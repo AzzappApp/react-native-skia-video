@@ -142,8 +142,29 @@ describe('makeVideoFrame', () => {
     expect(again.image).toBe(first.image);
     expect(again.texture).toBe(first.texture);
     expect(first.image.dispose).not.toHaveBeenCalled();
-    // Android: the frame handed out again carries a ready fence of its own.
+    // Android: the frame handed out again holds a reference to the buffer of
+    // its own.
     expect(frameAgain.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a frame whose conversion failed, to convert it again', () => {
+    const { context, importExternalTexture } = makeContext();
+    const key = makeKey();
+    importExternalTexture.mockImplementationOnce(() => {
+      throw new Error('importExternalTexture failed');
+    });
+    const frame = makeFrame(1n);
+
+    expect(() => makeVideoFrame(context, key, frame)).toThrow(
+      'importExternalTexture failed'
+    );
+    expect(frame.release).not.toHaveBeenCalled();
+
+    // Handed out again, as the producer does until a new frame is decoded.
+    const videoFrame = makeVideoFrame(context, key, frame);
+    expect(importExternalTexture).toHaveBeenCalledTimes(2);
+    expect(frame.release).toHaveBeenCalledTimes(1);
+    expect(videoFrame.image).toBeTruthy();
   });
 
   it('hands out two images of the texture in turn for the new frames of a key', () => {

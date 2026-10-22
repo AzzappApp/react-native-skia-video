@@ -64,6 +64,9 @@
     "registry": "https://registry.npmjs.org/",
     "access": "public"
   },
+  "dependencies": {
+    "@webgpu/types": "^0.1.74"
+  },
   "devDependencies": {
     "@babel/core": "^7.29.7",
     "@commitlint/config-conventional": "^21.2.3",
@@ -76,7 +79,6 @@
     "@types/jest": "^29.5.14",
     "@types/node": "^26.6.4",
     "@types/react": "^19.2.18",
-    "@webgpu/types": "^0.1.74",
     "commitlint": "^21.2.3",
     "del-cli": "^7.0.0",
     "eslint": "^10.12.0",
@@ -92,7 +94,7 @@
     "react-native": "0.87.1",
     "react-native-builder-bob": "^0.43.1",
     "react-native-reanimated": "^4.7.1",
-    "react-native-skia": "^3.7.0",
+    "react-native-skia": "^3.7.3",
     "react-native-webgpu": "^0.17.0",
     "react-native-worklets": "^0.13.0",
     "react-test-renderer": "19.3.0",
@@ -103,9 +105,9 @@
   },
   "peerDependencies": {
     "react": "*",
-    "react-native": "*",
-    "react-native-reanimated": ">= 4.0.0",
-    "react-native-skia": ">= 3.7.0",
+    "react-native": ">= 0.81.0",
+    "react-native-reanimated": ">= 4.2.1",
+    "react-native-skia": ">= 3.7.3",
     "react-native-webgpu": ">= 0.17.0",
     "react-native-worklets": ">= 0.10.0"
   },

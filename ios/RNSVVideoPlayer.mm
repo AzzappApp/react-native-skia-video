@@ -37,8 +37,12 @@ static void* rateContext = &rateContext;
 
   AVAsset* asset = [AVAsset assetWithURL:url];
   self.resolution = resolution;
-  // With maxLongSide, the size of the output depends on the video track's: it
-  // is made once the item is ready (see observeValueForKeyPath).
+  // The video output is made now when its size doesn't depend on the video
+  // track: with an explicit resolution, or without a cap on the long side
+  // (maxLongSide <= 0: the frames keep the size of the video, which the
+  // output picks itself). With a cap and no resolution, the size is the
+  // track's, capped: the output is made once the item is ready and the size
+  // of its track known (see observeValueForKeyPath).
   if (!CGSizeEqualToSize(CGSizeZero, resolution) || maxLongSide <= 0) {
     _videoOutput = [self makeVideoOutput];
   }
@@ -67,7 +71,8 @@ static void* rateContext = &rateContext;
   // GPU when the frame is drawn into a texture (React Native WebGPU's
   // importExternalTexture), which needs IOSurface-backed buffers. The frames
   // are SDR BT.709, HDR video (an iPhone's HLG) tone mapped by VideoToolbox:
-  // the GPU conversion applies the BT.709 matrix only (see frameImages.ts).
+  // the GPU conversion applies the BT.709 matrix only (see
+  // src/frameImages/gpuConversion.ts).
   NSDictionary* pixBuffAttributes = @{
     (id)kCVPixelBufferPixelFormatTypeKey :
         @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),

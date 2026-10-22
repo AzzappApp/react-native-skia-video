@@ -1,7 +1,8 @@
 import RNSkiaVideoModule from './RNSkiaVideoModule';
+import * as __RNSkiaVideoBenchmark from './benchmarkStats';
 import { Platform } from 'react-native';
 
-export { RNSkiaVideoModule as __RNSkiaVideoPrivateAPI };
+export { RNSkiaVideoModule as __RNSkiaVideoPrivateAPI, __RNSkiaVideoBenchmark };
 
 export * from './types';
 export * from './videoPlayer';

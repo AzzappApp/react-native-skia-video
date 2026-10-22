@@ -43,7 +43,7 @@ public class VideoCompositionFramesExtractorSync {
 
   public VideoCompositionFramesExtractorSync(VideoComposition composition) {
     this.composition = composition;
-    this.decoder = new VideoCompositionDecoder(composition);
+    this.decoder = new VideoCompositionDecoder(composition, true);
   }
 
   public void start() throws Exception {
@@ -147,8 +147,9 @@ public class VideoCompositionFramesExtractorSync {
   private void checkIfFrameDecoded() {
     boolean allItemsReady = true;
     for (VideoComposition.Item item : composition.getItems()) {
-      // Only the live items' frames are handed out (see updateVideosFrames).
-      if (!item.isVideo() || !item.isLiveAt(decodingTimeUs)) {
+      // Only the live items' frames are handed out (see updateVideosFrames). After its end, an
+      // item's decoder is closed: its last frame has nothing to wait for.
+      if (!item.isVideo() || !item.isLiveAt(decodingTimeUs) || !item.isDecodedAt(decodingTimeUs)) {
         continue;
       }
       // Before the frame times: an item can end before its first frame.
@@ -171,7 +172,7 @@ public class VideoCompositionFramesExtractorSync {
         allItemsReady = false;
       }
     }
-    Map<String, Long> renderedTimes = decoder.render(decodingTimeUs);
+    Map<String, Long> renderedTimes = decoder.render(decodingTimeUs, false);
     renderedTimes.forEach((itemId, time) -> {
       if (time != null) {
         this.renderedTimes.put(itemId, time);
@@ -215,7 +216,7 @@ public class VideoCompositionFramesExtractorSync {
       VideoFrame videoFrame = videoFrames.getOrDefault(item.getId(), null);
       if (videoFrame == null) {
         // An item that ended without a frame has none to wait for.
-        if (itemsEnded.contains(item)) {
+        if (itemsEnded.contains(item) || !item.isDecodedAt(decodingTimeUs)) {
           continue;
         }
         return;

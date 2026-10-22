@@ -11,7 +11,8 @@ Pod::Spec.new do |s|
   s.license      = package["license"]
   s.authors      = package["author"]
 
-  s.platforms    = { :ios => min_ios_version_supported }
+  # VTPixelTransferSession (the export's NV12 frames) needs iOS 16.
+  s.platforms    = { :ios => "16.0" }
   s.source       = { :git => "https://github.com/AzzappApp/react-native-skia-video.git.git", :tag => "#{s.version}" }
 
   s.source_files = "ios/**/*.{h,m,mm}", "cpp/**/*.{hpp,cpp,c,h}"

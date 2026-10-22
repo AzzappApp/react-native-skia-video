@@ -41,11 +41,13 @@ public:
   // isDecodedAt).
   static constexpr double decoderLead = 1;
 
-  // Whether the item is decoded at a time of the composition: while it is
-  // live, and decoderLead before, so that its first frame is ready when it
-  // is.
+  // Whether the item is decoded at a time of the composition: from
+  // decoderLead before it is live (its first frame is ready when it is) to
+  // its end. Its last frame is still handed out after its end, while it is
+  // live: a sequence of short clips keeps two readers, not three.
   bool isDecodedAt(double compositionTime) const {
-    return isLiveAt(compositionTime) || isLiveAt(compositionTime + decoderLead);
+    return compositionTime >= compositionStartTime - liveMargin - decoderLead &&
+           compositionTime <= compositionStartTime + duration;
   }
 };
 
@@ -115,14 +117,14 @@ public:
             item->audioVolume = volumeProp.asNumber();
           }
         }
-        if (jsItem.hasProperty(runtime, "fadeIn")) {
-          auto fadeInProp = jsItem.getProperty(runtime, "fadeIn");
+        if (jsItem.hasProperty(runtime, "audioFadeIn")) {
+          auto fadeInProp = jsItem.getProperty(runtime, "audioFadeIn");
           if (fadeInProp.isNumber()) {
             item->audioFadeIn = fadeInProp.asNumber();
           }
         }
-        if (jsItem.hasProperty(runtime, "fadeOut")) {
-          auto fadeOutProp = jsItem.getProperty(runtime, "fadeOut");
+        if (jsItem.hasProperty(runtime, "audioFadeOut")) {
+          auto fadeOutProp = jsItem.getProperty(runtime, "audioFadeOut");
           if (fadeOutProp.isNumber()) {
             item->audioFadeOut = fadeOutProp.asNumber();
           }
