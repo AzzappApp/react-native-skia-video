@@ -19,6 +19,7 @@ import {
   getFrameImageContext,
   makeVideoFrames,
   releaseFrameImages,
+  type FrameImageContext,
 } from './frameImages';
 import useEventListener from './utils/useEventListener';
 import reportFrameError from './utils/reportFrameError';
@@ -110,14 +111,52 @@ export const useVideoCompositionPlayer = <T = undefined>({
   onError,
 }: UseVideoCompositionPlayerOptions<T>): UseVideoCompositionPlayerReturnType => {
   const [isErrored, setIsErrored] = useState(false);
-  const framesExtractor = useMemo(() => {
-    if (composition && !isErrored) {
-      return RNSkiaVideoModule.createVideoCompositionFramesExtractor(
-        composition
-      );
+  const retry = useCallback(() => {
+    setIsErrored(false);
+  }, []);
+
+  const errorHandler = useCallback(
+    (error: any) => {
+      onError?.(error, retry);
+      setIsErrored(true);
+    },
+    [onError, retry]
+  );
+
+  // The context the frames are turned into images with comes first: on a
+  // device whose GPU can't draw them, there is no player, and the error goes
+  // to onError (below) rather than failing the render.
+  const { framesExtractor, frameImageContext, contextError } = useMemo(() => {
+    if (!composition || isErrored) {
+      return {
+        framesExtractor: null,
+        frameImageContext: null,
+        contextError: null,
+      };
     }
-    return null;
+    let context: FrameImageContext;
+    try {
+      context = getFrameImageContext();
+    } catch (error) {
+      return {
+        framesExtractor: null,
+        frameImageContext: null,
+        contextError: { error },
+      };
+    }
+    return {
+      framesExtractor:
+        RNSkiaVideoModule.createVideoCompositionFramesExtractor(composition),
+      frameImageContext: context,
+      contextError: null,
+    };
   }, [isErrored, composition]);
+
+  useEffect(() => {
+    if (contextError) {
+      errorHandler(contextError.error);
+    }
+  }, [contextError, errorHandler]);
 
   useEffect(() => {
     runOnUI(() => {
@@ -125,7 +164,6 @@ export const useVideoCompositionPlayer = <T = undefined>({
     })();
   }, [framesExtractor]);
 
-  const frameImageContext = useMemo(() => getFrameImageContext(), []);
   const framesKey = useMemo(() => createFrameImagesKey(), []);
 
   // The offscreen surface the frames are drawn into. `currentFrame` is its
@@ -163,18 +201,6 @@ export const useVideoCompositionPlayer = <T = undefined>({
     ]
   );
 
-  const retry = useCallback(() => {
-    setIsErrored(false);
-  }, []);
-
-  const errorHandler = useCallback(
-    (error: any) => {
-      onError?.(error, retry);
-      setIsErrored(true);
-    },
-    [onError, retry]
-  );
-
   useEffect(() => {
     if (framesExtractor) {
       framesExtractor.isLooping = isLooping;
@@ -194,7 +220,7 @@ export const useVideoCompositionPlayer = <T = undefined>({
   const pixelRatio = PixelRatio.get();
   useFrameCallback(() => {
     'worklet';
-    if (!framesExtractor) {
+    if (!framesExtractor || !frameImageContext) {
       return;
     }
 
