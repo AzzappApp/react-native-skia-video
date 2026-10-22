@@ -1,4 +1,8 @@
-import { __RNSkiaVideoPrivateAPI } from '@azzapp/react-native-skia-video';
+import { __RNSkiaVideoBenchmark } from '@azzapp/react-native-skia-video';
+
+// The library only measures the memory and the exports' decoder waits in
+// development builds unless enabled: the benchmark runs in Release builds.
+__RNSkiaVideoBenchmark.enableBenchmarkStats();
 
 export type Summary = {
   count: number;
@@ -68,7 +72,7 @@ export const irregularIntervalsPercent = (
  * by Xcode; Android: total PSS, including graphics memory).
  */
 export const readMemoryFootprint = (): number | null =>
-  __RNSkiaVideoPrivateAPI.getMemoryFootprint();
+  __RNSkiaVideoBenchmark.getMemoryFootprint();
 
 export const wait = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
