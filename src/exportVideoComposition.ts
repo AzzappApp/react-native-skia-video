@@ -188,10 +188,13 @@ export const exportVideoComposition = async <T = undefined>({
 
           const nbFrames = videoComposition.duration * options.frameRate;
           const clearColor = Skia.Color('#00000000');
-          // Each frame runs inside a native autorelease pool: the worklet
-          // thread never drains its own, so the ObjC objects autoreleased
-          // per frame by Skia and AVFoundation would otherwise accumulate
-          // for the lifetime of the app. (No-op on Android.)
+          // Each frame runs inside a native autorelease pool (no-op on
+          // Android). Worklets drains one pool per job it runs on a runtime
+          // (software-mansion/react-native-reanimated#10192, from
+          // react-native-worklets 0.10.4 and 0.11.4; never before), and this
+          // whole export is a single job: the ObjC objects Skia and
+          // AVFoundation autorelease with each frame would pile up until the
+          // export ends.
           const runPooled =
             RNSkiaVideoModule.runWithAutoreleasePool ??
             ((fn: () => void) => fn());

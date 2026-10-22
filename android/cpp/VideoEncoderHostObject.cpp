@@ -125,12 +125,18 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
           if (!released.test()) {
             framesExtractor->makeGLContextCurrent();
           }
+          // Each fence is waited for, and closed, even after one failed.
+          bool drawn = true;
           for (int fence : fences) {
-            // Without a current context, waits on the CPU (and closes).
-            waitForSyncFence(fence);
+            drawn = waitForSyncFence(fence) && drawn;
           }
           if (released.test()) {
             return jsi::Value::undefined();
+          }
+          if (!drawn) {
+            // Encoding the buffer now could encode a frame half drawn.
+            throw jsi::JSError(runtime, "VideoEncoder.endFrame(): could not "
+                                        "wait for the frame to be drawn");
           }
           framesExtractor->endFrame(arguments[0].asNumber());
           return jsi::Value::undefined();
