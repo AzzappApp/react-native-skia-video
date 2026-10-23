@@ -1,4 +1,3 @@
-#include "HardwareBufferGL.h"
 #include "NativeEventDispatcher.h"
 #include "VideoCapabilities.h"
 #include "VideoCompositionFramesExtractorHostObject.h"
@@ -264,8 +263,6 @@ Java_com_azzapp_rnskv_ReactNativeSkiaVideoModule_nativeInstall(JNIEnv* env,
 }
 
 jint JNI_OnLoad(JavaVM* vm, void*) {
-  return facebook::jni::initialize(vm, [] {
-    NativeEventDispatcher::registerNatives();
-    JHardwareBufferTexture::registerNatives();
-  });
+  return facebook::jni::initialize(
+      vm, [] { NativeEventDispatcher::registerNatives(); });
 }

@@ -14,7 +14,7 @@ npm install @azzapp/react-native-skia-video react-native-webgpu
 
 This library requires [React Native Skia](https://wcandillon.github.io/react-native-skia/) v3
 (`react-native-skia` 3.7.3 or above, Graphite backend),
-[React Native WebGPU](https://wcandillon.github.io/react-native-webgpu/) 0.17.0 or above (built
+[React Native WebGPU](https://wcandillon.github.io/react-native-webgpu/) 0.19.0 or above (built
 against the same Dawn release as React Native Skia), [Reanimated](https://docs.swmansion.com/react-native-reanimated/) 4
 and [Worklets](https://docs.swmansion.com/react-native-worklets/). It requires iOS 16 or above and Android
 9 (API level 28) or above. On Android, React Native Skia requires Vulkan 1.1 (see
@@ -219,7 +219,16 @@ WebGPU.
 - The images are owned by the player: an image only shows its frame until the
   next one is produced, so draw it instead of keeping it around (use
   `image.makeRasterImageSync()` to keep a copy).
-- `useVideoCompositionPlayer` and `exportVideoComposition` keep the same API.
+- iOS 16 and Android 9 (API level 28) or above are required.
+- On Android, frames are now upright: their `rotation` is always 0 (iOS frames
+  keep the rotation to apply).
+- The low-level native objects changed: `decodeNextFrame()` and
+  `decodeCompositionFrames()` return native buffers, and the encoder's
+  `encodeFrame` is replaced by `beginFrame` / `endFrame`.
+- `useVideoPlayer`, `useVideoCompositionPlayer` and `exportVideoComposition`
+  keep the same API.
+
+See the [full migration guide](https://azzappapp.github.io/react-native-skia-video/docs/migration).
 
 ## Contributing
 

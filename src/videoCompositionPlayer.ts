@@ -1,5 +1,5 @@
 import type { SkCanvas, SkImage, SkSurface } from 'react-native-skia';
-import { Skia } from 'react-native-skia';
+import { Skia, useGpu } from 'react-native-skia';
 import {
   useSharedValue,
   useFrameCallback,
@@ -23,6 +23,7 @@ import {
 } from './frameImages';
 import useEventListener from './utils/useEventListener';
 import reportFrameError from './utils/reportFrameError';
+import skiaDeviceId from './utils/skiaDeviceId';
 import { PixelRatio } from 'react-native';
 
 type UseVideoCompositionPlayerOptions<T = undefined> = {
@@ -123,10 +124,18 @@ export const useVideoCompositionPlayer = <T = undefined>({
     [onError, retry]
   );
 
+  // Skia's GPU device, followed: once a lost device has been replaced, the
+  // player is made again, its frames turned into images on the new device
+  // (see getFrameImageContext). Its surface does not wait for this render:
+  // see `surfaceDevice`.
+  const gpu = useGpu();
+
   // The context the frames are turned into images with comes first: on a
   // device whose GPU can't draw them, there is no player, and the error goes
   // to onError (below) rather than failing the render.
   const { framesExtractor, frameImageContext, contextError } = useMemo(() => {
+    // a dependency only: what follows is made on the device in use
+    void gpu;
     if (!composition || isErrored) {
       return {
         framesExtractor: null,
@@ -150,7 +159,7 @@ export const useVideoCompositionPlayer = <T = undefined>({
       frameImageContext: context,
       contextError: null,
     };
-  }, [isErrored, composition]);
+  }, [gpu, isErrored, composition]);
 
   useEffect(() => {
     if (contextError) {
@@ -173,6 +182,12 @@ export const useVideoCompositionPlayer = <T = undefined>({
   // The canvas of the surface.
   const canvasSharedValue = useSharedValue<SkCanvas | null>(null);
   const currentFrame = useSharedValue<SkImage | null>(null);
+  // The GPU device the surface was made on (see skiaDeviceId). Checked at
+  // every frame, on the UI runtime: once that device has been replaced, React
+  // Native Skia destroys it as soon as a view presents on the new one, and
+  // drawing into the surface then writes into freed GPU buffers. The render
+  // that `useGpu` brings comes frames later.
+  const surfaceDevice = useSharedValue('');
   useEffect(
     () => () => {
       framesExtractor?.dispose();
@@ -226,11 +241,27 @@ export const useVideoCompositionPlayer = <T = undefined>({
 
     let surface: SkSurface | null = surfaceSharedValue.value;
     let canvas: SkCanvas | null = canvasSharedValue.value;
+    // Made on a device that was lost and replaced since (see
+    // `surfaceDevice`): never drawn into again, the surface is made again on
+    // the device in use. Its texture went with its device: the old one is
+    // released now, with its image.
+    const device = skiaDeviceId();
+    if (surface && surfaceDevice.value !== device) {
+      const image = currentFrame.value;
+      currentFrame.value = null;
+      image?.dispose();
+      surfaceSharedValue.value = null;
+      canvasSharedValue.value = null;
+      surface.dispose();
+      surface = null;
+      canvas = null;
+    }
     if (!surface) {
       surface = Skia.Surface.MakeOffscreen(
         width * pixelRatio,
         height * pixelRatio
       );
+      surfaceDevice.value = device;
       surfaceSharedValue.value = surface;
       canvas = surface?.getCanvas() ?? null;
       canvasSharedValue.value = canvas;
