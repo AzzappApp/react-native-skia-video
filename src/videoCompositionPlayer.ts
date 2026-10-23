@@ -1,5 +1,5 @@
-import type { SkImage, SkSurface } from '@shopify/react-native-skia';
-import { Skia } from '@shopify/react-native-skia';
+import type { SkCanvas, SkImage, SkSurface } from 'react-native-skia';
+import { Skia, useGpu } from 'react-native-skia';
 import {
   useSharedValue,
   useFrameCallback,
@@ -11,9 +11,19 @@ import type {
   FrameDrawer,
   VideoComposition,
   VideoCompositionFramesExtractor,
+  VideoFrame,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
+import {
+  createFrameImagesKey,
+  getFrameImageContext,
+  makeVideoFrames,
+  releaseFrameImages,
+  type FrameImageContext,
+} from './frameImages';
 import useEventListener from './utils/useEventListener';
+import reportFrameError from './utils/reportFrameError';
+import skiaDeviceId from './utils/skiaDeviceId';
 import { PixelRatio } from 'react-native';
 
 type UseVideoCompositionPlayerOptions<T = undefined> = {
@@ -71,7 +81,7 @@ type UseVideoCompositionPlayerOptions<T = undefined> = {
 
 type VideoCompositionPlayerController = Pick<
   VideoCompositionFramesExtractor,
-  'currentTime' | 'play' | 'pause' | 'seekTo' | 'isPlaying'
+  'currentTime' | 'play' | 'pause' | 'seekTo' | 'isPlaying' | 'volume'
 >;
 
 type UseVideoCompositionPlayerReturnType = {
@@ -88,7 +98,7 @@ type UseVideoCompositionPlayerReturnType = {
 /**
  * A hook that creates a video composition player.
  */
-export const useVideoCompositionPlayer = ({
+export const useVideoCompositionPlayer = <T = undefined>({
   composition,
   drawFrame,
   beforeDrawFrame,
@@ -100,32 +110,8 @@ export const useVideoCompositionPlayer = ({
   onReadyToPlay,
   onComplete,
   onError,
-}: UseVideoCompositionPlayerOptions): UseVideoCompositionPlayerReturnType => {
+}: UseVideoCompositionPlayerOptions<T>): UseVideoCompositionPlayerReturnType => {
   const [isErrored, setIsErrored] = useState(false);
-  const framesExtractor = useMemo(() => {
-    if (composition && !isErrored) {
-      return RNSkiaVideoModule.createVideoCompositionFramesExtractor(
-        composition
-      );
-    }
-    return null;
-  }, [isErrored, composition]);
-
-  useEffect(() => {
-    runOnUI(() => {
-      framesExtractor?.prepare();
-    })();
-  }, [framesExtractor]);
-
-  const currentFrame = useSharedValue<SkImage | null>(null);
-  useEffect(
-    () => () => {
-      currentFrame.value = null;
-      framesExtractor?.dispose();
-    },
-    [currentFrame, framesExtractor]
-  );
-
   const retry = useCallback(() => {
     setIsErrored(false);
   }, []);
@@ -136,6 +122,98 @@ export const useVideoCompositionPlayer = ({
       setIsErrored(true);
     },
     [onError, retry]
+  );
+
+  // Skia's GPU device, followed: once a lost device has been replaced, the
+  // player is made again, its frames turned into images on the new device
+  // (see getFrameImageContext). Its surface does not wait for this render:
+  // see `surfaceDevice`.
+  const gpu = useGpu();
+
+  // The context the frames are turned into images with comes first: on a
+  // device whose GPU can't draw them, there is no player, and the error goes
+  // to onError (below) rather than failing the render.
+  const { framesExtractor, frameImageContext, contextError } = useMemo(() => {
+    // a dependency only: what follows is made on the device in use
+    void gpu;
+    if (!composition || isErrored) {
+      return {
+        framesExtractor: null,
+        frameImageContext: null,
+        contextError: null,
+      };
+    }
+    let context: FrameImageContext;
+    try {
+      context = getFrameImageContext();
+    } catch (error) {
+      return {
+        framesExtractor: null,
+        frameImageContext: null,
+        contextError: { error },
+      };
+    }
+    return {
+      framesExtractor:
+        RNSkiaVideoModule.createVideoCompositionFramesExtractor(composition),
+      frameImageContext: context,
+      contextError: null,
+    };
+  }, [gpu, isErrored, composition]);
+
+  useEffect(() => {
+    if (contextError) {
+      errorHandler(contextError.error);
+    }
+  }, [contextError, errorHandler]);
+
+  useEffect(() => {
+    runOnUI(() => {
+      framesExtractor?.prepare();
+    })();
+  }, [framesExtractor]);
+
+  const framesKey = useMemo(() => createFrameImagesKey(), []);
+
+  // The offscreen surface the frames are drawn into. `currentFrame` is its
+  // image (surface.asImage()): the same image for every frame, sharing the
+  // texture of the surface.
+  const surfaceSharedValue = useSharedValue<SkSurface | null>(null);
+  // The canvas of the surface.
+  const canvasSharedValue = useSharedValue<SkCanvas | null>(null);
+  const currentFrame = useSharedValue<SkImage | null>(null);
+  // The GPU device the surface was made on (see skiaDeviceId). Checked at
+  // every frame, on the UI runtime: once that device has been replaced, React
+  // Native Skia destroys it as soon as a view presents on the new one, and
+  // drawing into the surface then writes into freed GPU buffers. The render
+  // that `useGpu` brings comes frames later.
+  const surfaceDevice = useSharedValue('');
+  useEffect(
+    () => () => {
+      framesExtractor?.dispose();
+      runOnUI(() => {
+        'worklet';
+        releaseFrameImages(framesKey);
+        // Released now rather than when the UI runtime collects them: a
+        // collected surface is only destroyed once the UI thread creates
+        // another Skia surface or image. Disposing the surface detaches its
+        // canvas, which no longer keeps it alive.
+        const frame = currentFrame.value;
+        currentFrame.value = null;
+        frame?.dispose();
+        const surface = surfaceSharedValue.value;
+        surfaceSharedValue.value = null;
+        canvasSharedValue.value = null;
+        surface?.dispose();
+      })();
+    },
+    [
+      canvasSharedValue,
+      currentFrame,
+      framesExtractor,
+      framesKey,
+      surfaceSharedValue,
+    ]
   );
 
   useEffect(() => {
@@ -154,63 +232,115 @@ export const useVideoCompositionPlayer = ({
     }
   }, [framesExtractor, autoPlay]);
 
-  const surfaceSharedValue = useSharedValue<SkSurface | null>(null);
   const pixelRatio = PixelRatio.get();
   useFrameCallback(() => {
     'worklet';
-    if (!framesExtractor) {
+    if (!framesExtractor || !frameImageContext) {
       return;
     }
 
     let surface: SkSurface | null = surfaceSharedValue.value;
-
+    let canvas: SkCanvas | null = canvasSharedValue.value;
+    // Made on a device that was lost and replaced since (see
+    // `surfaceDevice`): never drawn into again, the surface is made again on
+    // the device in use. Its texture went with its device: the old one is
+    // released now, with its image.
+    const device = skiaDeviceId();
+    if (surface && surfaceDevice.value !== device) {
+      const image = currentFrame.value;
+      currentFrame.value = null;
+      image?.dispose();
+      surfaceSharedValue.value = null;
+      canvasSharedValue.value = null;
+      surface.dispose();
+      surface = null;
+      canvas = null;
+    }
     if (!surface) {
       surface = Skia.Surface.MakeOffscreen(
         width * pixelRatio,
         height * pixelRatio
       );
+      surfaceDevice.value = device;
       surfaceSharedValue.value = surface;
+      canvas = surface?.getCanvas() ?? null;
+      canvasSharedValue.value = canvas;
     }
-    if (!surface) {
+    if (!surface || !canvas) {
       console.warn('Failed to create surface');
       return;
     }
 
-    const canvas = surface.getCanvas();
-    const context = beforeDrawFrame?.();
-    drawFrame({
-      canvas,
-      context,
-      videoComposition: composition!,
-      currentTime: framesExtractor.currentTime,
-      frames: framesExtractor.decodeCompositionFrames(),
-      width: width * pixelRatio,
-      height: height * pixelRatio,
-    });
-    surface.flush();
-    const previousFrame = currentFrame.value;
+    // An exception thrown by a frame callback is fatal: in release builds,
+    // Worklets does not catch it and the app aborts. Frames that cannot be
+    // turned into images are left out (the frame is drawn without them), a
+    // frame that cannot be drawn is skipped, and each error is reported once.
+    let frames: Record<string, VideoFrame> = {};
     try {
-      // Recycle the previous SkImage (outputImage) to avoid allocating a new
-      // JSI object on every frame.
-      const nextFrame = Skia.Image.MakeImageFromNativeTextureUnstable(
-        surface.getNativeTextureUnstable(),
-        width * pixelRatio,
-        height * pixelRatio,
-        false,
-        previousFrame ?? undefined
+      frames = makeVideoFrames(
+        frameImageContext,
+        framesKey,
+        framesExtractor.decodeCompositionFrames(),
+        (itemId, error) =>
+          reportFrameError(
+            `failed to turn the frame of the item ${itemId} into an image`,
+            error
+          )
       );
-      if (nextFrame === previousFrame) {
-        // The recycled image keeps the same identity, so listeners (the Skia
-        // canvas) must be forced to re-run.
-        currentFrame.modify(undefined, true);
-      } else {
-        currentFrame.value = nextFrame;
-      }
     } catch (error) {
-      console.warn('Failed to create image from texture', error);
+      reportFrameError('failed to turn the decoded frames into images', error);
+    }
+    let context: T;
+    try {
+      context = beforeDrawFrame?.() as T;
+    } catch (error) {
+      reportFrameError('beforeDrawFrame failed', error);
       return;
     }
-    afterDrawFrame?.(context);
+    try {
+      // The surface, hence its canvas, is kept from frame to frame: a drawing
+      // interrupted by an exception must not leave its save() calls behind.
+      const saveCount = canvas.save();
+      try {
+        drawFrame({
+          canvas,
+          context,
+          videoComposition: composition!,
+          currentTime: framesExtractor.currentTime,
+          frames,
+          width: width * pixelRatio,
+          height: height * pixelRatio,
+        });
+      } catch (error) {
+        reportFrameError('failed to draw the composition frame', error);
+        return;
+      } finally {
+        canvas.restoreToCount(saveCount);
+      }
+      try {
+        // Submits the frame's recording: the image shares the texture of the
+        // surface (no copy), so a canvas drawing it shows this frame once the
+        // drawing reaches the GPU.
+        surface.flush();
+        if (currentFrame.value == null) {
+          currentFrame.value = surface.asImage();
+        } else {
+          // The image keeps the same identity from frame to frame, so the
+          // listeners (the Skia canvas) must be forced to re-run.
+          currentFrame.modify(undefined, true);
+        }
+      } catch (error) {
+        console.warn('Failed to flush the composition frame', error);
+      }
+    } finally {
+      // Also when the frame could not be drawn: what beforeDrawFrame made for
+      // the frame is released all the same.
+      try {
+        afterDrawFrame?.(context);
+      } catch (error) {
+        reportFrameError('afterDrawFrame failed', error);
+      }
+    }
   }, true);
 
   return {

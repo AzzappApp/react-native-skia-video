@@ -1,43 +1,118 @@
-// @ts-expect-error unused
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import type { SkCanvas, SkSurface, Skia } from '@shopify/react-native-skia';
+// GPUDevice, GPUTexture and the other GPU* types are the standard WebGPU
+// types: @webgpu/types declares them as globals, as TypeScript's DOM library
+// does for the browser, and React Native WebGPU's own types build on them.
+// There is no module to import them from.
+/// <reference types="@webgpu/types" />
+import type { SkCanvas, SkImage } from 'react-native-skia';
 
 /**
  * Represents a video frame.
  */
 export type VideoFrame = {
   /**
-   * The native texture of the frame.
+   * The image of the frame, ready to be drawn with React Native Skia.
+   *
+   * The image is owned by the player (or composition player) that produced the
+   * frame and only shows it until the next frame is produced: draw it, don't
+   * keep it around or dispose it (use `image.makeRasterImageSync()` to keep a
+   * copy).
    */
-  texture: unknown;
+  image: SkImage;
   /**
-   * The width in pixels of the frame.
+   * The WebGPU texture the image samples, on Skia's device: for a WebGPU pass
+   * that reads the frame (the same pixels as `image`, oriented the same way,
+   * see `rotation`), without a copy. Owned by the player like the image, and
+   * overwritten by the next frame: sample it in the frame it was handed out
+   * with, don't destroy it.
+   */
+  texture: GPUTexture;
+  /**
+   * The width in pixels of the image (see `rotation`).
    */
   width: number;
   /**
-   * The height in pixels of the frame.
+   * The height in pixels of the image (see `rotation`).
    */
   height: number;
   /**
-   * The rotation in degrees of the frame.
+   * The clockwise rotation in degrees (0, 90, 180 or 270) to apply to the
+   * image to display it upright. iOS: the rotation of the video, the image
+   * being as stored in the file (a portrait phone clip is a 1920×1080 image
+   * with a rotation of 90). Android: always 0, the frame being rotated upright
+   * when it is converted (the same clip is a 1080×1920 image).
    */
   rotation: number;
 };
 
 /**
- * Represents the dimensions of a video.
+ * A frame as decoded by the native module: its pixels are in a native buffer,
+ * turned into a `VideoFrame` by the library.
  */
-export type VideoDimensions = {
+export type DecodedFrame = {
   /**
-   * The width in pixels of the video.
+   * The native buffer holding the pixels of the frame: a `CVPixelBufferRef`
+   * on iOS and an `AHardwareBuffer*` on Android, as a `BigInt` pointer.
+   * Undefined once the frame has been released: its pixels were already
+   * copied by the library when the frame was first handed out.
+   */
+  buffer: bigint | undefined;
+  /**
+   * Identifies the frame among the frames of its producer (Android only): a
+   * producer hands out its current frame again, with the same id, until a new
+   * one is decoded, and the library copies a frame once. On iOS a frame
+   * handed out again has no `buffer` anymore, released after its copy.
+   */
+  id?: number;
+  /**
+   * Android only, the frame is in a buffer of its decoder, in the decoder's
+   * own YUV layout: the region of `buffer` holding the frame (decoders pad
+   * their buffers) and the clockwise rotation to apply to it. The library
+   * converts it to RGB on the GPU, rotated and scaled to `width` × `height`.
+   */
+  yuv?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+  /**
+   * Drops the frame's reference on the native buffer once its pixels were
+   * converted, rather than when the frame is garbage collected: on iOS it
+   * hands the buffer back to the decoder.
+   */
+  release?: () => void;
+  /**
+   * The width in pixels of the frame, as `VideoFrame.width`.
    */
   width: number;
   /**
-   * The height in pixels of the video.
+   * The height in pixels of the frame, as `VideoFrame.height`.
    */
   height: number;
   /**
-   * The rotation in degrees of the video.
+   * The rotation of the frame, as `VideoFrame.rotation`: always 0 on Android,
+   * where `yuv.rotation` is the rotation the conversion applies.
+   */
+  rotation: number;
+};
+
+/**
+ * Represents the dimensions of a video, as those of its frames (see
+ * `VideoFrame.rotation`).
+ */
+export type VideoDimensions = {
+  /**
+   * The width in pixels of the video's frames.
+   */
+  width: number;
+  /**
+   * The height in pixels of the video's frames.
+   */
+  height: number;
+  /**
+   * The clockwise rotation in degrees to apply to the video's frames to
+   * display them upright: the video's on iOS, always 0 on Android.
    */
   rotation: number;
 };
@@ -72,7 +147,7 @@ export type VideoPlayer = {
    *
    * @returns The next frame of the video.
    */
-  decodeNextFrame(): VideoFrame;
+  decodeNextFrame(): DecodedFrame | null;
   /**
    * The current time in seconds of the playback.
    */
@@ -195,8 +270,31 @@ export type VideoCompositionVideoItem = VideoCompositionItemBase & {
    * If provided, the resolution to scale the video to.
    * If not provided, the original resolution of the video will be used.
    * Downscaling the video can improve performance.
+   *
+   * CAREFUL: this is read in the file's ENCODED orientation, the one
+   * `naturalSize` reports, NOT the orientation the video is displayed in. A
+   * clip filmed in portrait on a phone is a 1920x1080 file carrying a 90°
+   * transform, and every API that hands out dimensions (a picker, a media
+   * library) reports its DISPLAY size, 1080x1920. Passing that transposed
+   * pair scales a 16:9 frame into a 9:16 buffer and hands back a squashed
+   * picture. To simply bound the decoded size, use {@link maxLongSide}, which
+   * is resolved against the track itself and cannot be given the wrong way
+   * round.
    */
   resolution?: { width: number; height: number };
+  /**
+   * If provided, caps the LONG SIDE of the decoded frames: the decoder scales
+   * the video down, keeping its aspect ratio, so that neither side exceeds
+   * this many pixels (the scaled sizes are rounded to even numbers). A
+   * smaller video is decoded as is. Ignored when {@link resolution} is set.
+   *
+   * This is the orientation-proof way to keep decoders from working bigger
+   * than needed: the cap is resolved against the track's own frame size,
+   * where the encoded orientation is known. A decoded frame becomes a
+   * texture: a 4K one is 33 MB, so a preview a few hundred points wide has
+   * every reason to ask for less.
+   */
+  maxLongSide?: number;
   /**
    * If set, the audio track of the video file will be played (during
    * playback) and mixed into the exported video (during export), following
@@ -219,6 +317,17 @@ export type VideoCompositionAudioItem = VideoCompositionItemBase & {
    * Defaults to 1.
    */
   volume?: number;
+  /**
+   * An audio fade in, in seconds from the start of the item: its volume
+   * ramps linearly from 0 to `volume`, during playback and in the export.
+   * Defaults to 0 (no fade).
+   */
+  audioFadeIn?: number;
+  /**
+   * An audio fade out, in seconds before the end of the item: its volume
+   * ramps linearly from `volume` to 0. Defaults to 0 (no fade).
+   */
+  audioFadeOut?: number;
 };
 
 export type VideoCompositionItem =
@@ -248,6 +357,9 @@ export type FrameDrawer<T = undefined> = (args: {
   /**
    * The decoded video frames of the composition items.
    * Only video items produce frames; audio items never appear in this map.
+   * An item is in the map around its time in the composition only, from one
+   * second before it starts to one second after it ends: the resources of
+   * its frames are released outside.
    */
   frames: Record<string, VideoFrame>;
   /**
@@ -287,7 +399,7 @@ export type VideoCompositionFramesExtractor = {
    *
    * @returns The decoded video frames of the composition items.
    */
-  decodeCompositionFrames(): Record<string, VideoFrame>;
+  decodeCompositionFrames(): Record<string, DecodedFrame>;
   /**
    * Disposes of the video composition frames extractor.
    */
@@ -304,6 +416,12 @@ export type VideoCompositionFramesExtractor = {
    * Whether the video composition frames extractor is set to loop.
    */
   isLooping: boolean;
+  /**
+   * The master volume (0 to 1) of the composition's audio, on top of the
+   * volume of each item. Set it rather than rebuilding the composition to
+   * mute it: a new composition is a new player.
+   */
+  volume: number;
   /**
    * Events dispatched by the video composition frames extractor when the extraction is ready.
    */
@@ -332,7 +450,7 @@ export type VideoCompositionFramesExtractorSync = {
    *
    * @returns The decoded video frames of the composition items.
    */
-  decodeCompositionFrames(currentTime: number): Record<string, VideoFrame>;
+  decodeCompositionFrames(currentTime: number): Record<string, DecodedFrame>;
   /**
    * Disposes of the video composition frames extractor.
    */
@@ -348,9 +466,35 @@ export type VideoEncoder = {
    */
   prepare(): void;
   /**
-   * Encodes the video frame to the video composition.
+   * Android: the input window of the encoder (`ANativeWindow*`, as a `BigInt`
+   * pointer), once prepared. The frames are rendered straight into it,
+   * through a WebGPU canvas context (React Native WebGPU's
+   * `MakeWebGPUCanvasContextFromNativeWindow`), each one presented between
+   * `beginFrame` and `endFrame`. Undefined on iOS.
    */
-  encodeFrame(texture: unknown, time: number): void;
+  readonly nativeWindow?: bigint;
+  /**
+   * Starts the frame of `time`, its presentation time in seconds.
+   *
+   * iOS: hands out the buffer of the encoder to render the frame into, the
+   * `IOSurfaceRef` of the BGRA buffer the encoder converts every frame from
+   * (`endFrame` appends an NV12 conversion of it: the encoder may still be
+   * reading a frame when the next one is drawn), as a `BigInt` pointer. It is
+   * the same buffer for every frame: it can be imported once.
+   *
+   * Android: stamps the next frame presented to `nativeWindow` with `time`.
+   */
+  beginFrame(time: number): bigint | undefined;
+  /**
+   * Ends the frame of `time`, its presentation time in seconds.
+   *
+   * iOS: encodes the frame rendered into the buffer handed out by
+   * `beginFrame`. The rendering must be complete (flushed synchronously).
+   *
+   * Android: writes what the encoder encoded, once the frame was presented to
+   * `nativeWindow`.
+   */
+  endFrame(time: number): void;
   /*
    * Finish writing the video to the output file.
    */
@@ -418,11 +562,14 @@ export type RNSkiaVideoModule = {
    * @param resolution If provided, the resolution to scale the video to.
    * If not provided, the original resolution of the video will be used.
    * Downscaling the video can improve performance.
+   * @param maxLongSide If provided (and `resolution` isn't), caps the long
+   * side of the decoded frames, keeping the aspect ratio.
    * @returns The video player.
    */
   createVideoPlayer: (
     uri: string,
-    resolution?: { width: number; height: number } | null
+    resolution?: { width: number; height: number } | null,
+    maxLongSide?: number | null
   ) => VideoPlayer;
   /**
    * Creates a video composition frames extractor for the specified video composition.
@@ -473,6 +620,15 @@ export type RNSkiaVideoModule = {
    * @platform ios
    */
   runWithAutoreleasePool?: <T>(fn: () => T) => T;
+  /**
+   * Returns the memory used by the process in bytes (iOS: physical footprint,
+   * Android: total PSS), or null if unavailable. Slow on Android: meant for
+   * benchmarks, not to be called per frame.
+   *
+   * Not part of the public API: read through `__RNSkiaVideoBenchmark`, in
+   * development builds or once enabled (see benchmarkStats.ts).
+   */
+  getMemoryFootprint: () => number | null;
   /**
    * Returns the decoding capabilities of the current platform for the specified mimetype.
    *

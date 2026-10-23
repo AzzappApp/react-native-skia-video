@@ -264,7 +264,8 @@ public class AudioCompositionExporter {
 
     private final long itemEndFrame;
 
-    private final double volume;
+    // Its volume, ramped by its fades (getAudioVolumeAt).
+    private final VideoComposition.Item item;
 
     private final long startTimeUs;
 
@@ -299,7 +300,7 @@ public class AudioCompositionExporter {
     ItemDecoder(VideoComposition.Item item) throws Exception {
       itemStartFrame = Math.round(item.getCompositionStartTime() * sampleRate);
       itemEndFrame = itemStartFrame + Math.round(item.getDuration() * sampleRate);
-      volume = Math.max(0, Math.min(1, item.getAudioVolume()));
+      this.item = item;
       startTimeUs = TimeHelpers.secToUs(item.getStartTime());
       endTimeUs = startTimeUs + TimeHelpers.secToUs(item.getDuration());
 
@@ -359,6 +360,7 @@ public class AudioCompositionExporter {
         }
         double fraction = srcFrame - srcFrameIndex;
         int mixIndex = (int) (frame - chunkStartFrame) * channelCount;
+        double volume = item.getAudioVolumeAt(localFrame / (double) sampleRate);
         for (int channel = 0; channel < channelCount; channel++) {
           double sample = readSample(srcFrameIndex, channel) * (1 - fraction)
             + readSample(srcFrameIndex + 1, channel) * fraction;

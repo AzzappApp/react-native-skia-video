@@ -11,7 +11,7 @@ decoders, calls your `drawFrame` into an offscreen GPU surface every vsync,
 and returns the resulting `SkImage` as a Reanimated derived value.
 
 ```tsx
-import { Canvas, Image } from '@shopify/react-native-skia';
+import { Canvas, Image } from 'react-native-skia';
 import { useVideoCompositionPlayer } from '@azzapp/react-native-skia-video';
 
 const CompositionPlayer = ({ composition, width, height }) => {
@@ -48,23 +48,30 @@ const CompositionPlayer = ({ composition, width, height }) => {
 | `beforeDrawFrame` / `afterDrawFrame` | `() => T` / `(context: T) => void` | Run around every frame; the returned context is passed to `drawFrame`. Handy for allocating/releasing per-frame resources. |
 | `onReadyToPlay` | `() => void` | The composition is prepared. |
 | `onComplete` | `() => void` | Playback reached the end. |
-| `onError` | `(error, retry) => void` | Decoding failed; call `retry()` to re-create the player. |
+| `onError` | `(error, retry) => void` | Decoding failed, or the GPU can't draw the frames (see [Vulkan on Android](/docs/getting-started#vulkan-on-android)); call `retry()` to re-create the player. |
 
 ## Returns
 
 - **`currentFrame`** — `DerivedValue<SkImage | null>`: the freshly rendered
-  frame. Pass it straight to a Skia `<Image>` component.
+  frame. Pass it straight to a Skia `<Image>` component. It is the same image
+  for every frame, a live view of the player's surface: draw it, don't keep it
+  around or dispose it (use `makeRasterImageSync()` for a lasting copy).
 - **`player`** — a controller with `play()`, `pause()`, `seekTo(seconds)`,
-  `currentTime` and `isPlaying`.
+  `currentTime`, `isPlaying` and `volume` (0–1, the master volume of the
+  composition's audio, on top of each item's own: set it to mute the player
+  rather than rebuilding the composition).
 
 ## Performance notes
 
-- Give video items a `resolution` no larger than what you display: decoding
-  1080p to show a 300pt preview wastes decoder bandwidth and memory.
+- Cap the decoded size of video items to what you display (`maxLongSide`,
+  or `resolution`): decoding 1080p to show a 300pt preview wastes decoder
+  bandwidth and memory. Prefer `maxLongSide`: `resolution` is read in the
+  file's encoded orientation, and display dimensions passed to it squash
+  videos filmed in portrait.
 - `drawFrame` runs on the UI thread — keep per-frame allocations low and
   cache expensive Skia objects (paragraphs, runtime effects) between frames.
-- The player owns the frame textures; don't hold on to `VideoFrame`s across
-  frames. Dispose any `SkImage` wrappers you create once drawn.
+- The player owns the frame images; don't hold on to `VideoFrame`s across
+  frames.
 - Re-creating the player (new `composition` object identity) is not free:
   memoize the composition and only rebuild it when playback inputs actually
   change.

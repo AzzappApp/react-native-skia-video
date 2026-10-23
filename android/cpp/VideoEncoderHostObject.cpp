@@ -1,12 +1,33 @@
 #include "VideoEncoderHostObject.h"
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
-#include <GLES/gl.h>
-#include <GLES/glext.h>
-#include <android/hardware_buffer_jni.h>
+#include <android/data_space.h>
+#include <android/native_window_jni.h>
+#include <dlfcn.h>
 
 namespace RNSkiaVideo {
 using namespace facebook::jni;
+
+namespace {
+
+  using SetBuffersTimestamp = int32_t (*)(ANativeWindow*, int64_t);
+
+  // Sets the timestamp of the next buffer queued to the window: the encoder
+  // takes it as the presentation time of the frame. This is what
+  // eglPresentationTimeANDROID, and Android's Vulkan loader for
+  // VK_GOOGLE_display_timing, do. Not in the NDK: an LL-NDK function of
+  // libnativewindow (there since Android 9), looked up at runtime. Null if it
+  // can't be.
+  SetBuffersTimestamp getSetBuffersTimestamp() {
+    static const SetBuffersTimestamp setBuffersTimestamp = [] {
+      void* library = dlopen("libnativewindow.so", RTLD_NOW);
+      return library == nullptr
+                 ? nullptr
+                 : reinterpret_cast<SetBuffersTimestamp>(
+                       dlsym(library, "ANativeWindow_setBuffersTimestamp"));
+    }();
+    return setBuffersTimestamp;
+  }
+
+} // namespace
 
 local_ref<VideoEncoder>
 VideoEncoder::create(std::string& outPath, int width, int height, int frameRate,
@@ -25,16 +46,15 @@ void VideoEncoder::prepare() const {
   prepareMethod(self());
 }
 
-void VideoEncoder::makeGLContextCurrent() const {
-  static const auto makeGLContextCurrentMethod =
-      getClass()->getMethod<void()>("makeGLContextCurrent");
-  makeGLContextCurrentMethod(self());
+local_ref<JSurface> VideoEncoder::getInputSurface() const {
+  static const auto getInputSurfaceMethod =
+      getClass()->getMethod<JSurface::javaobject()>("getInputSurface");
+  return getInputSurfaceMethod(self());
 }
 
-void VideoEncoder::encodeFrame(jint texture, jdouble time) const {
-  static const auto encodeFrameMethod =
-      getClass()->getMethod<void(jint, jdouble)>("encodeFrame");
-  encodeFrameMethod(self(), texture, time);
+void VideoEncoder::endFrame() const {
+  static const auto endFrameMethod = getClass()->getMethod<void()>("endFrame");
+  endFrameMethod(self());
 }
 
 void VideoEncoder::release() const {
@@ -53,7 +73,7 @@ VideoEncoderHostObject::VideoEncoderHostObject(
     std::optional<std::string> encoderName,
     alias_ref<VideoComposition> composition, int audioSampleRate,
     int audioChannelCount, int audioBitRate) {
-  framesExtractor = make_global(VideoEncoder::create(
+  encoder = make_global(VideoEncoder::create(
       outPath, width, height, frameRate, bitRate, encoderName, composition,
       audioSampleRate, audioChannelCount, audioBitRate));
 }
@@ -66,7 +86,9 @@ std::vector<jsi::PropNameID>
 VideoEncoderHostObject::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> result;
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("prepare")));
-  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("encodeFrame")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("nativeWindow")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("beginFrame")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("endFrame")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("finishWriting")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("dispose")));
   return result;
@@ -75,19 +97,51 @@ VideoEncoderHostObject::getPropertyNames(jsi::Runtime& rt) {
 jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
                                        const jsi::PropNameID& propNameId) {
   auto propName = propNameId.utf8(runtime);
-  if (propName == "encodeFrame") {
+  if (propName == "nativeWindow") {
+    if (released.test() || window == nullptr) {
+      return jsi::Value::undefined();
+    }
+    return jsi::BigInt::fromUint64(runtime,
+                                   reinterpret_cast<uintptr_t>(window));
+  } else if (propName == "beginFrame") {
     return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "encodeFrame"), 2,
+        runtime, jsi::PropNameID::forAscii(runtime, "beginFrame"), 1,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          framesExtractor->makeGLContextCurrent();
-          auto texId = arguments[0]
-                           .asObject(runtime)
-                           .getProperty(runtime, "glID")
-                           .asNumber();
-
-          framesExtractor->encodeFrame((int)texId, arguments[1].asNumber());
-          skiaContextHolder->makeCurrent();
+          if (count < 1 || !arguments[0].isNumber()) {
+            throw jsi::JSError(runtime, "VideoEncoder.beginFrame(..) expects "
+                                        "a time (number)!");
+          }
+          if (released.test() || window == nullptr) {
+            throw jsi::JSError(runtime, "VideoEncoder.beginFrame(): the "
+                                        "encoder is not prepared or was "
+                                        "released");
+          }
+          auto setBuffersTimestamp = getSetBuffersTimestamp();
+          if (setBuffersTimestamp == nullptr) {
+            throw jsi::JSError(runtime,
+                               "VideoEncoder.beginFrame(): can't set the "
+                               "presentation time of the frames on this "
+                               "device (no ANativeWindow_setBuffersTimestamp)");
+          }
+          auto timeNs =
+              static_cast<int64_t>(arguments[0].asNumber() * 1'000'000'000.0);
+          setBuffersTimestamp(window, timeNs);
+          // The data space EGL gave the frames: the Vulkan swapchain sets
+          // sRGB, with which encoders may convert the frames to YUV
+          // differently. Here rather than once: set when the swapchain is
+          // created, which happens again if it is recreated.
+          ANativeWindow_setBuffersDataSpace(window, ADATASPACE_UNKNOWN);
+          return jsi::Value::undefined();
+        });
+  } else if (propName == "endFrame") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "endFrame"), 1,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          if (!released.test()) {
+            encoder->endFrame();
+          }
           return jsi::Value::undefined();
         });
   } else if (propName == "prepare") {
@@ -95,10 +149,16 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
         runtime, jsi::PropNameID::forAscii(runtime, "prepare"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          if (!released.test()) {
-            skiaContextHolder = std::make_shared<SkiaContextHolder>();
-            framesExtractor->prepare();
-            skiaContextHolder->makeCurrent();
+          if (!released.test() && window == nullptr) {
+            encoder->prepare();
+            auto surface = encoder->getInputSurface();
+            // Holds a reference to the surface until released.
+            window = ANativeWindow_fromSurface(Environment::current(),
+                                               surface.get());
+            if (window == nullptr) {
+              throw jsi::JSError(runtime, "VideoEncoder.prepare(): could not "
+                                          "get the encoder's input window");
+            }
           }
           return jsi::Value::undefined();
         });
@@ -108,7 +168,7 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (!released.test()) {
-            framesExtractor->finishWriting();
+            encoder->finishWriting();
           }
           return jsi::Value::undefined();
         });
@@ -127,8 +187,12 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
 
 void VideoEncoderHostObject::release() {
   if (!released.test_and_set()) {
-    framesExtractor->release();
-    framesExtractor = nullptr;
+    encoder->release();
+    encoder = nullptr;
+    if (window != nullptr) {
+      ANativeWindow_release(window);
+      window = nullptr;
+    }
   }
 }
 

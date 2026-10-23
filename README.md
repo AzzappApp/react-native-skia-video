@@ -1,6 +1,6 @@
 # React Native Skia Video
 
-Video encoding/decoding support for [React Native Skia](https://github.com/Shopify/react-native-skia)
+Video encoding/decoding support for [React Native Skia](https://github.com/wcandillon/react-native-skia)
 
 > 📖 **[Documentation](https://azzappapp.github.io/react-native-skia-video/)** — getting started, guides (video player, compositions, audio, exporting), full API reference and a [complete example app](https://azzappapp.github.io/react-native-skia-video/docs/example).
 
@@ -9,8 +9,23 @@ Video encoding/decoding support for [React Native Skia](https://github.com/Shopi
 ## Installation
 
 ```sh
-npm install @azzapp/react-native-skia-video
+npm install @azzapp/react-native-skia-video react-native-webgpu
 ```
+
+This library requires [React Native Skia](https://wcandillon.github.io/react-native-skia/) v3
+(`react-native-skia` 3.7.3 or above, Graphite backend),
+[React Native WebGPU](https://wcandillon.github.io/react-native-webgpu/) 0.19.0 or above (built
+against the same Dawn release as React Native Skia), [Reanimated](https://docs.swmansion.com/react-native-reanimated/) 4
+and [Worklets](https://docs.swmansion.com/react-native-worklets/). It requires iOS 16 or above and Android
+9 (API level 28) or above. On Android, React Native Skia requires Vulkan 1.1 (see
+[Vulkan on Android](https://azzappapp.github.io/react-native-skia-video/docs/getting-started#vulkan-on-android)),
+and React Native WebGPU must be built with NDK 27 (see
+[Android NDK](https://azzappapp.github.io/react-native-skia-video/docs/getting-started#android-ndk)).
+
+Video frames are handed to Skia as images: the library copies each decoded frame on the GPU into
+a texture of Skia's device with React Native WebGPU, without going through the CPU.
+
+> Upgrading from 0.x (React Native Skia v2)? See [Migrating to 1.0](#migrating-to-10).
 
 ## Usage
 
@@ -19,24 +34,14 @@ npm install @azzapp/react-native-skia-video
 The `useVideoPlayer` is a custom React hook used in the context of a video player component. This hook encapsulates the logic for playing, pausing, and controlling video playback. It returns a [Reanimated](https://docs.swmansion.com/react-native-reanimated/) shared value that holds the current frame of the playing video.
 
 ```js
-import { Canvas, Image, Skia } from '@shopify/react-native-skia';
+import { Canvas, Image } from 'react-native-skia';
 import { useVideoPlayer } from '@azzapp/react-native-skia-video';
 
 const MyVideoPlayer = ({ uri, width, height }) =>{
 
   const { currentFrame } = useVideoPlayer({ uri })
 
-  const videoImage = useDerivedValue(() => {
-    const frame = currentFrame.value;
-    if (!frame) {
-      return null;
-    }
-    return Skia.Image.MakeImageFromNativeTextureUnstable(
-      frame.texture,
-      frame.width,
-      frame.height
-    );
-  });
+  const videoImage = useDerivedValue(() => currentFrame.value?.image ?? null);
 
   return (
     <Canvas style={{ width, height }}>
@@ -54,7 +59,7 @@ This library offers a mechanism for previewing and exporting videos created by c
 To preview a composition, use the `useVideoCompositionPlayer` hook:
 
 ```js
-import { Canvas, Picture, Skia } from '@shopify/react-native-skia';
+import { Canvas, Image, Skia } from 'react-native-skia';
 import { useVideoCompositionPlayer } from '@azzapp/react-native-skia-video'
 
 const videoComposition = {
@@ -64,7 +69,9 @@ const videoComposition = {
     path: '/local/path/to/video.mp4',
     compositionStartTime: 0,
     startTime: 0,
-    duration: 5
+    duration: 5,
+    // decodes at most 1280 pixels on the long side (only scales down)
+    maxLongSide: 1280
   }, {
     id: 'video2',
     path: '/local/path/to/video2.mp4',
@@ -84,13 +91,15 @@ const drawFrame: FrameDrawer = ({
 }) => {
   'worklet';
   const frame = frames[currentTime < 5 ? 'video1' : 'video2'];
-  const image = Skia.Image.MakeImageFromNativeTextureUnstable(
-    frame.texture,
-    width,
-    height,
+  if (!frame) {
+    return;
+  }
+  canvas.drawImageRect(
+    frame.image,
+    { x: 0, y: 0, width: frame.width, height: frame.height },
+    { x: 0, y: 0, width, height },
+    Skia.Paint()
   );
-  const paint = Skia.Paint();
-  canvas.drawImage(image, 0, 0, paint)
 }
 
 
@@ -184,6 +193,42 @@ This function will returns the decoding capabilities of this device for the give
 This function will returns a list of valid configuration in regards of your device encoding capabilities with the corresponding encoder.
 If the provided parameters are not supported the returned configurations will be overridden with valid parameters (by decreasing, resolution, framerate or bitrate) while keeping the same aspect ratio.
 
+
+## Migrating to 1.0
+
+Version 1.0 targets React Native Skia v3, which renders with Skia Graphite
+(Metal on iOS, Vulkan on Android) and no longer accepts native textures: video
+frames reach Skia through textures of its GPU device, created with React Native
+WebGPU.
+
+- Replace `@shopify/react-native-skia` with `react-native-skia` (v3), see
+  [the React Native Skia migration guide](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/),
+  and install `react-native-webgpu`.
+- `VideoFrame.texture` (a native texture) is replaced by `VideoFrame.image`,
+  an `SkImage` ready to be drawn:
+
+  ```diff
+  - Skia.Image.MakeImageFromNativeTextureUnstable(frame.texture, frame.width, frame.height)
+  + frame.image
+  ```
+
+  `VideoFrame.texture` still exists, but it is now the WebGPU `GPUTexture` the
+  image samples (for a WebGPU pass that reads the frame): it can no longer be
+  wrapped into an image.
+
+- The images are owned by the player: an image only shows its frame until the
+  next one is produced, so draw it instead of keeping it around (use
+  `image.makeRasterImageSync()` to keep a copy).
+- iOS 16 and Android 9 (API level 28) or above are required.
+- On Android, frames are now upright: their `rotation` is always 0 (iOS frames
+  keep the rotation to apply).
+- The low-level native objects changed: `decodeNextFrame()` and
+  `decodeCompositionFrames()` return native buffers, and the encoder's
+  `encodeFrame` is replaced by `beginFrame` / `endFrame`.
+- `useVideoPlayer`, `useVideoCompositionPlayer` and `exportVideoComposition`
+  keep the same API.
+
+See the [full migration guide](https://azzappapp.github.io/react-native-skia-video/docs/migration).
 
 ## Contributing
 

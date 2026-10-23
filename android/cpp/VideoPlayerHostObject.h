@@ -3,9 +3,9 @@
 #include <fbjni/fbjni.h>
 #include <jsi/jsi.h>
 #include <map>
+#include <mutex>
 
 #include "RNSVEventEmitter.h"
-#include "SkiaContextHolder.h"
 #include "VideoPlayer.h"
 
 using namespace facebook;
@@ -17,7 +17,7 @@ class JSI_EXPORT VideoPlayerHostObject : public jsi::HostObject,
                                          EventEmitter {
 public:
   VideoPlayerHostObject(jsi::Runtime& runtime, const std::string& uri,
-                        int width, int height);
+                        int width, int height, double maxLongSide);
   ~VideoPlayerHostObject();
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
   void set(jsi::Runtime&, const jsi::PropNameID& name,
@@ -27,9 +27,12 @@ public:
 
 private:
   global_ref<NativeEventDispatcher> jEventDispatcher;
-  std::shared_ptr<SkiaContextHolder> skiaContextHolder;
+  // Read on the UI thread (decodeNextFrame) and the JS thread, reset by
+  // release(): accessed through getPlayer().
   jni::global_ref<VideoPlayer> player;
+  std::mutex playerMutex;
   std::atomic_flag released = ATOMIC_FLAG_INIT;
+  jni::global_ref<VideoPlayer> getPlayer();
   void release();
 };
 

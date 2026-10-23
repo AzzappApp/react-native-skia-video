@@ -23,6 +23,7 @@ import {
   exportVideoComposition,
   getValidEncoderConfigurations,
   useVideoCompositionPlayer,
+  useVideoPlayer,
 } from '@azzapp/react-native-skia-video';
 import {
   type FrameDrawer,
@@ -32,16 +33,12 @@ import ReactNativeBlobUtil, {
   type FetchBlobResponse,
   type StatefulPromise,
 } from 'react-native-blob-util';
-import {
-  Canvas,
-  Image as ImageSkia,
-  Skia,
-  type SkImage,
-} from '@shopify/react-native-skia';
+import { Canvas, Image as ImageSkia, Skia } from 'react-native-skia';
 import { createId } from '@paralleldrive/cuid2';
 import Slider from '@react-native-community/slider';
 import Animated, {
   useAnimatedProps,
+  useDerivedValue,
   useFrameCallback,
   useSharedValue,
 } from 'react-native-reanimated';
@@ -190,10 +187,6 @@ const drawFrame: FrameDrawer = ({
 
   const durationMS = videoComposition.duration;
 
-  // A single SkImage recycled (outputImage) for every item of the tick:
-  // drawImageRect captures the underlying Skia image synchronously, so the
-  // wrapper can be safely rebound to the next item's texture.
-  let reusableImage: SkImage | undefined;
   for (const item of items) {
     const frame = frames[item.id];
     if (!frame) {
@@ -210,20 +203,7 @@ const drawFrame: FrameDrawer = ({
           : 1 - (currentTime - itemEndTime)
         : currentTime - itemStartTime
     );
-    let image: SkImage;
-    try {
-      image = Skia.Image.MakeImageFromNativeTextureUnstable(
-        frame.texture,
-        frame.width,
-        frame.height,
-        false,
-        reusableImage
-      );
-      reusableImage = image;
-    } catch (error) {
-      console.log('error', error);
-      continue;
-    }
+    const { image } = frame;
     const frameAspectRatio = frame.width / frame.height;
     const aspectRatio = width / height;
 
@@ -258,78 +238,100 @@ const VideoCompositionPreview = ({
   const [musicPath, setMusicPath] = useState<string | null>(null);
   const [musicEnabled, setMusicEnabled] = useState(true);
 
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState({
+    done: 0,
+    total: 0,
+  });
+
   useEffect(() => {
-    const promises: StatefulPromise<any>[] = [];
+    const promises: StatefulPromise<FetchBlobResponse>[] = [];
+    let canceled = false;
 
-    const fetchFiles = async () => {
+    // The background music is optional: the composition does not wait for it.
+    const downloadMusic = async () => {
       const musicFilePath = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/open-goldberg-aria.mp3`;
-      let musicPromise: StatefulPromise<FetchBlobResponse> | null = null;
-      if (!(await ReactNativeBlobUtil.fs.exists(musicFilePath))) {
-        musicPromise = ReactNativeBlobUtil.config({
-          path: musicFilePath,
-        }).fetch('GET', MUSIC_URL);
-        promises.push(musicPromise);
-      }
-
-      const videoUrls: Record<number, StatefulPromise<FetchBlobResponse>> = {};
-      for (const video of videos) {
-        const uri =
-          video.video_files.find((file) => file.quality === 'hd')?.link ??
-          video.video_files[0]?.link ??
-          null;
-
-        if (uri != null) {
-          const promise = ReactNativeBlobUtil.config({
-            fileCache: true,
-            appendExt: uri.split('.').pop() ?? 'mp4',
-          }).fetch('GET', uri);
-          promises.push(promise);
-          videoUrls[video.id] = promise;
-        }
-      }
-      let videoFiles: { id: number; path: string }[] = [];
+      // Downloaded next to its final path, then moved: an interrupted
+      // download does not leave a truncated file behind.
+      const downloadPath = `${musicFilePath}.download`;
       try {
-        videoFiles = await Promise.all(
-          Object.entries(videoUrls).map(async ([id, promise]) => {
-            const response = await promise;
-            const status = response.info().status;
-            if (status !== 200) {
-              throw new Error(
-                `Could not download video ${id} (status ${status})`
-              );
-            }
-            return { id: Number(id), path: response.path() };
-          })
-        );
-      } catch (error) {
-        if (!(error instanceof ReactNativeBlobUtil.CanceledFetchError)) {
-          console.error(error);
-        }
-        return;
-      }
-      try {
-        if (musicPromise != null) {
-          const musicResponse = await musicPromise;
-          const status = musicResponse.info().status;
+        if (!(await ReactNativeBlobUtil.fs.exists(musicFilePath))) {
+          const musicPromise = ReactNativeBlobUtil.config({
+            path: downloadPath,
+          }).fetch('GET', MUSIC_URL);
+          promises.push(musicPromise);
+          const status = (await musicPromise).info().status;
           if (status !== 200) {
             throw new Error(
               `Could not download the background music (status ${status})`
             );
           }
+          await ReactNativeBlobUtil.fs.mv(downloadPath, musicFilePath);
         }
-        setMusicPath(musicFilePath);
+        if (!canceled) {
+          setMusicPath(musicFilePath);
+        }
       } catch (error) {
-        await ReactNativeBlobUtil.fs.unlink(musicFilePath).catch(() => {});
+        await ReactNativeBlobUtil.fs.unlink(downloadPath).catch(() => {});
         if (!(error instanceof ReactNativeBlobUtil.CanceledFetchError)) {
-          console.error(error);
+          console.warn(error);
         }
       }
-      const videoWithFiles = videos
-        .map((video) => ({
-          ...video,
-          path: videoFiles.find((file) => file.id === video.id)?.path ?? null,
-        }))
-        .filter((video) => video.path != null);
+    };
+
+    const downloadVideos = async () => {
+      const downloads = videos.flatMap((video) => {
+        const uri =
+          video.video_files.find((file) => file.quality === 'hd')?.link ??
+          video.video_files[0]?.link ??
+          null;
+        if (uri == null) {
+          return [];
+        }
+        const promise = ReactNativeBlobUtil.config({
+          fileCache: true,
+          appendExt: uri.split('.').pop() ?? 'mp4',
+        }).fetch('GET', uri);
+        promises.push(promise);
+        return [{ video, promise }];
+      });
+      setDownloadProgress({ done: 0, total: downloads.length });
+
+      // A video that cannot be downloaded is left out of the composition.
+      const results = await Promise.all(
+        downloads.map(async ({ video, promise }) => {
+          try {
+            const response = await promise;
+            const status = response.info().status;
+            if (status !== 200) {
+              throw new Error(
+                `Could not download video ${video.id} (status ${status})`
+              );
+            }
+            return { ...video, path: response.path() };
+          } catch (error) {
+            if (!(error instanceof ReactNativeBlobUtil.CanceledFetchError)) {
+              console.warn(error);
+            }
+            return null;
+          } finally {
+            if (!canceled) {
+              setDownloadProgress((progress) => ({
+                ...progress,
+                done: progress.done + 1,
+              }));
+            }
+          }
+        })
+      );
+      if (canceled) {
+        return;
+      }
+      const videoWithFiles = results.filter((video) => video != null);
+      if (videoWithFiles.length === 0) {
+        setDownloadError('Could not download the videos');
+        return;
+      }
 
       let currentTime = 0;
       const composition: VideoComposition = {
@@ -341,7 +343,7 @@ const VideoCompositionPreview = ({
           const duration = Math.min(Math.max(2, video.duration), 5);
           const item = {
             id: video.id.toString(),
-            path: video.path!,
+            path: video.path,
             startTime: 0,
             compositionStartTime: currentTime,
             duration,
@@ -354,9 +356,11 @@ const VideoCompositionPreview = ({
       setBaseComposition(composition);
     };
 
-    fetchFiles();
+    downloadMusic();
+    downloadVideos();
 
     return () => {
+      canceled = true;
       promises.forEach((promise) => {
         promise.cancel();
       });
@@ -514,7 +518,7 @@ const VideoCompositionPreview = ({
                 width: windowWidth,
                 height: windowWidth,
               }}
-              opaque
+              android={{ backingView: 'SurfaceView' }}
             >
               <ImageSkia
                 image={currentFrame}
@@ -596,10 +600,17 @@ const VideoCompositionPreview = ({
                 alignItems: 'center',
               }}
             >
-              <ActivityIndicator size="large" />
-              <Text style={{ color: 'black' }}>
-                Dowloading the video files...
-              </Text>
+              {downloadError ? (
+                <Text style={{ color: 'black' }}>{downloadError}</Text>
+              ) : (
+                <>
+                  <ActivityIndicator size="large" />
+                  <Text style={{ color: 'black' }}>
+                    Downloading the video files… ({downloadProgress.done}/
+                    {downloadProgress.total})
+                  </Text>
+                </>
+              )}
             </View>
           )}
         </>
@@ -608,15 +619,31 @@ const VideoCompositionPreview = ({
         <View
           style={{
             flex: 1,
-            marginTop: 100,
+            marginTop: exportedPath ? 0 : 100,
             gap: 20,
             alignItems: 'center',
           }}
         >
           {exportedPath ? (
-            <Text style={{ color: 'black' }}>
-              Video exported successfully! at {exportedPath}
-            </Text>
+            <>
+              <ExportedVideo path={exportedPath} />
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <Button
+                  title="Open in another app"
+                  onPress={() => openVideoFile(exportedPath)}
+                />
+                <Button
+                  title="Back"
+                  onPress={() => {
+                    setExportedPath(null);
+                    setExporting(false);
+                  }}
+                />
+              </View>
+              <Text style={{ color: 'black' }} selectable>
+                {exportedPath}
+              </Text>
+            </>
           ) : (
             <>
               <ActivityIndicator size="large" />
@@ -633,4 +660,45 @@ const VideoCompositionPreview = ({
       )}
     </View>
   );
+};
+
+/**
+ * Plays the exported video with the library's player.
+ */
+const ExportedVideo = ({ path }: { path: string }) => {
+  const { width } = useWindowDimensions();
+  const { currentFrame } = useVideoPlayer({
+    uri: `file://${path}`,
+    autoPlay: true,
+    isLooping: true,
+  });
+  const image = useDerivedValue(() => currentFrame.value?.image ?? null);
+  return (
+    <Canvas
+      style={{ width, height: width }}
+      android={{ backingView: 'SurfaceView' }}
+    >
+      <ImageSkia
+        image={image}
+        x={0}
+        y={0}
+        width={width}
+        height={width}
+        fit="contain"
+      />
+    </Canvas>
+  );
+};
+
+/**
+ * Opens a video file of the app with the system's apps.
+ */
+const openVideoFile = (path: string) => {
+  if (Platform.OS === 'android') {
+    ReactNativeBlobUtil.android
+      .actionViewIntent(path, 'video/mp4')
+      .catch((error) => Alert.alert('Could not open the video', String(error)));
+  } else {
+    ReactNativeBlobUtil.ios.previewDocument(path);
+  }
 };
