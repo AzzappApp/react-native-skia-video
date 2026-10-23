@@ -48,7 +48,7 @@ const CompositionPlayer = ({ composition, width, height }) => {
 | `beforeDrawFrame` / `afterDrawFrame` | `() => T` / `(context: T) => void` | Run around every frame; the returned context is passed to `drawFrame`. Handy for allocating/releasing per-frame resources. |
 | `onReadyToPlay` | `() => void` | The composition is prepared. |
 | `onComplete` | `() => void` | Playback reached the end. |
-| `onError` | `(error, retry) => void` | Decoding failed; call `retry()` to re-create the player. |
+| `onError` | `(error, retry) => void` | Decoding failed, or the GPU can't draw the frames (see [Vulkan on Android](/docs/getting-started#vulkan-on-android)); call `retry()` to re-create the player. |
 
 ## Returns
 
