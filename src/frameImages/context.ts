@@ -6,6 +6,7 @@
 import { Platform } from 'react-native';
 import { Skia } from 'react-native-skia';
 import { importDevice } from 'react-native-webgpu';
+import skiaDeviceId from '../utils/skiaDeviceId';
 
 // Android: the decoders hand their frames over in their own YUV buffers (see
 // convertFrame.ts).
@@ -26,13 +27,18 @@ export type FrameImageContext = {
 };
 
 let frameImageContext: FrameImageContext | null = null;
+// The device the context was made with (see skiaDeviceId).
+let frameImageDevice = '';
 
 /**
- * Returns the context used to turn decoded frames into Skia images.
+ * Returns the context used to turn decoded frames into Skia images, on the
+ * device Skia renders with: made again once React Native Skia has replaced a
+ * lost device, whose frames would draw nothing.
  * Must be called on the JS thread.
  */
 export const getFrameImageContext = (): FrameImageContext => {
-  if (frameImageContext == null) {
+  const current = skiaDeviceId();
+  if (frameImageContext == null || current !== frameImageDevice) {
     // No GPU for Skia to render with (no Vulkan 1.1 on Android): there is no
     // device to convert the frames on, and Skia says why.
     const { gpu } = Skia;
@@ -53,6 +59,7 @@ export const getFrameImageContext = (): FrameImageContext => {
       );
     }
     frameImageContext = { device, webgpu: RNWebGPU };
+    frameImageDevice = current;
   }
   return frameImageContext;
 };
