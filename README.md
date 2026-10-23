@@ -14,7 +14,7 @@ npm install @azzapp/react-native-skia-video react-native-webgpu
 
 This library requires [React Native Skia](https://wcandillon.github.io/react-native-skia/) v3
 (`react-native-skia` 3.7.3 or above, Graphite backend),
-[React Native WebGPU](https://wcandillon.github.io/react-native-webgpu/) 0.17.0 or above (built
+[React Native WebGPU](https://wcandillon.github.io/react-native-webgpu/) 0.19.0 or above (built
 against the same Dawn release as React Native Skia), [Reanimated](https://docs.swmansion.com/react-native-reanimated/) 4
 and [Worklets](https://docs.swmansion.com/react-native-worklets/). It requires iOS 16 or above and Android
 9 (API level 28) or above. On Android, React Native Skia requires Vulkan 1.1 (see

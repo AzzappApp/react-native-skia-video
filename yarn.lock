@@ -56,8 +56,8 @@ __metadata:
     react-native-reanimated: "npm:^4.7.1"
     react-native-safe-area-context: "npm:^5.10.1"
     react-native-screens: "npm:^4.28.0"
-    react-native-skia: "npm:^3.7.3"
-    react-native-webgpu: "npm:^0.17.0"
+    react-native-skia: "npm:^3.7.4"
+    react-native-webgpu: "npm:^0.19.0"
     react-native-worklets: "npm:^0.13.0"
   languageName: unknown
   linkType: soft
@@ -93,8 +93,8 @@ __metadata:
     react-native: "npm:0.87.1"
     react-native-builder-bob: "npm:^0.43.1"
     react-native-reanimated: "npm:^4.7.1"
-    react-native-skia: "npm:^3.7.3"
-    react-native-webgpu: "npm:^0.17.0"
+    react-native-skia: "npm:^3.7.4"
+    react-native-webgpu: "npm:^0.19.0"
     react-native-worklets: "npm:^0.13.0"
     react-test-renderer: "npm:19.3.0"
     release-it: "npm:^21.1.0"
@@ -106,7 +106,7 @@ __metadata:
     react-native: ">= 0.81.0"
     react-native-reanimated: ">= 4.2.1"
     react-native-skia: ">= 3.7.3"
-    react-native-webgpu: ">= 0.17.0"
+    react-native-webgpu: ">= 0.19.0"
     react-native-worklets: ">= 0.10.0"
   languageName: unknown
   linkType: soft
@@ -11817,9 +11817,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-skia@npm:^3.7.3":
-  version: 3.7.3
-  resolution: "react-native-skia@npm:3.7.3"
+"react-native-skia@npm:^3.7.4":
+  version: 3.7.4
+  resolution: "react-native-skia@npm:3.7.4"
   dependencies:
     canvaskit-wasm: "npm:0.41.1"
     react-native-skia-graphite-android: "npm:157.0.0"
@@ -11827,7 +11827,7 @@ __metadata:
     react-native-skia-graphite-apple-macos: "npm:157.0.0"
     react-native-skia-graphite-apple-tvos: "npm:157.0.0"
     react-native-webgpu-dawn: "npm:157.0.0"
-    react-reconciler: "npm:0.31.0"
+    react-reconciler: "npm:0.33.0"
   peerDependencies:
     react: ">=19.0"
     react-native: ">=0.79"
@@ -11842,7 +11842,7 @@ __metadata:
       optional: true
   bin:
     setup-skia-web: scripts/setup-canvaskit.js
-  checksum: 10/f33a93d2bc6feace0760a26f32fa6ecc98f2758fd539293041abcb5aea28ddbd52c97697e89056cb7f3764b04ac9f6a9073925e45069de31cc1951d47ab71ac5
+  checksum: 10/0838293d3046dd3c7d8f71cf17911ca07ffc22547ad7d32c331209aa12abf02f3cfbd78e3e1f303159226596d36eca243999d488c3ddcdc01e82463bbf643673
   languageName: node
   linkType: hard
 
@@ -11853,9 +11853,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-webgpu@npm:^0.17.0":
-  version: 0.17.0
-  resolution: "react-native-webgpu@npm:0.17.0"
+"react-native-webgpu@npm:^0.19.0":
+  version: 0.19.0
+  resolution: "react-native-webgpu@npm:0.19.0"
   dependencies:
     react-native-webgpu-dawn: "npm:157.0.0"
   peerDependencies:
@@ -11868,7 +11868,7 @@ __metadata:
       optional: true
     react-native-worklets:
       optional: true
-  checksum: 10/49f3680c1537ba863eb9c562e0fa790ef3ed328a73b7afa25815e76877369fc9393770fd66d025bf4748a8346966cd5fc9029fe8a2b2f5610562980ae82d1cfc
+  checksum: 10/20761d17c60b087f0f9cf3e3cf2bf36bde7718978b3f24ae097e6022336d12c35e0b05d2ca53660e239a50359ac384c1218718b8b7d6ac53378641b507b5bf7b
   languageName: node
   linkType: hard
 
@@ -11947,14 +11947,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-reconciler@npm:0.31.0":
-  version: 0.31.0
-  resolution: "react-reconciler@npm:0.31.0"
+"react-reconciler@npm:0.33.0":
+  version: 0.33.0
+  resolution: "react-reconciler@npm:0.33.0"
   dependencies:
-    scheduler: "npm:^0.25.0"
+    scheduler: "npm:^0.27.0"
   peerDependencies:
-    react: ^19.0.0
-  checksum: 10/e7235fa08947296c2084a89dc264651fd7cb9dc3a26c3b132b84ecf2a30c46b9b98cd004c30adfe2a24741cd1e49a618858a48080008ce2b4e964a2c4233041e
+    react: ^19.2.0
+  checksum: 10/eb8ddb8b5cfe850e022379df5330fad1871ab75dd7bc3a4e4c4fef7aa1b951b4cd784263186a0e5b01313de91b389499f95fc616f96b7d9e5dd33c13bdacb014
   languageName: node
   linkType: hard
 
@@ -12518,17 +12518,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"scheduler@npm:0.27.0":
+"scheduler@npm:0.27.0, scheduler@npm:^0.27.0":
   version: 0.27.0
   resolution: "scheduler@npm:0.27.0"
   checksum: 10/eab3c3a8373195173e59c147224fc30dabe6dd453f248f5e610e8458512a5a2ee3a06465dc400ebfe6d35c9f5b7f3bb6b2e41c88c86fd177c25a73e7286a1e06
-  languageName: node
-  linkType: hard
-
-"scheduler@npm:^0.25.0":
-  version: 0.25.0
-  resolution: "scheduler@npm:0.25.0"
-  checksum: 10/e661e38503ab29a153429a99203fefa764f28b35c079719eb5efdd2c1c1086522f6653d8ffce388209682c23891a6d1d32fa6badf53c35fb5b9cd0c55ace42de
   languageName: node
   linkType: hard
 
