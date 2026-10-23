@@ -112,10 +112,8 @@ public class VideoCompositionFramesExtractorSync {
       future.cancel(true);
     }
     if (handler != null) {
-      // The decoder's EGL context and GL resources are bound to the export
-      // thread (where they are current); releasing them from another thread
-      // would silently fail the GL deletes and defer the EGL context
-      // destruction. Release on the export thread, then let the looper
+      // The decoders' callbacks and frames are handled on the export thread:
+      // release them there, after the tasks queued on it, then let the looper
       // drain and quit.
       handler.post(decoder::release);
       exportThread.quitSafely();

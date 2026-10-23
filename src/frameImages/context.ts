@@ -23,7 +23,12 @@ const YUV_FEATURE = 'opaque-ycbcr-android-for-external-texture';
  */
 export type FrameImageContext = {
   device: GPUDevice;
-  webgpu: Pick<typeof RNWebGPU, 'createVideoFrameFromNativeBuffer'>;
+  webgpu: Pick<
+    typeof RNWebGPU,
+    // The second for Android exports (see exportVideoComposition).
+    | 'createVideoFrameFromNativeBuffer'
+    | 'MakeWebGPUCanvasContextFromNativeWindow'
+  >;
 };
 
 let frameImageContext: FrameImageContext | null = null;

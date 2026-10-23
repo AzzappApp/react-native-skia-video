@@ -127,9 +127,10 @@ playback subset).
 | `audioSampleRate` | `number?` | `44100` | AAC sample rate. |
 | `audioChannelCount` | `number?` | `2` | 1 = mono, 2 = stereo. |
 
-The encoder `exportVideoComposition` drives hands out its native buffer with
-`beginFrame()` and encodes what was rendered into it with
-`endFrame(time, fences?)` (they replace `encodeFrame`).
+The encoder `exportVideoComposition` drives frames with `beginFrame(time)`,
+which on iOS hands out the native buffer to render into (on Android the frame is
+presented to its `nativeWindow`), and `endFrame(time)`, which encodes it (they
+replace `encodeFrame`).
 
 `exportVideoComposition` additionally accepts `drawFrame`,
 `beforeDrawFrame` / `afterDrawFrame`, `onProgress({ framesCompleted, nbFrames })`

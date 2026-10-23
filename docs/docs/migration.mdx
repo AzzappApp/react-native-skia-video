@@ -21,7 +21,7 @@ the package is now `react-native-skia` (instead of `@shopify/react-native-skia`)
 
 :::caution Minimum versions
 This library now requires **iOS 16** and **Android 9 (API level 28)**, React
-Native Skia 3.7.3 and React Native WebGPU 0.17.0 or above.
+Native Skia 3.7.3 and React Native WebGPU 0.19.0 or above.
 :::
 
 ```sh
@@ -94,9 +94,10 @@ Only if you call the native objects directly (the hooks and
   `DecodedFrame`s, the native buffers of the decoders (a `CVPixelBufferRef` on
   iOS, an `AHardwareBuffer*` on Android), rather than `VideoFrame`s: the library
   turns them into Skia images.
-- `VideoEncoder.encodeFrame(texture, time)` is replaced by `beginFrame()`, which
-  hands out the native buffer to render the frame into, and
-  `endFrame(time, fences?)`, which encodes it.
+- `VideoEncoder.encodeFrame(texture, time)` is replaced by `beginFrame(time)`,
+  which on iOS hands out the native buffer to render the frame into (on Android
+  the frame is presented to the encoder's `nativeWindow`), and `endFrame(time)`,
+  which encodes it.
 
 ## 6. TypeScript
 
