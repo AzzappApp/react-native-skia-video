@@ -59,7 +59,7 @@ const MyVideoPlayer = ({ uri, width, height }) => {
 | `onComplete()` | Playback reaches the end. |
 | `onSeekComplete()` | A `seekTo` finished. |
 | `onPlayingStatusChange(playing)` | Play/pause state changes. |
-| `onError(error, retry)` | Something failed; call `retry()` to re-create the player. |
+| `onError(error, retry)` | Something failed (decoding, or a GPU that can't draw the frames, see [Vulkan on Android](/docs/getting-started#vulkan-on-android)); call `retry()` to re-create the player. |
 
 ## Controlling playback
 
