@@ -1,7 +1,7 @@
 jest.mock('react-native', () => ({ Platform: { OS: 'android' } }));
 
 const mockGpu = { isAvailable: true, error: null as string | null };
-const mockDevicePointer = 42n;
+let mockDevicePointer = 42n;
 let mockFeatures: string[] = [];
 
 jest.mock('react-native-skia', () => ({
@@ -34,6 +34,7 @@ describe('getFrameImageContext', () => {
     mockGpu.isAvailable = true;
     mockGpu.error = null;
     mockFeatures = ['opaque-ycbcr-android-for-external-texture'];
+    mockDevicePointer = 42n;
   });
 
   afterEach(() => {
@@ -44,6 +45,25 @@ describe('getFrameImageContext', () => {
     const context = loadFrameImages().getFrameImageContext();
 
     expect(context.device).toMatchObject({ pointer: mockDevicePointer });
+  });
+
+  it('keeps the context while the device is the same', () => {
+    const frameImages = loadFrameImages();
+
+    expect(frameImages.getFrameImageContext()).toBe(
+      frameImages.getFrameImageContext()
+    );
+  });
+
+  it('imports the device again once Skia has replaced a lost one', () => {
+    const frameImages = loadFrameImages();
+    const before = frameImages.getFrameImageContext();
+    mockDevicePointer = 43n;
+
+    const after = frameImages.getFrameImageContext();
+
+    expect(after).not.toBe(before);
+    expect(after.device).toMatchObject({ pointer: 43n });
   });
 
   it("throws when Skia's device can't sample the decoders' YUV buffers", () => {
