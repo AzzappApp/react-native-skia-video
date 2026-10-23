@@ -96,8 +96,10 @@ A few rules of thumb:
   seconds before it starts to its end, so a long composition costs the
   decoders and the memory of the items around the current time, not of all
   of them.
-  A frame's `rotation` is the display rotation in degrees of the source
-  (phone footage is often stored rotated).
+  A frame's `rotation` is the clockwise rotation in degrees to apply to its
+  `image` to display it upright: on iOS the video's (phone footage is often
+  stored rotated), always 0 on Android, where the image is already upright
+  (see [`VideoFrame`](/docs/api#videoframe)).
 - Skia objects can't hop between worklet runtimes. Decode/cache per runtime
   (e.g. on `globalThis`) anything you create from raw data — images, typefaces,
   shaders, paragraphs.
