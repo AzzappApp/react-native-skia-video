@@ -156,62 +156,76 @@ export const useVideoCompositionPlayer = ({
 
   const surfaceSharedValue = useSharedValue<SkSurface | null>(null);
   const pixelRatio = PixelRatio.get();
-  useFrameCallback(() => {
-    'worklet';
-    if (!framesExtractor) {
-      return;
-    }
-
-    let surface: SkSurface | null = surfaceSharedValue.value;
-
-    if (!surface) {
-      surface = Skia.Surface.MakeOffscreen(
-        width * pixelRatio,
-        height * pixelRatio
-      );
-      surfaceSharedValue.value = surface;
-    }
-    if (!surface) {
-      console.warn('Failed to create surface');
-      return;
-    }
-
-    const canvas = surface.getCanvas();
-    const context = beforeDrawFrame?.();
-    drawFrame({
-      canvas,
-      context,
-      videoComposition: composition!,
-      currentTime: framesExtractor.currentTime,
-      frames: framesExtractor.decodeCompositionFrames(),
-      width: width * pixelRatio,
-      height: height * pixelRatio,
-    });
-    surface.flush();
-    const previousFrame = currentFrame.value;
-    try {
-      // Recycle the previous SkImage (outputImage) to avoid allocating a new
-      // JSI object on every frame.
-      const nextFrame = Skia.Image.MakeImageFromNativeTextureUnstable(
-        surface.getNativeTextureUnstable(),
-        width * pixelRatio,
-        height * pixelRatio,
-        false,
-        previousFrame ?? undefined
-      );
-      if (nextFrame === previousFrame) {
-        // The recycled image keeps the same identity, so listeners (the Skia
-        // canvas) must be forced to re-run.
-        currentFrame.modify(undefined, true);
-      } else {
-        currentFrame.value = nextFrame;
+  useFrameCallback(
+    useCallback(() => {
+      'worklet';
+      if (!framesExtractor) {
+        return;
       }
-    } catch (error) {
-      console.warn('Failed to create image from texture', error);
-      return;
-    }
-    afterDrawFrame?.(context);
-  }, true);
+
+      let surface: SkSurface | null = surfaceSharedValue.value;
+
+      if (!surface) {
+        surface = Skia.Surface.MakeOffscreen(
+          width * pixelRatio,
+          height * pixelRatio
+        );
+        surfaceSharedValue.value = surface;
+      }
+      if (!surface) {
+        console.warn('Failed to create surface');
+        return;
+      }
+
+      const canvas = surface.getCanvas();
+      const context = beforeDrawFrame?.();
+      drawFrame({
+        canvas,
+        context,
+        videoComposition: composition!,
+        currentTime: framesExtractor.currentTime,
+        frames: framesExtractor.decodeCompositionFrames(),
+        width: width * pixelRatio,
+        height: height * pixelRatio,
+      });
+      surface.flush();
+      const previousFrame = currentFrame.value;
+      try {
+        // Recycle the previous SkImage (outputImage) to avoid allocating a new
+        // JSI object on every frame.
+        const nextFrame = Skia.Image.MakeImageFromNativeTextureUnstable(
+          surface.getNativeTextureUnstable(),
+          width * pixelRatio,
+          height * pixelRatio,
+          false,
+          previousFrame ?? undefined
+        );
+        if (nextFrame === previousFrame) {
+          // The recycled image keeps the same identity, so listeners (the Skia
+          // canvas) must be forced to re-run.
+          currentFrame.modify(undefined, true);
+        } else {
+          currentFrame.value = nextFrame;
+        }
+      } catch (error) {
+        console.warn('Failed to create image from texture', error);
+        return;
+      }
+      afterDrawFrame?.(context);
+    }, [
+      framesExtractor,
+      composition,
+      drawFrame,
+      beforeDrawFrame,
+      afterDrawFrame,
+      width,
+      height,
+      pixelRatio,
+      currentFrame,
+      surfaceSharedValue,
+    ]),
+    true
+  );
 
   return {
     currentFrame,
