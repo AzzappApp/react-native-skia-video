@@ -31,19 +31,19 @@ await exportVideoComposition({
 
 ## Options
 
-| Option | Type | Description |
-| --- | --- | --- |
-| `videoComposition` | `VideoComposition` | The composition to render. |
-| `drawFrame` | `FrameDrawer` | Worklet drawing each frame. |
-| `outPath` | `string` | Destination file path (no `file://` scheme). |
-| `width` / `height` | `number` | Output resolution in pixels. |
-| `frameRate` | `number` | Frames per second. |
-| `bitRate` | `number` | Video bit rate in bits per second. |
-| `encoderName` | `string` | Android only: a specific encoder from [`getValidEncoderConfigurations`](/docs/android-capabilities). |
-| `audioBitRate` / `audioSampleRate` / `audioChannelCount` | `number` | AAC settings when the composition [has audio](/docs/video-composition/audio). |
-| `onProgress` | `({ framesCompleted, nbFrames }) => void` | Called after each encoded frame. |
-| `abortSignal` | `AbortSignal` | Cancels the export; the promise rejects with an `AbortError`. |
-| `beforeDrawFrame` / `afterDrawFrame` | functions | Per-frame context hooks, as in playback. |
+| Option                                                   | Type                                      | Description                                                                                          |
+| -------------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `videoComposition`                                       | `VideoComposition`                        | The composition to render.                                                                           |
+| `drawFrame`                                              | `FrameDrawer`                             | Worklet drawing each frame.                                                                          |
+| `outPath`                                                | `string`                                  | Destination file path (no `file://` scheme).                                                         |
+| `width` / `height`                                       | `number`                                  | Output resolution in pixels.                                                                         |
+| `frameRate`                                              | `number`                                  | Frames per second.                                                                                   |
+| `bitRate`                                                | `number`                                  | Video bit rate in bits per second.                                                                   |
+| `encoderName`                                            | `string`                                  | Android only: a specific encoder from [`getValidEncoderConfigurations`](/docs/android-capabilities). |
+| `audioBitRate` / `audioSampleRate` / `audioChannelCount` | `number`                                  | AAC settings when the composition [has audio](/docs/video-composition/audio).                        |
+| `onProgress`                                             | `({ framesCompleted, nbFrames }) => void` | Called after each encoded frame.                                                                     |
+| `abortSignal`                                            | `AbortSignal`                             | Cancels the export; the promise rejects with an `AbortError`.                                        |
+| `beforeDrawFrame` / `afterDrawFrame`                     | functions                                 | Per-frame context hooks, as in playback.                                                             |
 
 ## Cancellation
 
@@ -75,3 +75,7 @@ controller.abort();
 - **Cap decode resolutions.** Item `resolution` also applies during export;
   decoding 4K sources to render 1080p output wastes decoder sessions (some
   devices only have a few).
+
+Cancellation is cooperative: the promise rejects after the export runtime has
+released its frame extractor and encoder. Await that rejection before starting
+another export to the same output path or removing a partial output file.

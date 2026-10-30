@@ -103,18 +103,22 @@ export const exportVideoComposition = async <T = undefined>({
     const abortListener = () => {
       abortSignal?.removeEventListener('abort', abortListener);
       cancelledSynchronizable.setBlocking(true);
-      reject(createAbortError(abortSignal));
+      // The export runtime settles the promise after disposing native resources.
     };
     abortSignal?.addEventListener('abort', abortListener);
     // The listener must not outlive the export: it keeps the synchronizable
     // and this promise's scope alive through the caller's AbortSignal.
     const settleResolve = () => {
       abortSignal?.removeEventListener('abort', abortListener);
-      resolve(undefined);
+      if (abortSignal?.aborted) {
+        reject(createAbortError(abortSignal));
+      } else {
+        resolve(undefined);
+      }
     };
     const settleReject = (error: unknown) => {
       abortSignal?.removeEventListener('abort', abortListener);
-      reject(error);
+      reject(abortSignal?.aborted ? createAbortError(abortSignal) : error);
     };
 
     runOnRuntime(getExportRuntime(), () => {
@@ -122,6 +126,8 @@ export const exportVideoComposition = async <T = undefined>({
 
       let frameExtractor: VideoCompositionFramesExtractorSync | null = null;
       let encoder: VideoEncoder | null = null;
+      let exportError: unknown;
+      let didFail = false;
       const { width, height } = options;
       try {
         try {
@@ -187,7 +193,7 @@ export const exportVideoComposition = async <T = undefined>({
           const currentEncoder = encoder;
           for (let i = 0; i < nbFrames; i++) {
             if (cancelledSynchronizable.getDirty()) {
-              return;
+              throw new Error('Export cancelled');
             }
             const currentTime = i / options.frameRate;
             runPooled(() => {
@@ -227,11 +233,15 @@ export const exportVideoComposition = async <T = undefined>({
 
         encoder!.finishWriting();
       } catch (e) {
-        scheduleOnRN(settleReject, e);
-        return;
+        exportError = e;
+        didFail = true;
       } finally {
         encoder?.dispose();
       }
-      scheduleOnRN(settleResolve);
+      if (didFail) {
+        scheduleOnRN(settleReject, exportError);
+      } else {
+        scheduleOnRN(settleResolve);
+      }
     })();
   });
