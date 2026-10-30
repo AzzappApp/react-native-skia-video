@@ -1,9 +1,11 @@
 #pragma once
 
+#include "ExportHintSession.h"
 #include "VideoComposition.h"
 #include <android/native_window.h>
 #include <fbjni/fbjni.h>
 #include <jsi/jsi.h>
+#include <memory>
 
 namespace RNSkiaVideo {
 using namespace facebook;
@@ -61,6 +63,8 @@ private:
   // The encoder's input surface, from prepare() until the encoder is
   // released.
   ANativeWindow* window = nullptr;
+  // Tells Android how long each frame takes (see ExportHintSession).
+  std::unique_ptr<ExportHintSession> hintSession;
   std::atomic_flag released = ATOMIC_FLAG_INIT;
   void release();
 };

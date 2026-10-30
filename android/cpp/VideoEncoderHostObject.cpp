@@ -76,6 +76,7 @@ VideoEncoderHostObject::VideoEncoderHostObject(
   encoder = make_global(VideoEncoder::create(
       outPath, width, height, frameRate, bitRate, encoderName, composition,
       audioSampleRate, audioChannelCount, audioBitRate));
+  hintSession = std::make_unique<ExportHintSession>(frameRate);
 }
 
 VideoEncoderHostObject::~VideoEncoderHostObject() {
@@ -141,6 +142,7 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
           if (!released.test()) {
             encoder->endFrame();
+            hintSession->frameDone();
           }
           return jsi::Value::undefined();
         });
@@ -189,6 +191,7 @@ void VideoEncoderHostObject::release() {
   if (!released.test_and_set()) {
     encoder->release();
     encoder = nullptr;
+    hintSession = nullptr;
     if (window != nullptr) {
       ANativeWindow_release(window);
       window = nullptr;

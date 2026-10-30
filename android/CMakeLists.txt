@@ -23,6 +23,8 @@ add_library(${PACKAGE_NAME}
         cpp/JNIHelpers.h
         cpp/JNIHelpers.cpp
         cpp/cpp-adapter.cpp
+        cpp/ExportHintSession.h
+        cpp/ExportHintSession.cpp
         cpp/NativeEventDispatcher.h
         cpp/NativeEventDispatcher.cpp
         cpp/VideoCapabilities.h
