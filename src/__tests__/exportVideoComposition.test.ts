@@ -3,6 +3,7 @@ import RNSkiaVideoModule from '../RNSkiaVideoModule';
 
 const mockRuntimeTasks: Array<() => void> = [];
 const mockEvents: string[] = [];
+const mockSettlementEvents: string[][] = [];
 const mockSurface = {
   getCanvas: () => ({ drawColor: jest.fn() }),
   flush: jest.fn(),
@@ -14,7 +15,10 @@ jest.mock('react-native-worklets', () => ({
   runOnRuntime: (_runtime: unknown, task: () => void) => () => {
     mockRuntimeTasks.push(task);
   },
-  scheduleOnRN: (fn: (...args: any[]) => void, ...args: any[]) => fn(...args),
+  scheduleOnRN: (fn: (...args: any[]) => void, ...args: any[]) => {
+    mockSettlementEvents.push([...mockEvents]);
+    fn(...args);
+  },
   createSynchronizable: (initial: boolean) => {
     let value = initial;
     return {
@@ -70,6 +74,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockRuntimeTasks.length = 0;
   mockEvents.length = 0;
+  mockSettlementEvents.length = 0;
   (RNSkiaVideoModule.createVideoEncoder as jest.Mock).mockReturnValue(
     mockEncoder
   );
@@ -91,8 +96,8 @@ it('keeps cancellation pending until the runtime has disposed its resources', as
     return error;
   });
   controller.abort();
-  await Promise.resolve();
-  await Promise.resolve();
+  // Flush the async export wrapper as well as the observer promise.
+  for (let i = 0; i < 10; i++) await Promise.resolve();
   expect(settled).not.toHaveBeenCalled();
   mockRuntimeTasks.shift()!();
   const error = await observed;
@@ -132,6 +137,9 @@ it('disposes resources before reporting drawing errors', async () => {
   });
   mockRuntimeTasks.shift()!();
   expect(await observed).toBe(error);
+  expect(mockSettlementEvents).toEqual([
+    ['extractor disposed', 'encoder disposed'],
+  ]);
 });
 
 it('finishes and disposes a successful export', async () => {
