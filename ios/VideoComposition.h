@@ -13,9 +13,42 @@ public:
   double startTime;
   double duration;
   CGSize resolution;
+  // Cap on the decoded long side, resolved against the track's natural size
+  // by the decoder (see types.ts): unlike `resolution`, it says nothing about
+  // orientation, so a caller holding display dimensions cannot get it wrong.
+  double maxLongSide = 0;
   bool isVideo = true;
   bool audioEnabled = false;
   double audioVolume = 1.0;
+  // Fades of an audio item, in seconds (see types.ts).
+  double audioFadeIn = 0;
+  double audioFadeOut = 0;
+
+  // How long before it starts and after it ends an item is live, in seconds
+  // (see isLiveAt).
+  static constexpr double liveMargin = 1;
+
+  // Whether the item is live at a time of the composition (seconds): from
+  // liveMargin before it starts to liveMargin after it ends. Its frames are
+  // only handed out then, the resources of the frames of an item that is not
+  // live can be released.
+  bool isLiveAt(double compositionTime) const {
+    return compositionTime >= compositionStartTime - liveMargin &&
+           compositionTime <= compositionStartTime + duration + liveMargin;
+  }
+
+  // How long before the item is live its reader is set up, in seconds (see
+  // isDecodedAt).
+  static constexpr double decoderLead = 1;
+
+  // Whether the item is decoded at a time of the composition: from
+  // decoderLead before it is live (its first frame is ready when it is) to
+  // its end. Its last frame is still handed out after its end, while it is
+  // live: a sequence of short clips keeps two readers, not three.
+  bool isDecodedAt(double compositionTime) const {
+    return compositionTime >= compositionStartTime - liveMargin - decoderLead &&
+           compositionTime <= compositionStartTime + duration;
+  }
 };
 
 class VideoComposition {
@@ -63,6 +96,13 @@ public:
         }
       }
 
+      if (jsItem.hasProperty(runtime, "maxLongSide")) {
+        auto prop = jsItem.getProperty(runtime, "maxLongSide");
+        if (prop.isNumber()) {
+          item->maxLongSide = prop.asNumber();
+        }
+      }
+
       if (jsItem.hasProperty(runtime, "kind")) {
         auto kindProp = jsItem.getProperty(runtime, "kind");
         if (kindProp.isString()) {
@@ -75,6 +115,18 @@ public:
           auto volumeProp = jsItem.getProperty(runtime, "volume");
           if (volumeProp.isNumber()) {
             item->audioVolume = volumeProp.asNumber();
+          }
+        }
+        if (jsItem.hasProperty(runtime, "audioFadeIn")) {
+          auto fadeInProp = jsItem.getProperty(runtime, "audioFadeIn");
+          if (fadeInProp.isNumber()) {
+            item->audioFadeIn = fadeInProp.asNumber();
+          }
+        }
+        if (jsItem.hasProperty(runtime, "audioFadeOut")) {
+          auto fadeOutProp = jsItem.getProperty(runtime, "audioFadeOut");
+          if (fadeOutProp.isNumber()) {
+            item->audioFadeOut = fadeOutProp.asNumber();
           }
         }
       } else if (jsItem.hasProperty(runtime, "audio")) {

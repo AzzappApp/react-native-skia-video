@@ -68,9 +68,10 @@ jsi::Value VideoCompositionFramesExtractorSyncHostObject::get(
           auto frames = framesExtractor->decodeCompositionFrames(time);
           for (auto& entry : *frames) {
             auto id = entry.first->toStdString();
-            auto frame = entry.second;
-            auto jsFrame = frame->toJS(runtime);
-            result.setProperty(runtime, id.c_str(), std::move(jsFrame));
+            auto jsFrame = entry.second->toJS(runtime);
+            if (!jsFrame.isNull()) {
+              result.setProperty(runtime, id.c_str(), std::move(jsFrame));
+            }
           }
           return result;
         });

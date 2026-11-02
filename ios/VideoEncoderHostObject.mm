@@ -1,8 +1,7 @@
 #import "VideoEncoderHostObject.h"
 #import "AudioCompositionUtils.h"
 #import "RNSVJSIUtils.h"
-#import <Metal/Metal.h>
-#import <future>
+#import <algorithm>
 
 NS_INLINE NSError* createErrorWithMessage(NSString* message) {
   return [NSError errorWithDomain:@"com.azzapp.rnskv"
@@ -27,11 +26,20 @@ VideoEncoderHostObject::VideoEncoderHostObject(
   this->composition = composition;
 }
 
+// An export that never called dispose() (its runtime torn down mid-export):
+// the writer, the audio reading and the pools are released all the same.
+VideoEncoderHostObject::~VideoEncoderHostObject() {
+  @autoreleasepool {
+    release();
+  }
+}
+
 std::vector<jsi::PropNameID>
 VideoEncoderHostObject::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> result;
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("prepare")));
-  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("encodeFrame")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("beginFrame")));
+  result.push_back(jsi::PropNameID::forUtf8(rt, std::string("endFrame")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("finishWriting")));
   result.push_back(jsi::PropNameID::forUtf8(rt, std::string("dispose")));
   return result;
@@ -48,20 +56,29 @@ jsi::Value VideoEncoderHostObject::get(jsi::Runtime& runtime,
           return runPooled([&] { prepare(); });
         });
   }
-  if (propName == "encodeFrame") {
+  if (propName == "beginFrame") {
     return jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "encodeFrame"), 2,
+        runtime, jsi::PropNameID::forAscii(runtime, "beginFrame"), 0,
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
                const jsi::Value* arguments, size_t count) -> jsi::Value {
-          auto serializedTexture =
-              arguments[0].asObject(runtime).getProperty(runtime, "mtlTexture");
-          void* texturePointer = reinterpret_cast<void*>(
-              serializedTexture.asBigInt(runtime).asUint64(runtime));
-          auto texture = (__bridge id<MTLTexture>)texturePointer;
+          IOSurfaceRef surface = NULL;
+          runPooled([&] { surface = beginFrame(); });
+          return jsi::BigInt::fromUint64(runtime,
+                                         reinterpret_cast<uintptr_t>(surface));
+        });
+  }
+  if (propName == "endFrame") {
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "endFrame"), 1,
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue,
+               const jsi::Value* arguments, size_t count) -> jsi::Value {
+          if (count < 1 || !arguments[0].isNumber()) {
+            throw jsi::JSError(runtime, "VideoEncoder.endFrame(..) expects a "
+                                        "time (number)!");
+          }
           auto time =
-              CMTimeMakeWithSeconds(arguments[1].asNumber(), NSEC_PER_SEC);
-
-          return runPooled([&] { encodeFrame(texture, time); });
+              CMTimeMakeWithSeconds(arguments[0].asNumber(), NSEC_PER_SEC);
+          return runPooled([&] { endFrame(time); });
         });
   }
   if (propName == "finishWriting") {
@@ -104,12 +121,22 @@ void VideoEncoderHostObject::prepare() {
       AVVideoAverageBitRateKey : @(bitRate),
       AVVideoMaxKeyFrameIntervalKey : @(frameRate),
       AVVideoProfileLevelKey : AVVideoProfileLevelH264HighAutoLevel,
-    }
+    },
+    // The NV12 frames of endFrame() are converted and tagged with these (see
+    // convertFrameBuffer()): the encoder takes them as they are.
+    AVVideoColorPropertiesKey : @{
+      AVVideoColorPrimariesKey : AVVideoColorPrimaries_ITU_R_709_2,
+      AVVideoTransferFunctionKey : AVVideoTransferFunction_ITU_R_709_2,
+      AVVideoYCbCrMatrixKey : AVVideoYCbCrMatrix_ITU_R_709_2,
+    },
   };
 
   assetWriterInput =
       [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo
                                          outputSettings:videoSettings];
+  // Not real time: the encoder works at its own pace, the export waits for
+  // it. Its memory is bounded by the NV12 buffers it can hold at once (see
+  // createEncoderBuffer()): AVAssetWriter alone kept about 55 frames ahead.
   assetWriterInput.expectsMediaDataInRealTime = NO;
   assetWriterInput.performsMultiPassEncodingIfSupported = NO;
   if ([assetWriter canAddInput:assetWriterInput]) {
@@ -124,28 +151,29 @@ void VideoEncoderHostObject::prepare() {
     setupAudio();
   }
 
-  [assetWriter startWriting];
+  if (![assetWriter startWriting]) {
+    throw assetWriter.error
+        ?: createErrorWithMessage(@"Could not start writing the video");
+  }
   [assetWriter startSessionAtSourceTime:kCMTimeZero];
 
   if (audioWriterInput) {
     startWritingAudio();
   }
 
-  device = MTLCreateSystemDefaultDevice();
-  commandQueue = [device newCommandQueue];
-
   NSDictionary* attributes = @{
     (NSString*)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
     (NSString*)kCVPixelBufferWidthKey : @(width),
     (NSString*)kCVPixelBufferHeightKey : @(height),
+    (NSString*)kCVPixelBufferIOSurfacePropertiesKey : @{},
     (NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
   };
-  // Allocate a fresh buffer per frame from this pool instead of reusing a
-  // single CVPixelBuffer. AVAssetWriter encodes appended buffers
-  // asynchronously, so a reused buffer could be overwritten by the next frame
-  // while the encoder is still reading it, producing torn frames on fast
-  // motion. The pool only recycles a buffer once every reference to it (the
-  // encoder's included) is gone.
+  // Each appended frame is a fresh buffer of a pool, never a reused
+  // CVPixelBuffer. AVAssetWriter encodes appended buffers asynchronously, so a
+  // reused buffer could be overwritten by the next frame while the encoder is
+  // still reading it, producing torn frames on fast motion. A pool only
+  // recycles a buffer once every reference to it (the encoder's included) is
+  // gone, which also keeps the memory used bounded.
   if (pixelBufferPool) {
     CVPixelBufferPoolRelease(pixelBufferPool);
     pixelBufferPool = NULL;
@@ -153,75 +181,102 @@ void VideoEncoderHostObject::prepare() {
   CVReturn status = CVPixelBufferPoolCreate(
       kCFAllocatorDefault, NULL, (__bridge CFDictionaryRef)attributes,
       &pixelBufferPool);
-
   if (status != kCVReturnSuccess) {
     throw createErrorWithMessage(@"Could not create pixel buffer pool");
-    return;
   }
 
-  MTLTextureDescriptor* descriptor = [MTLTextureDescriptor
-      texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-                                   width:width
-                                  height:height
-                               mipmapped:NO];
-  descriptor.storageMode = MTLStorageModeShared;
-  descriptor.pixelFormat = MTLPixelFormatBGRA8Unorm;
-  cpuAccessibleTexture = [device newTextureWithDescriptor:descriptor];
+  // NV12, the encoder's own input format: a 1080x1920 frame is 3.1 MB
+  // instead of 8.3 MB in BGRA, and the encoder holds several of them (see
+  // createEncoderBuffer()).
+  NSDictionary* encoderAttributes = @{
+    (NSString*)kCVPixelBufferPixelFormatTypeKey :
+        @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+    (NSString*)kCVPixelBufferWidthKey : @(width),
+    (NSString*)kCVPixelBufferHeightKey : @(height),
+    (NSString*)kCVPixelBufferIOSurfacePropertiesKey : @{},
+  };
+  if (encoderBufferPool) {
+    CVPixelBufferPoolRelease(encoderBufferPool);
+    encoderBufferPool = NULL;
+  }
+  status = CVPixelBufferPoolCreate(kCFAllocatorDefault, NULL,
+                                   (__bridge CFDictionaryRef)encoderAttributes,
+                                   &encoderBufferPool);
+  if (status != kCVReturnSuccess) {
+    throw createErrorWithMessage(@"Could not create pixel buffer pool");
+  }
+  if (pixelTransferSession == NULL) {
+    VTPixelTransferSessionRef session = NULL;
+    if (VTPixelTransferSessionCreate(kCFAllocatorDefault, &session) != noErr) {
+      throw createErrorWithMessage(@"Could not create pixel transfer session");
+    }
+    VTSessionSetProperty(session,
+                         kVTPixelTransferPropertyKey_DestinationYCbCrMatrix,
+                         kCVImageBufferYCbCrMatrix_ITU_R_709_2);
+    pixelTransferSession = session;
+  }
 }
 
-void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
-                                         CMTime time) {
-  id<MTLCommandBuffer> commandBuffer =
-      [commandQueue commandBufferWithUnretainedReferences];
-  id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
-  [blitEncoder copyFromTexture:mlTexture
-                   sourceSlice:0
-                   sourceLevel:0
-                  sourceOrigin:MTLOriginMake(0, 0, 0)
-                    sourceSize:MTLSizeMake(mlTexture.width, mlTexture.height, 1)
-                     toTexture:cpuAccessibleTexture
-              destinationSlice:0
-              destinationLevel:0
-             destinationOrigin:MTLOriginMake(0, 0, 0)];
-
-  [blitEncoder endEncoding];
-  [commandBuffer commit];
-  [commandBuffer waitUntilCompleted];
-
-  // Vend a fresh buffer from the pool for every frame so the bytes we write
-  // below can never be overwritten while a previous frame is still being
-  // encoded.
+CVPixelBufferRef
+VideoEncoderHostObject::createPoolBuffer(CVPixelBufferPoolRef pool) {
   CVPixelBufferRef pixelBuffer = NULL;
-  CVReturn status = CVPixelBufferPoolCreatePixelBuffer(
-      kCFAllocatorDefault, pixelBufferPool, &pixelBuffer);
+  CVReturn status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault,
+                                                       pool, &pixelBuffer);
   if (status != kCVReturnSuccess || pixelBuffer == NULL) {
     throw createErrorWithMessage(@"Could not allocate pixel buffer from pool");
   }
+  return pixelBuffer;
+}
 
-  CVPixelBufferLockBaseAddress(pixelBuffer, 0);
-  void* pixelBufferBytes = CVPixelBufferGetBaseAddress(pixelBuffer);
-  if (pixelBufferBytes == NULL) {
-    CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
-    CVPixelBufferRelease(pixelBuffer);
-    throw createErrorWithMessage(@"Could not extract pixels from frame");
-  }
-  size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
+// The NV12 buffers the encoder can hold at once: enough for it to encode a
+// frame while the next ones are drawn, few enough to bound its memory (25 MB
+// at 1080×1920, 100 MB in 4K).
+static const int MAX_ENCODER_BUFFERS = 8;
 
-  MTLRegion region = MTLRegionMake2D(0, 0, width, height);
-
-  [cpuAccessibleTexture getBytes:pixelBufferBytes
-                     bytesPerRow:bytesPerRow
-                      fromRegion:region
-                     mipmapLevel:0];
-  CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
-
-  int attempt = 0;
-  while (!assetWriterInput.isReadyForMoreMediaData) {
-    if (attempt > 100) {
-      CVPixelBufferRelease(pixelBuffer);
-      throw createErrorWithMessage(@"AVAssetWriter unavailable");
+CVPixelBufferRef VideoEncoderHostObject::createEncoderBuffer() {
+  NSDictionary* auxAttributes = @{
+    (NSString*)kCVPixelBufferPoolAllocationThresholdKey : @(MAX_ENCODER_BUFFERS)
+  };
+  const CFAbsoluteTime deadline = CFAbsoluteTimeGetCurrent() + 10;
+  while (true) {
+    CVPixelBufferRef pixelBuffer = NULL;
+    CVReturn status = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(
+        kCFAllocatorDefault, encoderBufferPool,
+        (__bridge CFDictionaryRef)auxAttributes, &pixelBuffer);
+    if (status == kCVReturnSuccess && pixelBuffer != NULL) {
+      return pixelBuffer;
     }
-    attempt++;
+    if (status != kCVReturnWouldExceedAllocationThreshold) {
+      throw createErrorWithMessage(
+          @"Could not allocate pixel buffer from pool");
+    }
+    // The encoder holds every buffer: wait for it to be done with one.
+    if (assetWriter.status == AVAssetWriterStatusFailed) {
+      throw assetWriter.error
+          ?: createErrorWithMessage(@"AVAssetWriter failed");
+    }
+    if (CFAbsoluteTimeGetCurrent() > deadline) {
+      throw createErrorWithMessage(
+          @"The encoder held its buffers for more than 10 seconds");
+    }
+    usleep(1000);
+  }
+}
+
+void VideoEncoderHostObject::appendFrameBuffer(CVPixelBufferRef pixelBuffer,
+                                               CMTime time) {
+  // The encoder can fall behind for a while (large frames, a hot device):
+  // only give up if it fails or stays unavailable for long.
+  const CFAbsoluteTime deadline = CFAbsoluteTimeGetCurrent() + 10;
+  while (!assetWriterInput.isReadyForMoreMediaData) {
+    if (assetWriter.status == AVAssetWriterStatusFailed) {
+      throw assetWriter.error
+          ?: createErrorWithMessage(@"AVAssetWriter failed");
+    }
+    if (CFAbsoluteTimeGetCurrent() > deadline) {
+      throw createErrorWithMessage(
+          @"AVAssetWriter unavailable for more than 10 seconds");
+    }
     usleep(5000);
   }
 
@@ -247,16 +302,89 @@ void VideoEncoderHostObject::encodeFrame(id<MTLTexture> mlTexture,
       }
     }
     CFRelease(sampleBuffer);
-  } else {
+  } else if (!error) {
     error = createErrorWithMessage(@"Failed to create sampleBuffer");
   }
   if (formatDescription) {
     CFRelease(formatDescription);
   };
-  CVPixelBufferRelease(pixelBuffer);
   if (error) {
     throw error;
   }
+}
+
+// Converts the BGRA frame drawn into to NV12, the format the encoder
+// converts it to anyway, with VideoToolbox's hardware. The source carries no
+// color tags, so only the BT.709 matrix is applied (no color matching); the
+// result is then tagged BT.709, like the video (see prepare()).
+void VideoEncoderHostObject::convertFrameBuffer(CVPixelBufferRef source,
+                                                CVPixelBufferRef destination) {
+  // A recycled buffer of the pool may keep the tags of its previous frame.
+  CVBufferRemoveAllAttachments(destination);
+  OSStatus status = VTPixelTransferSessionTransferImage(pixelTransferSession,
+                                                        source, destination);
+  if (status != noErr) {
+    throw createErrorWithMessage([NSString
+        stringWithFormat:@"Could not convert the frame (%d)", (int)status]);
+  }
+  CVBufferSetAttachment(destination, kCVImageBufferYCbCrMatrixKey,
+                        kCVImageBufferYCbCrMatrix_ITU_R_709_2,
+                        kCVAttachmentMode_ShouldPropagate);
+  CVBufferSetAttachment(destination, kCVImageBufferColorPrimariesKey,
+                        kCVImageBufferColorPrimaries_ITU_R_709_2,
+                        kCVAttachmentMode_ShouldPropagate);
+  CVBufferSetAttachment(destination, kCVImageBufferTransferFunctionKey,
+                        kCVImageBufferTransferFunction_ITU_R_709_2,
+                        kCVAttachmentMode_ShouldPropagate);
+}
+
+IOSurfaceRef VideoEncoderHostObject::beginFrame() {
+  // The same buffer every frame: JS imports it into Skia's device once (an
+  // imported IOSurface stays in use until its JS object is garbage
+  // collected). It is never appended (see endFrame()), so it can be drawn
+  // into again as soon as a frame has ended.
+  if (frameBuffer == NULL) {
+    frameBuffer = createPoolBuffer(pixelBufferPool);
+  }
+  IOSurfaceRef surface = CVPixelBufferGetIOSurface(frameBuffer);
+  if (surface == NULL) {
+    throw createErrorWithMessage(@"The frame buffer has no IOSurface");
+  }
+  framePending = true;
+  return surface;
+}
+
+void VideoEncoderHostObject::endFrame(CMTime time) {
+  if (!framePending) {
+    throw createErrorWithMessage(@"endFrame called without beginFrame");
+  }
+  framePending = false;
+  // The buffer drawn into is not appended itself. AVAssetWriter releases a
+  // buffer while the video encoder, out of process on a device, still reads
+  // its IOSurface, and nothing in this process tells when it is done: the
+  // IOSurface's use count is per process.
+  // Handed out again, the buffer was drawn into while being encoded, and the
+  // export showed the next frame in place of this one (that frame lost), or
+  // a cleared one. The frame is converted into a fresh NV12 buffer of a pool
+  // instead (see convertFrameBuffer()): a pool recycles a buffer only once its
+  // IOSurface is used by no process. One conversion, no GPU readback.
+  CVPixelBufferRef pixelBuffer = createEncoderBuffer();
+  try {
+    convertFrameBuffer(frameBuffer, pixelBuffer);
+    appendFrameBuffer(pixelBuffer, time);
+  } catch (...) {
+    CVPixelBufferRelease(pixelBuffer);
+    throw;
+  }
+  CVPixelBufferRelease(pixelBuffer);
+}
+
+void VideoEncoderHostObject::releaseFrameBuffer() {
+  if (frameBuffer) {
+    CVPixelBufferRelease(frameBuffer);
+    frameBuffer = NULL;
+  }
+  framePending = false;
 }
 
 void VideoEncoderHostObject::setupAudio() {
@@ -386,27 +514,31 @@ void VideoEncoderHostObject::finish() {
   // audio: AVAssetWriter interleaves the two tracks and would keep the
   // audio input not-ready while waiting for more video data (deadlock).
   [assetWriterInput markAsFinished];
+  // Bounded waits: a stalled writer fails the export instead of blocking the
+  // export thread forever.
+  auto timeout = [] {
+    return dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC);
+  };
   if (audioWriterInput) {
-    dispatch_semaphore_wait(audioCompletionSemaphore, DISPATCH_TIME_FOREVER);
+    if (dispatch_semaphore_wait(audioCompletionSemaphore, timeout()) != 0) {
+      throw createErrorWithMessage(@"Could not write the audio in 30 seconds");
+    }
     NSError* audioError = audioErrorHolder.firstObject;
     if (audioError) {
       throw audioError;
     }
   }
 
-  __block std::promise<void> promise;
-  std::future<void> future = promise.get_future();
-  __block NSError* error = nil;
+  // The handler only captures the semaphore: it can run after a timeout.
+  dispatch_semaphore_t finished = dispatch_semaphore_create(0);
   [assetWriter finishWritingWithCompletionHandler:^{
-    if (assetWriter.status == AVAssetWriterStatusFailed) {
-      error = assetWriter.error ?: createErrorWithMessage(@"Failed to export");
-    }
-    promise.set_value();
+    dispatch_semaphore_signal(finished);
   }];
-
-  future.wait();
-  if (error != nil) {
-    throw error;
+  if (dispatch_semaphore_wait(finished, timeout()) != 0) {
+    throw createErrorWithMessage(@"Could not finish the video in 30 seconds");
+  }
+  if (assetWriter.status == AVAssetWriterStatusFailed) {
+    throw assetWriter.error ?: createErrorWithMessage(@"Failed to export");
   }
 }
 
@@ -434,16 +566,20 @@ void VideoEncoderHostObject::release() {
   }
   assetWriter = nil;
   assetWriterInput = nil;
+  releaseFrameBuffer();
   if (pixelBufferPool) {
     CVPixelBufferPoolRelease(pixelBufferPool);
     pixelBufferPool = NULL;
   }
-  if (cpuAccessibleTexture) {
-    [cpuAccessibleTexture setPurgeableState:MTLPurgeableStateEmpty];
+  if (encoderBufferPool) {
+    CVPixelBufferPoolRelease(encoderBufferPool);
+    encoderBufferPool = NULL;
   }
-  cpuAccessibleTexture = nil;
-  commandQueue = nil;
-  device = nil;
+  if (pixelTransferSession) {
+    VTPixelTransferSessionInvalidate(pixelTransferSession);
+    CFRelease(pixelTransferSession);
+    pixelTransferSession = NULL;
+  }
 }
 
 } // namespace RNSkiaVideo

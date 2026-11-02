@@ -8,10 +8,16 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-
-import javax.microedition.khronos.egl.EGLContext;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class VideoCompositionFramesExtractorSync {
+  /**
+   * How long preparing the decoders or decoding the frames of a time may take: a decoder that
+   * stops producing frames fails the export instead of blocking it for good.
+   */
+  private static final long TIMEOUT_SECONDS = 30;
+
   private final VideoComposition composition;
 
   private final VideoCompositionDecoder decoder;
@@ -29,11 +35,15 @@ public class VideoCompositionFramesExtractorSync {
 
   private Handler handler;
 
-  private CompletableFuture<Map<String, VideoFrame>> future;
+  private volatile CompletableFuture<Map<String, VideoFrame>> future;
+
+  // A decoder error reported while no frames were being decoded, thrown by the next
+  // decodeCompositionFrames. Accessed on the export thread only.
+  private Exception pendingError;
 
   public VideoCompositionFramesExtractorSync(VideoComposition composition) {
     this.composition = composition;
-    this.decoder = new VideoCompositionDecoder(composition);
+    this.decoder = new VideoCompositionDecoder(composition, true);
   }
 
   public void start() throws Exception {
@@ -41,10 +51,9 @@ public class VideoCompositionFramesExtractorSync {
     exportThread.start();
     handler = new Handler(exportThread.getLooper());
     CompletableFuture<Void> future = new CompletableFuture<>();
-    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
     handler.post(() -> {
       try {
-        decoder.prepare(sharedContext);
+        decoder.prepare();
         decoder.setOnErrorListener(this::handleError);
         decoder.setOnFrameAvailableListener(this::onFrameAvailable);
         decoder.setOnItemEndReachedListener(this::onItemEndReached);
@@ -57,7 +66,16 @@ public class VideoCompositionFramesExtractorSync {
       future.complete(null);
     });
 
-    future.get();
+    await(future, "prepare the decoders");
+  }
+
+  private static <T> T await(CompletableFuture<T> future, String what) throws Exception {
+    try {
+      return future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    } catch (TimeoutException e) {
+      future.cancel(true);
+      throw new Exception("Could not " + what + " in " + TIMEOUT_SECONDS + " seconds", e);
+    }
   }
 
   /**
@@ -67,13 +85,26 @@ public class VideoCompositionFramesExtractorSync {
    */
   public Map<String, VideoFrame> decodeCompositionFrames(double time) throws Exception {
     decodingTimeUs = TimeHelpers.secToUs(time);
-    future = new CompletableFuture<>();
+    CompletableFuture<Map<String, VideoFrame>> future = new CompletableFuture<>();
+    this.future = future;
     handler.post(() -> {
+      if (pendingError != null) {
+        future.completeExceptionally(pendingError);
+        pendingError = null;
+        return;
+      }
+      try {
+        // Opens the decoders of the items that became live, closes the others.
+        decoder.updateDecoders(decodingTimeUs, false);
+      } catch (Exception e) {
+        future.completeExceptionally(e);
+        return;
+      }
       decoding = true;
       renderedTimes.clear();
       checkIfFrameDecoded();
     });
-    return future.get();
+    return await(future, "decode the frames at " + time + " s");
   }
 
   public void release() {
@@ -81,10 +112,8 @@ public class VideoCompositionFramesExtractorSync {
       future.cancel(true);
     }
     if (handler != null) {
-      // The decoder's EGL context and GL resources are bound to the export
-      // thread (where they are current); releasing them from another thread
-      // would silently fail the GL deletes and defer the EGL context
-      // destruction. Release on the export thread, then let the looper
+      // The decoders' callbacks and frames are handled on the export thread:
+      // release them there, after the tasks queued on it, then let the looper
       // drain and quit.
       handler.post(decoder::release);
       exportThread.quitSafely();
@@ -116,14 +145,17 @@ public class VideoCompositionFramesExtractorSync {
   private void checkIfFrameDecoded() {
     boolean allItemsReady = true;
     for (VideoComposition.Item item : composition.getItems()) {
-      if (!item.isVideo()) {
+      // Only the live items' frames are handed out (see updateVideosFrames). After its end, an
+      // item's decoder is closed: its last frame has nothing to wait for.
+      if (!item.isVideo() || !item.isLiveAt(decodingTimeUs) || !item.isDecodedAt(decodingTimeUs)) {
+        continue;
+      }
+      // Before the frame times: an item can end before its first frame.
+      if (itemsEnded.contains(item)) {
         continue;
       }
       if (!itemsTimes.containsKey(item)) {
         allItemsReady = false;
-        continue;
-      }
-      if (itemsEnded.contains(item)) {
         continue;
       }
       Long itemTime = itemsTimes.get(item);
@@ -138,7 +170,7 @@ public class VideoCompositionFramesExtractorSync {
         allItemsReady = false;
       }
     }
-    Map<String, Long> renderedTimes = decoder.render(decodingTimeUs);
+    Map<String, Long> renderedTimes = decoder.render(decodingTimeUs, false);
     renderedTimes.forEach((itemId, time) -> {
       if (time != null) {
         this.renderedTimes.put(itemId, time);
@@ -157,17 +189,34 @@ public class VideoCompositionFramesExtractorSync {
   }
 
   private void handleError(Exception e) {
+    CompletableFuture<Map<String, VideoFrame>> future = this.future;
+    if (future == null || future.isDone()) {
+      // No frames are being decoded: thrown by the next decodeCompositionFrames.
+      if (pendingError == null) {
+        pendingError = e;
+      }
+      return;
+    }
     future.completeExceptionally(e);
   }
 
   private void resolveIfReady() {
-    Map<String, VideoFrame> videoFrames = decoder.updateVideosFrames();
+    CompletableFuture<Map<String, VideoFrame>> future = this.future;
+    // An image can be available before the first decodeCompositionFrames.
+    if (future == null) {
+      return;
+    }
+    Map<String, VideoFrame> videoFrames = decoder.updateVideosFrames(decodingTimeUs);
     for (VideoComposition.Item item : composition.getItems()) {
-      if (!item.isVideo()) {
+      if (!item.isVideo() || !item.isLiveAt(decodingTimeUs)) {
         continue;
       }
       VideoFrame videoFrame = videoFrames.getOrDefault(item.getId(), null);
       if (videoFrame == null) {
+        // An item that ended without a frame has none to wait for.
+        if (itemsEnded.contains(item) || !item.isDecodedAt(decodingTimeUs)) {
+          continue;
+        }
         return;
       }
       Long itemFrameTime = renderedTimes.getOrDefault(item.getId(), null);

@@ -8,10 +8,12 @@ sidebar_position: 4
 
 `exportVideoComposition` renders a composition to an H.264 file. It runs on a
 dedicated worklet thread: a synchronous extractor decodes the exact frame for
-each timestamp, your `drawFrame` renders it into an offscreen Skia surface,
-and the surface's texture is handed straight to the hardware encoder
-(MediaCodec on Android, AVAssetWriter on iOS) — no pixel readback. Audio
-items are mixed and encoded alongside.
+each timestamp, and your `drawFrame` renders it with Skia straight into the
+encoder's input, never read back from the GPU: on Android into the input
+surface of the hardware encoder (MediaCodec), through a React Native WebGPU
+canvas context; on iOS into a buffer converted once, in hardware, to the
+encoder's own NV12 format. The export runs at the encoder's pace. Audio items
+are mixed and encoded alongside.
 
 ```ts
 import { exportVideoComposition } from '@azzapp/react-native-skia-video';
@@ -72,6 +74,6 @@ controller.abort();
   devices; feed your target settings through
   [`getValidEncoderConfigurations`](/docs/android-capabilities) and use the
   first result.
-- **Cap decode resolutions.** Item `resolution` also applies during export;
-  decoding 4K sources to render 1080p output wastes decoder sessions (some
-  devices only have a few).
+- **Cap decode resolutions.** Item `maxLongSide` / `resolution` also apply
+  during export; decoding 4K sources to render 1080p output wastes decoder
+  sessions (some devices only have a few).

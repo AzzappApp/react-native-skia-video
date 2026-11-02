@@ -16,14 +16,12 @@ public:
   static constexpr auto kJavaDescriptor = "Lcom/azzapp/rnskv/VideoPlayer;";
 
   static jni::local_ref<VideoPlayer>
-  create(const std::string& uri, int width, int height,
+  create(const std::string& uri, int width, int height, double maxLongSide,
          alias_ref<RNSkiaVideo::NativeEventDispatcher> dispatcher);
 
   void play();
 
   void pause();
-
-  void setupGL();
 
   void seekTo(jlong location);
 

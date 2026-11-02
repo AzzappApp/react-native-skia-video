@@ -8,12 +8,12 @@ slug: /video-player
 # Video Player
 
 `useVideoPlayer` plays a single video file and exposes its current frame as a
-Reanimated shared value. Each frame is a **GPU texture** — wrap it with
-`Skia.Image.MakeImageFromNativeTextureUnstable` and draw it like any other
-`SkImage`.
+Reanimated shared value. Each frame carries an `image`: an `SkImage` backed by
+a GPU texture (the decoded frame is copied on the GPU with React Native
+WebGPU), that you draw like any other image.
 
 ```tsx
-import { Canvas, Image, Skia } from '@shopify/react-native-skia';
+import { Canvas, Image } from 'react-native-skia';
 import { useVideoPlayer } from '@azzapp/react-native-skia-video';
 import { useDerivedValue } from 'react-native-reanimated';
 
@@ -22,19 +22,12 @@ const MyVideoPlayer = ({ uri, width, height }) => {
     uri,
     autoPlay: true,
     isLooping: true,
+    maxLongSide: 1280, // decode at most 1280 pixels on the long side
     onReadyToPlay: ({ width, height, rotation }) =>
       console.log(`video is ${width}x${height}, rotated ${rotation}°`),
   });
 
-  const videoImage = useDerivedValue(() => {
-    const frame = currentFrame.value;
-    if (!frame) return null;
-    return Skia.Image.MakeImageFromNativeTextureUnstable(
-      frame.texture,
-      frame.width,
-      frame.height
-    );
-  });
+  const videoImage = useDerivedValue(() => currentFrame.value?.image ?? null);
 
   return (
     <Canvas style={{ width, height }}>
@@ -49,7 +42,8 @@ const MyVideoPlayer = ({ uri, width, height }) => {
 | Option | Type | Description |
 | --- | --- | --- |
 | `uri` | `string \| null` | The video to play. Pass `null` to skip creating the player. |
-| `resolution` | `{ width, height }` | Decode at a lower resolution — a big performance win when the display size is small. Changing it re-creates the player. |
+| `maxLongSide` | `number` | Cap the long side of the decoded frames, keeping the aspect ratio (only scales down) — a big performance win when the display size is small. Safe for rotated videos. Changing it re-creates the player. |
+| `resolution` | `{ width, height }` | Decode at this exact size instead (`maxLongSide` is then ignored). On iOS it is read in the file's encoded orientation: a portrait phone clip is a 1920×1080 file with a 90° rotation. Changing it re-creates the player. |
 | `autoPlay` | `boolean` | Start playback as soon as the video is ready. |
 | `isLooping` | `boolean` | Restart from the beginning when playback completes. |
 | `volume` | `number` | Volume of the video's audio track (0–1). |
@@ -65,7 +59,7 @@ const MyVideoPlayer = ({ uri, width, height }) => {
 | `onComplete()` | Playback reaches the end. |
 | `onSeekComplete()` | A `seekTo` finished. |
 | `onPlayingStatusChange(playing)` | Play/pause state changes. |
-| `onError(error, retry)` | Something failed; call `retry()` to re-create the player. |
+| `onError(error, retry)` | Something failed (decoding, or a GPU that can't draw the frames, see [Vulkan on Android](/docs/getting-started#vulkan-on-android)); call `retry()` to re-create the player. |
 
 ## Controlling playback
 
@@ -83,9 +77,9 @@ player?.isPlaying;
 ```
 
 :::tip Frame lifecycle
-The frame textures are owned and recycled by the player. The `SkImage`
-wrappers you create around them are cheap; create them per frame in a derived
-value (as above) or in a frame callback.
+The frame images are owned by the player: an image only shows its frame until
+the next one is decoded. Draw the current one (as above) and don't keep it
+around — use `makeRasterImageSync()` if you need a lasting copy.
 :::
 
 For playing **several** videos on a shared clock — cuts, transitions,

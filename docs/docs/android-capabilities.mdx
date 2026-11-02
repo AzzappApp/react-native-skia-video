@@ -27,8 +27,8 @@ Returns the decoding limits for a mime type (most of the time you'll check
 
 | Field | Description |
 | --- | --- |
-| `maxInstances` | How many decoders can run at once — caps how many video items can overlap in a composition. |
-| `maxWidth` / `maxHeight` | Maximum decodable frame size — cap your items' `resolution` accordingly. |
+| `maxInstances` | How many decoders can run at once — caps how many video items can be live at the same time in a composition (an item's decoder is open from two seconds before it starts to its end). |
+| `maxWidth` / `maxHeight` | Maximum decodable frame size — cap your items' `maxLongSide` (or `resolution`) accordingly. |
 
 ## getValidEncoderConfigurations
 
