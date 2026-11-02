@@ -124,35 +124,43 @@ export const runColorCheck = async (
           return;
         }
         state.__rnskvColorCheckRun = runId;
-        const row = frame.image.readPixels(0, Math.floor(frame.height / 2), {
-          width: frame.width,
-          height: 1,
-          colorType: ColorType.RGBA_8888,
-          alphaType: AlphaType.Unpremul,
-        });
-        if (row == null) {
-          return;
-        }
-        // The mean color around the center of each bar.
-        const barWidth = frame.width / COLOR_BARS.length;
-        const colors: number[] = [];
-        for (let i = 0; i < COLOR_BARS.length; i++) {
-          const center = Math.floor((i + 0.5) * barWidth);
-          const sums = [0, 0, 0];
-          let count = 0;
-          for (
-            let x = center - SAMPLE_HALF_WIDTH;
-            x <= center + SAMPLE_HALF_WIDTH;
-            x++
-          ) {
-            for (let c = 0; c < 3; c++) {
-              sums[c]! += row[x * 4 + c]!;
-            }
-            count++;
-          }
-          colors.push(...sums.map((sum) => Math.round(sum / count)));
-        }
-        scheduleOnRN(record, colors);
+        // Read back as of this call: the promise settles on the export
+        // runtime once the export's job is done.
+        frame.image
+          .readPixels(0, Math.floor(frame.height / 2), {
+            width: frame.width,
+            height: 1,
+            colorType: ColorType.RGBA_8888,
+            alphaType: AlphaType.Unpremul,
+          })
+          .then(
+            (row) => {
+              if (row == null) {
+                return;
+              }
+              // The mean color around the center of each bar.
+              const barWidth = frame.width / COLOR_BARS.length;
+              const colors: number[] = [];
+              for (let i = 0; i < COLOR_BARS.length; i++) {
+                const center = Math.floor((i + 0.5) * barWidth);
+                const sums = [0, 0, 0];
+                let count = 0;
+                for (
+                  let x = center - SAMPLE_HALF_WIDTH;
+                  x <= center + SAMPLE_HALF_WIDTH;
+                  x++
+                ) {
+                  for (let c = 0; c < 3; c++) {
+                    sums[c]! += row[x * 4 + c]!;
+                  }
+                  count++;
+                }
+                colors.push(...sums.map((sum) => Math.round(sum / count)));
+              }
+              scheduleOnRN(record, colors);
+            },
+            () => {}
+          );
       },
       outPath: decodedPath,
       abortSignal,
@@ -160,8 +168,10 @@ export const runColorCheck = async (
       onProgress: ({ framesCompleted, nbFrames }) =>
         onProgress(0.5 + (framesCompleted / nbFrames) * 0.5),
     });
-    // The last scheduleOnRN calls of the export runtime.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // The readback reaches this runtime after the export: wait for it.
+    for (let wait = 0; measured.colors == null && wait < 40; wait++) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
 
     const { colors } = measured;
     if (colors == null) {

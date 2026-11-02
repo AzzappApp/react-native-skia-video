@@ -89,7 +89,7 @@ export const makeVideoFrame = (
   // already holds (e.g. `useDerivedValue(() => currentFrame.value?.image)`).
   // And a new image per frame would charge the texture's size to the garbage
   // collector every frame.
-  const image = slot.spareImage ?? Skia.Image.MakeImageFromGPUTexture(texture);
+  const image = slot.spareImage ?? Skia.Image.MakeFromGPUTexture(texture);
   slot.spareImage = slot.image;
   slot.image = image;
   slot.frameId = frameId;

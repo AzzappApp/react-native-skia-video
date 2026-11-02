@@ -6,7 +6,7 @@ import type { DecodedFrame } from '../types';
 jest.mock('react-native-skia', () => ({
   Skia: {
     Image: {
-      MakeImageFromGPUTexture: jest.fn(() => ({ dispose: jest.fn() })),
+      MakeFromGPUTexture: jest.fn(() => ({ dispose: jest.fn() })),
     },
   },
 }));
@@ -169,7 +169,7 @@ describe('makeVideoFrame', () => {
 
   it('hands out two images of the texture in turn for the new frames of a key', () => {
     const { context, importExternalTexture, createTexture } = makeContext();
-    const makeImage = jest.mocked(Skia.Image.MakeImageFromGPUTexture);
+    const makeImage = jest.mocked(Skia.Image.MakeFromGPUTexture);
     makeImage.mockClear();
     const key = makeKey();
 

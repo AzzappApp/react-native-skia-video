@@ -69,6 +69,12 @@ public class VideoEncoder {
 
   private static final long AUDIO_TIMEOUT_MS = 30_000;
 
+  // The frames presented to the input surface (endFrame), and those the encoder wrote: a canvas
+  // context can drop a frame it found no buffer of the surface for, without an error.
+  private long presentedFrames;
+
+  private long encodedFrames;
+
   private final List<PendingSample> pendingVideoSamples = new ArrayList<>();
 
   private final List<PendingSample> pendingAudioSamples = new ArrayList<>();
@@ -224,11 +230,16 @@ public class VideoEncoder {
     if (audioException != null) {
       throw new RuntimeException("Could not encode composition audio", audioException);
     }
+    presentedFrames++;
     drainEncoder(false);
   }
 
   public void finishWriting() {
     drainEncoder(true);
+    if (encodedFrames != presentedFrames) {
+      throw new RuntimeException("The encoder wrote " + encodedFrames + " of the "
+        + presentedFrames + " frames presented to its input surface");
+    }
     if (audioThread != null) {
       try {
         audioThread.join(AUDIO_TIMEOUT_MS);
@@ -358,6 +369,7 @@ public class VideoEncoder {
           encodedData.limit(bufferInfo.offset + bufferInfo.size);
 
           writeOrQueueSample(true, encodedData, bufferInfo);
+          encodedFrames++;
         }
 
         encoder.releaseOutputBuffer(encoderStatus, false);

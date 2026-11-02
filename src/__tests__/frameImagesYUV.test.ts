@@ -12,7 +12,7 @@ jest.mock('react-native', () => ({ Platform: { OS: 'android' } }));
 jest.mock('react-native-skia', () => ({
   Skia: {
     Image: {
-      MakeImageFromGPUTexture: jest.fn(() => ({ dispose: jest.fn() })),
+      MakeFromGPUTexture: jest.fn(() => ({ dispose: jest.fn() })),
     },
   },
 }));
