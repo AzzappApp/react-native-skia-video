@@ -21,7 +21,7 @@ the package is now `react-native-skia` (instead of `@shopify/react-native-skia`)
 
 :::caution Minimum versions
 This library now requires **iOS 16** and **Android 9 (API level 28)**, React
-Native Skia 3.8.0 and React Native WebGPU 0.19.0 or above.
+Native Skia 3.9.0 and React Native WebGPU 0.20.0 or above.
 :::
 
 ```sh
@@ -33,7 +33,7 @@ React Native Skia and React Native WebGPU must be built against the same Dawn
 release: the native build fails with a `Dawn version mismatch` error otherwise.
 Upgrade them together (see the [compatibility table](https://wcandillon.github.io/react-native-webgpu/docs/integrations/react-native-skia#compatibility)).
 
-On Android, React Native WebGPU must be built with NDK 27: see
+On Android, the app must be built with NDK 27, the React Native template's: see
 [Android NDK](/docs/getting-started#android-ndk).
 
 ## 2. Draw `frame.image`
@@ -72,8 +72,8 @@ With `useVideoPlayer`:
 
 The images are owned by the player (or composition player): an image only
 shows its frame until the next one is produced. Don't dispose them, and use
-`image.makeRasterImageSync()` if you need a lasting copy (a thumbnail for
-instance).
+`await image.makeRasterImage()` if you need a lasting copy (a thumbnail for
+instance): the frame is read back as of the call.
 
 ## 4. Android frames are upright
 

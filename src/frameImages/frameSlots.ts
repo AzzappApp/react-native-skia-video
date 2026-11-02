@@ -157,8 +157,8 @@ export const releaseSlots = (
     // Dawn frees the memory of released buffers once the GPU is done with a
     // submission made after their release, and nothing is submitted once the
     // frames stop (an export done, a player released): the buffers would be
-    // kept until the next video. Submits one now, and has the device ticked
-    // until it is done.
+    // kept until the next video. Submits one now, and waits for it: Dawn frees
+    // them as it sees it done.
     device.queue.submit([]);
     device.queue.onSubmittedWorkDone().catch(() => {});
   }
