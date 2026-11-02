@@ -214,7 +214,7 @@ const getWebGpuState = (device: GPUDevice, size: number) => {
     size,
     texture,
     view: texture.createView(),
-    image: Skia.Image.MakeImageFromGPUTexture(texture),
+    image: Skia.Image.MakeFromGPUTexture(texture),
     pipeline,
     uniforms,
     group: device.createBindGroup({

@@ -55,12 +55,14 @@ yarn android --mode release
 The **Background GPU loss (iOS)** screen reproduces the loss of React Native
 Skia's GPU device when the app goes to the background while a composition
 player plays media. iOS refuses GPU work from an app in the background
-(`MTLCommandBufferErrorNotPermitted`). With React Native Skia 3.7 (Dawn 157)
-one refused Metal command buffer loses the device, and nothing renders again
-until the app is restarted; React Native Skia 3.6 (Dawn 154) only lost the
-refused frame.
+(`MTLCommandBufferErrorNotPermitted`). With React Native Skia 3.7 and 3.8
+(Dawn 157.0) one refused Metal command buffer loses the device, and nothing
+renders again until the app is restarted; React Native Skia 3.6 (Dawn 154) only
+lost the refused frame. React Native Skia 3.9 and React Native WebGPU 0.20
+(Dawn 157.1) hold the GPU work submitted in the background and commit it once
+the app is back: the screen now checks that the device survives.
 
-Its default settings reproduce: a composition player of this library playing
+Its default settings reproduced the loss: a composition player of this library playing
 a video item (the benchmark's 1080p30 test clip) and an audio item (a tone
 ticking every second), both made on the device when the screen opens, with a
 clock drawn over the image (hand, seconds, frame number). On an iPhone, in a
@@ -70,7 +72,9 @@ Release build (`yarn ios --mode Release`):
    image reads **Start** (the test media are made once).
 2. Tap **Start**: the clock runs and the tone ticks.
 3. Swipe up to the home screen, wait 5 seconds, then come back to the app.
-4. The bug: the clock is frozen, the banner is red (**GPU DEVICE LOST**, with
+4. Expected since React Native Skia 3.9: the clock runs again, the banner
+   stays green, and **Mount a new canvas** shows a disc. The bug, before it:
+   the clock is frozen, the banner is red (**GPU DEVICE LOST**, with
    `Skia.gpu.error`), and **Mount a new canvas** shows no disc. Only
    restarting the app brings the rendering back.
 
