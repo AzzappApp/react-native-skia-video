@@ -56,8 +56,8 @@ __metadata:
     react-native-reanimated: "npm:^4.7.1"
     react-native-safe-area-context: "npm:^5.10.1"
     react-native-screens: "npm:^4.28.0"
-    react-native-skia: "npm:^3.9.0"
-    react-native-webgpu: "npm:^0.20.0"
+    react-native-skia: "npm:^3.9.2"
+    react-native-webgpu: "npm:^0.21.2"
     react-native-worklets: "npm:^0.13.0"
   languageName: unknown
   linkType: soft
@@ -93,8 +93,8 @@ __metadata:
     react-native: "npm:0.87.1"
     react-native-builder-bob: "npm:^0.43.1"
     react-native-reanimated: "npm:^4.7.1"
-    react-native-skia: "npm:^3.9.0"
-    react-native-webgpu: "npm:^0.20.0"
+    react-native-skia: "npm:^3.9.2"
+    react-native-webgpu: "npm:^0.21.2"
     react-native-worklets: "npm:^0.13.0"
     react-test-renderer: "npm:19.3.0"
     release-it: "npm:^21.1.0"
@@ -11817,9 +11817,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-skia@npm:^3.9.0":
-  version: 3.9.0
-  resolution: "react-native-skia@npm:3.9.0"
+"react-native-skia@npm:^3.9.2":
+  version: 3.9.2
+  resolution: "react-native-skia@npm:3.9.2"
   dependencies:
     canvaskit-wasm: "npm:0.41.1"
     react-native-skia-graphite-android: "npm:157.1.0"
@@ -11842,7 +11842,7 @@ __metadata:
       optional: true
   bin:
     setup-skia-web: scripts/setup-canvaskit.js
-  checksum: 10/db139f0d4149b05515c8d82a907cde8ea6f48cb387c9dd45c6d9fccd97a6e470ff30bc44ff89cb2e326277349704c53ae583fba9a075622740b9fbdee9f3d185
+  checksum: 10/bee946f2b843d10bfb3e75d929f713b307b1fb1dead67c305eee2eab360290ee5d9d90a1801fbefbe9783585526a48ad26d16be55584bde850815d03ca54ec26
   languageName: node
   linkType: hard
 
@@ -11853,9 +11853,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-webgpu@npm:^0.20.0":
-  version: 0.20.0
-  resolution: "react-native-webgpu@npm:0.20.0"
+"react-native-webgpu@npm:^0.21.2":
+  version: 0.21.2
+  resolution: "react-native-webgpu@npm:0.21.2"
   dependencies:
     react-native-webgpu-dawn: "npm:157.1.0"
   peerDependencies:
@@ -11868,7 +11868,7 @@ __metadata:
       optional: true
     react-native-worklets:
       optional: true
-  checksum: 10/40f5506e2bba6da459d6b4038497bc18cd60355a11a0115c9f09a6e7815a5c75b691a8892452df35efcc3843c2c8b03343a08e5fcae161076d564cbab779c221
+  checksum: 10/fd79c2cbb42a7c98e443e35b75e945f4169f770300d34f67e41c4e67ce5ae733552a8c3bf3b35c47549775749fd23459d9a430c6859de514877f611571d9181c
   languageName: node
   linkType: hard
 
