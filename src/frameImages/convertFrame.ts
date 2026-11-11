@@ -25,16 +25,11 @@ import {
  * external texture (React Native WebGPU's importExternalTexture) and drawn
  * whole. The decoders' pools hand out fresh buffers: each frame is imported.
  *
- * The frame is released once converted, which hands its buffer back to the
- * decoder now rather than when its JS wrapper is garbage collected. Not when
- * the conversion failed: the producer hands the same frame out again until a
- * new one is decoded, and it is converted again (a paused player would
- * otherwise never show it).
+ * The frame itself is released by makeVideoFrame, once it has an image.
  */
 export const convertFrameIOS = (
   { device, webgpu }: FrameImageContext,
   slot: FrameSlot,
-  frame: DecodedFrame,
   buffer: bigint
 ): GPUTexture => {
   'worklet';
@@ -65,7 +60,6 @@ export const convertFrameIOS = (
     externalTexture?.destroy();
     nativeFrame.release();
   }
-  frame.release?.();
   return texture;
 };
 

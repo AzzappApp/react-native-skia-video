@@ -3,7 +3,11 @@ import { Skia } from 'react-native-skia';
 import type { DecodedFrame, VideoFrame } from '../types';
 import { IS_ANDROID, type FrameImageContext } from './context';
 import { convertFrameAndroid, convertFrameIOS } from './convertFrame';
-import { getFrameSlots, releaseSlots } from './frameSlots';
+import {
+  getFrameSlots,
+  releaseRetiredTexture,
+  releaseSlots,
+} from './frameSlots';
 
 /**
  * Turns the frames the native decoders hand out into Skia images.
@@ -32,6 +36,7 @@ import { getFrameSlots, releaseSlots } from './frameSlots';
  */
 
 export {
+  IS_ANDROID,
   createFrameImagesKey,
   getFrameImageContext,
   type FrameImageContext,
@@ -51,8 +56,15 @@ export const makeVideoFrame = (
 ): VideoFrame => {
   'worklet';
   const slots = getFrameSlots();
+  const existingSlot = slots[key];
+  if (existingSlot != null && existingSlot.deviceId !== context.deviceId) {
+    // Made on a device React Native Skia has replaced since: its texture and
+    // its images went with that device.
+    releaseSlots((slotKey) => slotKey === key);
+  }
   const slot = (slots[key] ??= {
     device: context.device,
+    deviceId: context.deviceId,
     texture: null,
     image: null,
     spareImage: null,
@@ -82,7 +94,7 @@ export const makeVideoFrame = (
 
   const texture = IS_ANDROID
     ? convertFrameAndroid(context, slot, frame, buffer)
-    : convertFrameIOS(context, slot, frame, buffer);
+    : convertFrameIOS(context, slot, buffer);
 
   // Two images of the texture, handed out in turn. A new frame needs another
   // image object: Reanimated ignores setting a shared value to the object it
@@ -90,9 +102,19 @@ export const makeVideoFrame = (
   // And a new image per frame would charge the texture's size to the garbage
   // collector every frame.
   const image = slot.spareImage ?? Skia.Image.MakeFromGPUTexture(texture);
+  if (!IS_ANDROID) {
+    // iOS: released once it has an image, which hands its buffer back to the
+    // decoder now rather than when its JS wrapper is garbage collected. Not
+    // before: the producer hands the same frame out again until a new one is
+    // decoded, and a frame that could not be shown is converted again (a
+    // paused player would otherwise never show it).
+    frame.release?.();
+  }
   slot.spareImage = slot.image;
   slot.image = image;
   slot.frameId = frameId;
+  // The frame of a new size is converted: what showed the previous size goes.
+  releaseRetiredTexture(slot);
   return {
     image,
     texture,

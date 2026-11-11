@@ -188,6 +188,10 @@ export const useVideoCompositionPlayer = <T = undefined>({
   // drawing into the surface then writes into freed GPU buffers. The render
   // that `useGpu` brings comes frames later.
   const surfaceDevice = useSharedValue('');
+  // The size the surface was made at, in pixels: `width` and `height` may
+  // change while the composition, hence the player, stays.
+  const surfaceWidth = useSharedValue(0);
+  const surfaceHeight = useSharedValue(0);
   useEffect(
     () => () => {
       framesExtractor?.dispose();
@@ -244,9 +248,17 @@ export const useVideoCompositionPlayer = <T = undefined>({
     // Made on a device that was lost and replaced since (see
     // `surfaceDevice`): never drawn into again, the surface is made again on
     // the device in use. Its texture went with its device: the old one is
-    // released now, with its image.
+    // released now, with its image. Likewise for a surface of another size
+    // than the frames to draw.
     const device = skiaDeviceId();
-    if (surface && surfaceDevice.value !== device) {
+    const pixelWidth = width * pixelRatio;
+    const pixelHeight = height * pixelRatio;
+    if (
+      surface &&
+      (surfaceDevice.value !== device ||
+        surfaceWidth.value !== pixelWidth ||
+        surfaceHeight.value !== pixelHeight)
+    ) {
       const image = currentFrame.value;
       currentFrame.value = null;
       image?.dispose();
@@ -256,12 +268,17 @@ export const useVideoCompositionPlayer = <T = undefined>({
       surface = null;
       canvas = null;
     }
+    if (frameImageContext.deviceId !== device) {
+      // The context is still the one of the replaced device: the render
+      // `useGpu` brings makes the player again, frames later. The frames
+      // can't be converted meanwhile, nothing is drawn.
+      return;
+    }
     if (!surface) {
-      surface = Skia.Surface.MakeOffscreen(
-        width * pixelRatio,
-        height * pixelRatio
-      );
+      surface = Skia.Surface.MakeOffscreen(pixelWidth, pixelHeight);
       surfaceDevice.value = device;
+      surfaceWidth.value = pixelWidth;
+      surfaceHeight.value = pixelHeight;
       surfaceSharedValue.value = surface;
       canvas = surface?.getCanvas() ?? null;
       canvasSharedValue.value = canvas;
@@ -308,8 +325,8 @@ export const useVideoCompositionPlayer = <T = undefined>({
           videoComposition: composition!,
           currentTime: framesExtractor.currentTime,
           frames,
-          width: width * pixelRatio,
-          height: height * pixelRatio,
+          width: pixelWidth,
+          height: pixelHeight,
         });
       } catch (error) {
         reportFrameError('failed to draw the composition frame', error);

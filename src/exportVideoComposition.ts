@@ -12,7 +12,6 @@ import {
 } from 'react-native-worklets';
 import { BlendMode, Skia } from 'react-native-skia';
 import type { SkCanvas, SkSurface } from 'react-native-skia';
-import { Platform } from 'react-native';
 import {
   GPUTextureUsage,
   type GPUSharedTextureMemory,
@@ -28,6 +27,7 @@ import type {
 import RNSkiaVideoModule from './RNSkiaVideoModule';
 import { areBenchmarkStatsEnabled } from './benchmarkStats';
 import {
+  IS_ANDROID,
   createFrameImagesKey,
   getFrameImageContext,
   makeVideoFrames,
@@ -43,8 +43,8 @@ const DEFAULT_AUDIO_CHANNEL_COUNT = 2;
 // Skia draws each frame directly into the encoder's input. iOS: into the
 // frame buffer of the encoder, which hands out the same buffer for every
 // frame: it is imported once. Android: into the encoder's input window,
-// through a WebGPU canvas context (see makeWindowContext).
-const IS_ANDROID = Platform.OS === 'android';
+// through a WebGPU canvas context (see makeWindowContext): what IS_ANDROID
+// picks.
 
 // iOS: an encoder's frame buffer imported into Skia's device.
 type ExportTarget = {
@@ -203,8 +203,9 @@ export const exportVideoComposition = async <T = undefined>({
 
       let frameExtractor: VideoCompositionFramesExtractorSync | null = null;
       let encoder: VideoEncoder | null = null;
-      // iOS: the encoder's frame buffers, imported once (see IS_ANDROID).
-      const targets: ExportTarget[] = [];
+      // iOS: the encoder's frame buffer, imported with the first frame (see
+      // IS_ANDROID; typed so: it is set in a callback).
+      let target = null as ExportTarget | null;
       // Android: presents to the encoder's input window, made with the first
       // frame (typed so: it is set in a callback).
       let windowContext = null as RNCanvasContext | null;
@@ -303,10 +304,15 @@ export const exportVideoComposition = async <T = undefined>({
                   currentEncoder.endFrame(currentTime);
                 } else {
                   const handle = currentEncoder.beginFrame(currentTime)!;
-                  let target = targets.find(
-                    (candidate) => candidate.handle === handle
-                  );
-                  if (target == null) {
+                  let frameTarget = target;
+                  if (frameTarget != null && frameTarget.handle !== handle) {
+                    // The frames would be drawn into a buffer the encoder no
+                    // longer reads.
+                    throw new Error(
+                      'The video encoder handed out another frame buffer'
+                    );
+                  }
+                  if (frameTarget == null) {
                     const memory =
                       frameImageContext.device.importSharedTextureMemory({
                         handle,
@@ -316,7 +322,7 @@ export const exportVideoComposition = async <T = undefined>({
                       texture = memory.createTexture();
                       const targetSurface =
                         Skia.Surface.MakeFromGPUTexture(texture);
-                      target = {
+                      frameTarget = {
                         handle,
                         memory,
                         texture,
@@ -324,21 +330,21 @@ export const exportVideoComposition = async <T = undefined>({
                         canvas: targetSurface.getCanvas(),
                       };
                     } catch (error) {
-                      // Not in `targets` yet: released here rather than when
+                      // Not the `target` yet: released here rather than when
                       // the export runtime, idle once the export failed,
                       // collects it.
                       texture?.destroy();
                       memory.destroy();
                       throw error;
                     }
-                    targets.push(target);
+                    target = frameTarget;
                   }
-                  target.memory.beginAccess(target.texture, false);
+                  frameTarget.memory.beginAccess(frameTarget.texture, false);
                   try {
-                    target.canvas.drawColor(clearColor, BlendMode.Clear);
+                    frameTarget.canvas.drawColor(clearColor, BlendMode.Clear);
                     drawFrame({
                       context,
-                      canvas: target.canvas,
+                      canvas: frameTarget.canvas,
                       videoComposition,
                       currentTime,
                       frames,
@@ -347,12 +353,12 @@ export const exportVideoComposition = async <T = undefined>({
                     });
                     // The encoder reads the buffer as soon as it is handed
                     // back: wait for the GPU to finish drawing into it.
-                    target.surface.flush(true);
+                    frameTarget.surface.flush(true);
                   } finally {
                     // Releases the fences (MTLSharedEvent) of the access now
                     // rather than when collected.
-                    for (const { fence } of target.memory.endAccess(
-                      target.texture
+                    for (const { fence } of frameTarget.memory.endAccess(
+                      frameTarget.texture
                     ).fences) {
                       fence.destroy();
                     }
@@ -377,13 +383,13 @@ export const exportVideoComposition = async <T = undefined>({
           // surface, with the buffers the encoder's window keeps until then,
           // before the encoder is released.
           windowContext?.unconfigure();
-          for (const target of targets) {
+          if (target != null) {
             // Also detaches its canvas.
             target.surface.dispose();
             target.texture.destroy();
             target.memory.destroy();
+            target = null;
           }
-          targets.length = 0;
           frameExtractor?.dispose();
           releaseFrameImages(framesKey);
         }

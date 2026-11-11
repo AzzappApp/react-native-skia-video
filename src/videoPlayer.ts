@@ -5,8 +5,10 @@ import {
   type SharedValue,
 } from 'react-native-reanimated';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useGpu } from 'react-native-skia';
 import useEventListener from './utils/useEventListener';
 import reportFrameError from './utils/reportFrameError';
+import skiaDeviceId from './utils/skiaDeviceId';
 import type {
   BufferingRange,
   VideoDimensions,
@@ -154,26 +156,46 @@ export const useVideoPlayer = ({
     [onError, retry]
   );
 
+  // Skia's GPU device, followed: once a lost device has been replaced, the
+  // frames are turned into images on the new one (see getFrameImageContext).
+  // The player stays, with its position.
+  const gpu = useGpu();
+
   // The context the frames are turned into images with comes first: on a
   // device whose GPU can't draw them, there is no player, and the error goes
   // to onError (below) rather than failing the render.
-  const { player, frameImageContext, contextError } = useMemo(() => {
+  const { frameImageContext, contextError } = useMemo((): {
+    frameImageContext: FrameImageContext | null;
+    contextError: { error: unknown } | null;
+  } => {
+    // a dependency only: the context is the one of the device in use
+    void gpu;
     if (!uri || isErrored) {
-      return { player: null, frameImageContext: null, contextError: null };
+      return { frameImageContext: null, contextError: null };
     }
-    let context: FrameImageContext;
     try {
-      context = getFrameImageContext();
+      return { frameImageContext: getFrameImageContext(), contextError: null };
     } catch (error) {
-      return { player: null, frameImageContext: null, contextError: { error } };
+      return { frameImageContext: null, contextError: { error } };
     }
-    return {
-      player: RNSkiaVideoModule.createVideoPlayer(uri, resolution, maxLongSide),
-      frameImageContext: context,
-      contextError: null,
-    };
+  }, [gpu, isErrored, uri]);
+
+  const hasContext = frameImageContext != null;
+  const player = useMemo(
+    () =>
+      uri && !isErrored && hasContext
+        ? RNSkiaVideoModule.createVideoPlayer(uri, resolution, maxLongSide)
+        : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isErrored, resolution?.width, resolution?.height, maxLongSide, uri]);
+    [
+      hasContext,
+      isErrored,
+      resolution?.width,
+      resolution?.height,
+      maxLongSide,
+      uri,
+    ]
+  );
 
   useEffect(() => {
     if (contextError) {
@@ -227,11 +249,23 @@ export const useVideoPlayer = ({
   }, [player, autoPlay]);
 
   useFrameCallback(() => {
-    if (
-      !player ||
-      !frameImageContext ||
-      (!player.isPlaying && currentFrame.value)
-    ) {
+    if (!player || !frameImageContext) {
+      return;
+    }
+    if (frameImageContext.deviceId !== skiaDeviceId()) {
+      // Skia's device was replaced, and the context is still the one of the
+      // lost device: the render `useGpu` brings makes it again, frames later.
+      // Nothing can be converted meanwhile, and the image of the current
+      // frame went with its device: it is no longer shown. Once the context
+      // follows, the next frame the player decodes is converted on the new
+      // device (its slot made again, see makeVideoFrame); a paused player
+      // shows nothing until then.
+      if (currentFrame.value) {
+        currentFrame.value = null;
+      }
+      return;
+    }
+    if (!player.isPlaying && currentFrame.value) {
       return;
     }
     // An exception thrown by a frame callback is fatal: in release builds,

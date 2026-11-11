@@ -15,6 +15,8 @@ import {
 export type FrameSlot = {
   /** Skia's device, the frames are converted with. */
   device: GPUDevice;
+  /** The id of that device (see FrameImageContext). */
+  deviceId: string;
   /** The texture the frames are converted into, made with the first one. */
   texture: GPUTexture | null;
   /** The image of the texture handed out with the current frame. */
@@ -30,6 +32,15 @@ export type FrameSlot = {
   uniformBuffer?: GPUBuffer;
   /** Android: the decoder buffers imported into Skia's device. */
   importedBuffers?: ImportedBuffers;
+  /**
+   * The texture of another size the slot had, and its images, while the
+   * first frame of the new size is not converted (see getSlotTexture).
+   */
+  retired?: {
+    texture: GPUTexture | null;
+    image: SkImage | null;
+    spareImage: SkImage | null;
+  };
 };
 
 type FrameSlots = Record<string, FrameSlot>;
@@ -49,8 +60,29 @@ export const getFrameSlots = (): FrameSlots => {
 };
 
 /**
+ * Releases the texture and the images `slot` had before its size changed
+ * (see getSlotTexture).
+ */
+export const releaseRetiredTexture = (slot: FrameSlot) => {
+  'worklet';
+  const { retired } = slot;
+  if (retired == null) {
+    return;
+  }
+  slot.retired = undefined;
+  retired.image?.dispose();
+  retired.spareImage?.dispose();
+  retired.texture?.destroy();
+};
+
+/**
  * Returns the texture of `slot`, made again if it doesn't have the given
- * size (its images go with it).
+ * size.
+ *
+ * The texture it replaces and its images are not released here: the image
+ * handed out with the last frame is still the one shown, and stays so if the
+ * frame of the new size can't be converted. They are retired, and released
+ * once a frame is converted (see makeVideoFrame's releaseRetiredTexture).
  */
 export const getSlotTexture = (
   device: GPUDevice,
@@ -64,12 +96,8 @@ export const getSlotTexture = (
     slot.texture.width !== width ||
     slot.texture.height !== height
   ) {
-    slot.image?.dispose();
-    slot.image = null;
-    slot.spareImage?.dispose();
-    slot.spareImage = null;
-    slot.texture?.destroy();
-    slot.texture = device.createTexture({
+    // First: nothing changes if the texture can't be made.
+    const texture = device.createTexture({
       size: [width, height],
       format: 'rgba8unorm',
       usage:
@@ -77,6 +105,22 @@ export const getSlotTexture = (
         GPUTextureUsage.TEXTURE_BINDING |
         GPUTextureUsage.COPY_DST,
     });
+    if (slot.image != null && slot.retired == null) {
+      slot.retired = {
+        texture: slot.texture,
+        image: slot.image,
+        spareImage: slot.spareImage,
+      };
+    } else {
+      // No image handed out, or the one shown is retired already: no frame
+      // was converted into this texture.
+      slot.image?.dispose();
+      slot.spareImage?.dispose();
+      slot.texture?.destroy();
+    }
+    slot.image = null;
+    slot.spareImage = null;
+    slot.texture = texture;
   }
   return slot.texture;
 };
@@ -127,6 +171,7 @@ export const releaseSlots = (
       continue;
     }
     const slot = slots[slotKey]!;
+    releaseRetiredTexture(slot);
     slot.image?.dispose();
     slot.spareImage?.dispose();
     slot.texture?.destroy();

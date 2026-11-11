@@ -212,6 +212,86 @@ describe('makeVideoFrame', () => {
     expect(resized.image).not.toBe(second.image);
   });
 
+  it('keeps the images of the previous size until a frame of the new size is converted', () => {
+    const {
+      context,
+      createTexture,
+      createVideoFrameFromNativeBuffer,
+      importExternalTexture,
+    } = makeContext();
+    const key = makeKey();
+    const resizedNativeFrame = () => ({
+      width: WIDTH * 2,
+      height: HEIGHT * 2,
+      release: jest.fn(),
+    });
+
+    const first = makeVideoFrame(context, key, makeFrame(1n, 1));
+    createVideoFrameFromNativeBuffer.mockReturnValueOnce(resizedNativeFrame());
+    importExternalTexture.mockImplementationOnce(() => {
+      throw new Error('importExternalTexture failed');
+    });
+    const resizedFrame = makeFrame(1n, 2);
+    expect(() => makeVideoFrame(context, key, resizedFrame)).toThrow(
+      'importExternalTexture failed'
+    );
+
+    // The image handed out last is still the one shown.
+    const [texture, resizedTexture] = createTexture.mock.results.map(
+      (result) => result.value
+    );
+    expect(first.image.dispose).not.toHaveBeenCalled();
+    expect(texture.destroy).not.toHaveBeenCalled();
+
+    // Handed out again and converted, into the texture made for its size.
+    createVideoFrameFromNativeBuffer.mockReturnValueOnce(resizedNativeFrame());
+    const resized = makeVideoFrame(context, key, resizedFrame);
+    expect(createTexture).toHaveBeenCalledTimes(2);
+    expect(resized.texture).toBe(resizedTexture);
+    expect(first.image.dispose).toHaveBeenCalledTimes(1);
+    expect(texture.destroy).toHaveBeenCalledTimes(1);
+    expect(resizedTexture.destroy).not.toHaveBeenCalled();
+  });
+
+  it('keeps a frame whose image could not be made, to convert it again', () => {
+    const { context } = makeContext();
+    const key = makeKey();
+    jest.mocked(Skia.Image.MakeFromGPUTexture).mockImplementationOnce(() => {
+      throw new Error('MakeFromGPUTexture failed');
+    });
+    const frame = makeFrame(1n);
+
+    expect(() => makeVideoFrame(context, key, frame)).toThrow(
+      'MakeFromGPUTexture failed'
+    );
+    expect(frame.release).not.toHaveBeenCalled();
+
+    expect(makeVideoFrame(context, key, frame).image).toBeTruthy();
+    expect(frame.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes the texture and the images again on a device that replaced theirs', () => {
+    const lost = makeContext();
+    const replacement = makeContext();
+    const key = makeKey();
+    const lostContext = { ...lost.context, deviceId: 'lost' };
+    const context = { ...replacement.context, deviceId: 'replacement' };
+
+    const first = makeVideoFrame(lostContext, key, makeFrame(1n, 1));
+    // The frame handed out again: its image went with the lost device.
+    const again = makeVideoFrame(context, key, makeFrame(1n, 1));
+
+    expect(first.image.dispose).toHaveBeenCalledTimes(1);
+    expect(
+      lost.createTexture.mock.results[0]!.value.destroy
+    ).toHaveBeenCalledTimes(1);
+    expect(replacement.createTexture).toHaveBeenCalledTimes(1);
+    expect(again.image).not.toBe(first.image);
+    expect(again.texture).toBe(
+      replacement.createTexture.mock.results[0]!.value
+    );
+  });
+
   it('hands out the image again for a frame released after its conversion', () => {
     const { context, importExternalTexture } = makeContext();
     const key = makeKey();

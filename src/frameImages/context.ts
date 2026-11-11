@@ -23,6 +23,11 @@ const YUV_FEATURE = 'opaque-ycbcr-android-for-external-texture';
  */
 export type FrameImageContext = {
   device: GPUDevice;
+  /**
+   * The id of the device (see skiaDeviceId): what tells, on any runtime, a
+   * context made on a device React Native Skia has replaced since.
+   */
+  deviceId: string;
   webgpu: Pick<
     typeof RNWebGPU,
     // The second for Android exports (see exportVideoComposition).
@@ -63,7 +68,7 @@ export const getFrameImageContext = (): FrameImageContext => {
           "feature on Skia's device)"
       );
     }
-    frameImageContext = { device, webgpu: RNWebGPU };
+    frameImageContext = { device, deviceId: current, webgpu: RNWebGPU };
     frameImageDevice = current;
   }
   return frameImageContext;
