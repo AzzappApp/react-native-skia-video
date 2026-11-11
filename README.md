@@ -179,6 +179,13 @@ file. The exported audio can be configured through the `audioBitRate`
 (default 128kbps), `audioSampleRate` (default 44100Hz) and
 `audioChannelCount` (default 2) export options.
 
+The video track is H.264 by default. Pass `codec: 'hevc'` to export HEVC
+(H.265) instead — about half the size at the same quality, which matters
+most above 1080p — after checking `isExportCodecSupported('hevc')`: an
+export whose codec the device cannot encode fails when it starts. HEVC is
+read by iOS 11+ and Android 5+ devices and by the main video platforms, but
+not by every browser nor every desktop player.
+
 
 ### Video Capabilities (Android only)
 
@@ -188,9 +195,9 @@ On android you might needs to check the video capabilities of your device before
 
 This function will returns the decoding capabilities of this device for the given mime type (most of the time you should check `video/avc`).
 
-#### getValidEncoderConfigurations(width: number, height: number, frameRate: number, bitRate: number)
+#### getValidEncoderConfigurations(width: number, height: number, frameRate: number, bitRate: number, codec?: 'h264' | 'hevc')
 
-This function will returns a list of valid configuration in regards of your device encoding capabilities with the corresponding encoder.
+This function will returns a list of valid configuration in regards of your device encoding capabilities with the corresponding encoder, for the given codec (H.264 by default). An encoder named by this function has to be used with the same `codec` export option.
 If the provided parameters are not supported the returned configurations will be overridden with valid parameters (by decreasing, resolution, framerate or bitrate) while keeping the same aspect ratio.
 
 

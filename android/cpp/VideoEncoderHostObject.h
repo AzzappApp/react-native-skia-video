@@ -25,8 +25,8 @@ public:
                                         std::optional<std::string> encoderName,
                                         alias_ref<VideoComposition> composition,
                                         int audioSampleRate,
-                                        int audioChannelCount,
-                                        int audioBitRate);
+                                        int audioChannelCount, int audioBitRate,
+                                        std::string& mimeType);
 
   void prepare() const;
 
@@ -53,7 +53,7 @@ public:
                          std::optional<std::string> encoderName,
                          alias_ref<VideoComposition> composition,
                          int audioSampleRate, int audioChannelCount,
-                         int audioBitRate);
+                         int audioBitRate, std::string& mimeType);
   ~VideoEncoderHostObject() override;
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
   std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime& rt) override;

@@ -23,6 +23,8 @@ public class VideoEncoder {
 
   public static final String MIME_TYPE = "video/avc";    // H.264 Advanced Video Coding
 
+  public static final String HEVC_MIME_TYPE = "video/hevc"; // H.265 High Efficiency Video Coding
+
   public static final int DEFAULT_I_FRAME_INTERVAL_SECONDS = 1;
 
   private final String outputPath;
@@ -36,6 +38,8 @@ public class VideoEncoder {
   private final int bitRate;
 
   private final String encoderName;
+
+  private final String mimeType;
 
   private final VideoComposition composition;
 
@@ -93,6 +97,8 @@ public class VideoEncoder {
    * @param audioSampleRate the sample rate of the exported audio track
    * @param audioChannelCount the number of channels of the exported audio track
    * @param audioBitRate the bit rate of the exported audio track
+   * @param mimeType   the MIME type of the video track ({@link #MIME_TYPE} or
+   *                   {@link #HEVC_MIME_TYPE}), the one of the encoder when it is named
    */
   public VideoEncoder(
     String outputPath,
@@ -104,7 +110,8 @@ public class VideoEncoder {
     VideoComposition composition,
     int audioSampleRate,
     int audioChannelCount,
-    int audioBitRate
+    int audioBitRate,
+    String mimeType
   ) {
     this.outputPath = outputPath;
     this.width = width;
@@ -112,6 +119,7 @@ public class VideoEncoder {
     this.frameRate = frameRate;
     this.bitRate = bitRate;
     this.encoderName = encoderName;
+    this.mimeType = mimeType != null ? mimeType : MIME_TYPE;
     this.composition = composition;
     this.audioSampleRate = audioSampleRate;
     this.audioChannelCount = audioChannelCount;
@@ -123,7 +131,7 @@ public class VideoEncoder {
   private MediaCodec createEncoder() throws IOException {
     return encoderName != null
       ? MediaCodec.createByCodecName(encoderName)
-      : MediaCodec.createEncoderByType(MIME_TYPE);
+      : MediaCodec.createEncoderByType(mimeType);
   }
 
   /**
@@ -133,7 +141,7 @@ public class VideoEncoder {
    *                         frames faster than real time.
    */
   private MediaFormat createFormat(boolean asFastAsPossible) {
-    MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, width, height);
+    MediaFormat format = MediaFormat.createVideoFormat(mimeType, width, height);
     format.setInteger(MediaFormat.KEY_COLOR_FORMAT,
       MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
     format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);

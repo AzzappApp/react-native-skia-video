@@ -22,6 +22,18 @@ struct MemoryUsage : jni::JavaClass<MemoryUsage> {
     return getFootprintMethod(cls);
   }
 };
+
+// The MIME type of an export codec ('h264' | 'hevc'); throws on any other.
+std::string mimeTypeOfCodec(jsi::Runtime& runtime, const std::string& codec) {
+  if (codec == "h264") {
+    return "video/avc";
+  }
+  if (codec == "hevc") {
+    return "video/hevc";
+  }
+  throw jsi::JSError(runtime, "ReactNativeSkiaVideo: unknown video codec '" +
+                                  codec + "', expected 'h264' or 'hevc'");
+}
 } // namespace
 
 void install(jsi::Runtime& jsiRuntime) {
@@ -132,6 +144,14 @@ void install(jsi::Runtime& jsiRuntime) {
             encoderName = value.asString(runtime).utf8(runtime);
           }
         }
+        std::string mimeType = "video/avc";
+        if (options.hasProperty(runtime, "codec")) {
+          auto value = options.getProperty(runtime, "codec");
+          if (value.isString()) {
+            mimeType =
+                mimeTypeOfCodec(runtime, value.asString(runtime).utf8(runtime));
+          }
+        }
         int audioSampleRate = 44100;
         int audioChannelCount = 2;
         int audioBitRate = 128000;
@@ -162,7 +182,8 @@ void install(jsi::Runtime& jsiRuntime) {
 
         auto instance = std::make_shared<VideoEncoderHostObject>(
             outPath, width, height, frameRate, bitRate, encoderName,
-            composition, audioSampleRate, audioChannelCount, audioBitRate);
+            composition, audioSampleRate, audioChannelCount, audioBitRate,
+            mimeType);
         return jsi::Object::createFromHostObject(runtime, instance);
       });
   RNSVModule.setProperty(jsiRuntime, "createVideoEncoder",
@@ -203,9 +224,14 @@ void install(jsi::Runtime& jsiRuntime) {
         int height = (int)arguments[1].asNumber();
         int framerate = (int)arguments[2].asNumber();
         int bitrate = (int)arguments[3].asNumber();
+        std::string mimeType = "video/avc";
+        if (count > 4 && arguments[4].isString()) {
+          mimeType = mimeTypeOfCodec(
+              runtime, arguments[4].asString(runtime).utf8(runtime));
+        }
 
         auto encoderInfos = VideoCapabilities::getValidEncoderConfigurations(
-            width, height, framerate, bitrate);
+            width, height, framerate, bitrate, mimeType);
 
         if (encoderInfos == nullptr) {
           return jsi::Value::null();
@@ -237,6 +263,23 @@ void install(jsi::Runtime& jsiRuntime) {
 
   RNSVModule.setProperty(jsiRuntime, "getValidEncoderConfigurations",
                          std::move(getValidEncoderConfigurations));
+
+  auto isExportCodecSupported = jsi::Function::createFromHostFunction(
+      jsiRuntime,
+      jsi::PropNameID::forAscii(jsiRuntime, "isExportCodecSupported"), 1,
+      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+         const jsi::Value* arguments, size_t count) -> jsi::Value {
+        if (count < 1 || !arguments[0].isString()) {
+          throw jsi::JSError(runtime,
+                             "ReactNativeSkiaVideo.isExportCodecSupported(..) "
+                             "expects a codec ('h264' or 'hevc')!");
+        }
+        auto mimeType = mimeTypeOfCodec(
+            runtime, arguments[0].asString(runtime).utf8(runtime));
+        return jsi::Value(VideoCapabilities::hasEncoderFor(mimeType));
+      });
+  RNSVModule.setProperty(jsiRuntime, "isExportCodecSupported",
+                         std::move(isExportCodecSupported));
 
   auto getMemoryFootprint = jsi::Function::createFromHostFunction(
       jsiRuntime, jsi::PropNameID::forAscii(jsiRuntime, "getMemoryFootprint"),

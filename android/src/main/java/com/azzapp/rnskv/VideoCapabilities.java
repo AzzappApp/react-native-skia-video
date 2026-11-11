@@ -120,28 +120,48 @@ public class VideoCapabilities {
     }
   }
 
+  /**
+   * @return whether this device has an encoder for the MIME type, whatever the size and the
+   * rates it takes (see {@link #getValidEncoderConfigurations})
+   */
+  public static boolean hasEncoderFor(String mimeType) {
+    MediaCodecList codecList = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
+    for (MediaCodecInfo codecInfo : codecList.getCodecInfos()) {
+      if (!codecInfo.isEncoder()) {
+        continue;
+      }
+      for (String type : codecInfo.getSupportedTypes()) {
+        if (type.equalsIgnoreCase(mimeType)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   public static List<EncoderInfo> getValidEncoderConfigurations(
     int width,
     int height,
     int frameRate,
-    int bitRate
+    int bitRate,
+    String mimeType
   ) {
     List<EncoderInfo> encoderInfos = new ArrayList<>();
 
     boolean rotated = height > width;
 
     List<MediaCodecInfoWithOverrides> mediaCodecInfoWithOverrides =
-      getPotentialEncoders(VideoEncoder.MIME_TYPE,
+      getPotentialEncoders(mimeType,
         rotated ? height : width, rotated ? width : height,
         frameRate, bitRate);
 
     for (MediaCodecInfoWithOverrides codecInfoWithOverrides : mediaCodecInfoWithOverrides) {
       MediaFormat format;
       if (rotated) {
-        format = MediaFormat.createVideoFormat(VideoEncoder.MIME_TYPE,
+        format = MediaFormat.createVideoFormat(mimeType,
           codecInfoWithOverrides.height, codecInfoWithOverrides.width);
       } else {
-        format = MediaFormat.createVideoFormat(VideoEncoder.MIME_TYPE,
+        format = MediaFormat.createVideoFormat(mimeType,
           codecInfoWithOverrides.width, codecInfoWithOverrides.height);
       }
       format.setInteger(MediaFormat.KEY_COLOR_FORMAT,

@@ -530,7 +530,15 @@ export type ExportOptions = {
    */
   bitRate: number;
   /**
-   * The encoder name to use for the export.
+   * The codec of the exported video track. Check `isExportCodecSupported`
+   * before asking for anything else than H.264: an export whose codec the
+   * device cannot encode fails when it starts.
+   * @default 'h264'
+   */
+  codec?: VideoCodec;
+  /**
+   * The encoder name to use for the export. It has to be an encoder of the
+   * export's `codec`: ask `getValidEncoderConfigurations` for the same one.
    * @platform android
    */
   encoderName?: string | null;
@@ -553,6 +561,16 @@ export type ExportOptions = {
    */
   audioChannelCount?: number;
 };
+
+/**
+ * The codec of an exported video track.
+ *
+ * - `h264`: read by every player and every platform an export is uploaded to.
+ * - `hevc` (H.265): about half the size at the same quality, which matters
+ *   most above 1080p. Read by iOS 11+ and Android 5+ devices and by the main
+ *   video platforms, but not by every browser nor every desktop player.
+ */
+export type VideoCodec = 'h264' | 'hevc';
 
 export type RNSkiaVideoModule = {
   /**
@@ -630,6 +648,14 @@ export type RNSkiaVideoModule = {
    */
   getMemoryFootprint: () => number | null;
   /**
+   * Whether this device has an encoder for the codec. Says nothing of a
+   * size, a frame rate or a bit rate: on Android,
+   * `getValidEncoderConfigurations` does.
+   *
+   * @param codec The codec of an export.
+   */
+  isExportCodecSupported(codec: VideoCodec): boolean;
+  /**
    * Returns the decoding capabilities of the current platform for the specified mimetype.
    *
    * @platform android
@@ -658,12 +684,14 @@ export type RNSkiaVideoModule = {
    * @param height The height of the video.
    * @param frameRate The frame rate of the video in frames per second.
    * @param bitRate The bit rate of the video in bits per second.
+   * @param codec The codec the encoders have to produce (default: `h264`).
    */
   getValidEncoderConfigurations(
     width: number,
     height: number,
     frameRate: number,
-    bitRate: number
+    bitRate: number,
+    codec?: VideoCodec
   ):
     | {
         /**

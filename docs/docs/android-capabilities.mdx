@@ -48,6 +48,10 @@ await exportVideoComposition({
 });
 ```
 
+An optional fifth argument is the codec the encoders have to produce
+(`'h264'` by default, or `'hevc'`): pass the same one as the export's
+`codec`, since an encoder only produces its own.
+
 Given your target export settings, returns the closest configurations the
 device's encoders actually support — lowering resolution, frame rate or bit
 rate if needed while keeping the aspect ratio. Each entry contains:

@@ -13,13 +13,14 @@ namespace RNSkiaVideo {
 
 VideoEncoderHostObject::VideoEncoderHostObject(
     std::string outPath, int width, int height, int frameRate, int bitRate,
-    int audioBitRate, int audioSampleRate, int audioChannelCount,
+    bool hevc, int audioBitRate, int audioSampleRate, int audioChannelCount,
     std::shared_ptr<VideoComposition> composition) {
   this->outPath = outPath;
   this->width = width;
   this->height = height;
   this->frameRate = frameRate;
   this->bitRate = bitRate;
+  this->hevc = hevc;
   this->audioBitRate = audioBitRate;
   this->audioSampleRate = audioSampleRate;
   this->audioChannelCount = audioChannelCount;
@@ -113,15 +114,22 @@ void VideoEncoderHostObject::prepare() {
     throw error;
   }
 
-  auto videoSettings = @{
-    AVVideoCodecKey : AVVideoCodecTypeH264,
+  // HEVC keeps the profile of its encoder (Main, for these 8 bit frames);
+  // in an MP4 the writer tags it hvc1, which is what Apple players read.
+  NSMutableDictionary* compressionProperties = [@{
+    AVVideoAverageBitRateKey : @(bitRate),
+    AVVideoMaxKeyFrameIntervalKey : @(frameRate),
+  } mutableCopy];
+  if (!hevc) {
+    compressionProperties[AVVideoProfileLevelKey] =
+        AVVideoProfileLevelH264HighAutoLevel;
+  }
+
+  NSDictionary* videoSettings = @{
+    AVVideoCodecKey : hevc ? AVVideoCodecTypeHEVC : AVVideoCodecTypeH264,
     AVVideoWidthKey : @(width),
     AVVideoHeightKey : @(height),
-    AVVideoCompressionPropertiesKey : @{
-      AVVideoAverageBitRateKey : @(bitRate),
-      AVVideoMaxKeyFrameIntervalKey : @(frameRate),
-      AVVideoProfileLevelKey : AVVideoProfileLevelH264HighAutoLevel,
-    },
+    AVVideoCompressionPropertiesKey : compressionProperties,
     // The NV12 frames of endFrame() are converted and tagged with these (see
     // convertFrameBuffer()): the encoder takes them as they are.
     AVVideoColorPropertiesKey : @{
@@ -130,6 +138,15 @@ void VideoEncoderHostObject::prepare() {
       AVVideoYCbCrMatrixKey : AVVideoYCbCrMatrix_ITU_R_709_2,
     },
   };
+
+  // Settings the writer cannot apply raise an Objective-C exception in the
+  // input below, not an error: report them as any other export failure.
+  if (![assetWriter canApplyOutputSettings:videoSettings
+                              forMediaType:AVMediaTypeVideo]) {
+    throw createErrorWithMessage(
+        hevc ? @"this device cannot encode an HEVC video of this size"
+             : @"this device cannot encode a video of this size");
+  }
 
   assetWriterInput =
       [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo

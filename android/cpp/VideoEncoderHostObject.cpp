@@ -34,11 +34,11 @@ VideoEncoder::create(std::string& outPath, int width, int height, int frameRate,
                      int bitRate, std::optional<std::string> encoderName,
                      alias_ref<VideoComposition> composition,
                      int audioSampleRate, int audioChannelCount,
-                     int audioBitRate) {
+                     int audioBitRate, std::string& mimeType) {
   return newInstance(outPath, width, height, frameRate, bitRate,
                      encoderName.has_value() ? encoderName.value() : nullptr,
                      composition, audioSampleRate, audioChannelCount,
-                     audioBitRate);
+                     audioBitRate, mimeType);
 }
 
 void VideoEncoder::prepare() const {
@@ -72,10 +72,10 @@ VideoEncoderHostObject::VideoEncoderHostObject(
     std::string& outPath, int width, int height, int frameRate, int bitRate,
     std::optional<std::string> encoderName,
     alias_ref<VideoComposition> composition, int audioSampleRate,
-    int audioChannelCount, int audioBitRate) {
+    int audioChannelCount, int audioBitRate, std::string& mimeType) {
   encoder = make_global(VideoEncoder::create(
       outPath, width, height, frameRate, bitRate, encoderName, composition,
-      audioSampleRate, audioChannelCount, audioBitRate));
+      audioSampleRate, audioChannelCount, audioBitRate, mimeType));
   hintSession = std::make_unique<ExportHintSession>(frameRate);
 }
 

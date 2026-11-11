@@ -21,9 +21,10 @@ All exports of `@azzapp/react-native-skia-video`. Guides:
 | --- | --- |
 | `useVideoPlayer(options)` | Plays a single video; returns `{ currentFrame, player }`. |
 | `useVideoCompositionPlayer(options)` | Plays a composition through a `drawFrame` worklet; returns `{ currentFrame, player }`. |
-| `exportVideoComposition(options)` | Renders a composition to an H.264 file (AAC audio when present); returns a `Promise<void>`. |
+| `exportVideoComposition(options)` | Renders a composition to an H.264 or HEVC file (AAC audio when present); returns a `Promise<void>`. |
+| `isExportCodecSupported(codec)` | Whether this device has an encoder for `'h264'` or `'hevc'`. |
 | `getDecodingCapabilitiesFor(mimetype)` | Android: decoder limits for a mime type. |
-| `getValidEncoderConfigurations(width, height, frameRate, bitRate)` | Android: closest supported encoder configurations. |
+| `getValidEncoderConfigurations(width, height, frameRate, bitRate, codec?)` | Android: closest supported encoder configurations, for a codec (H.264 by default). |
 
 ## VideoComposition
 
@@ -122,7 +123,8 @@ playback subset).
 | `width` / `height` | `number` | — | Output resolution in pixels. |
 | `frameRate` | `number` | — | Frames per second. |
 | `bitRate` | `number` | — | Video bit rate, bits per second. |
-| `encoderName` | `string?` | auto | Android: encoder to use (see `getValidEncoderConfigurations`). |
+| `codec` | `'h264' \| 'hevc'` | `'h264'` | Codec of the video track (see `isExportCodecSupported`). |
+| `encoderName` | `string?` | auto | Android: encoder to use, of the same `codec` (see `getValidEncoderConfigurations`). |
 | `audioBitRate` | `number?` | `128000` | AAC bit rate (compositions with audio). |
 | `audioSampleRate` | `number?` | `44100` | AAC sample rate. |
 | `audioChannelCount` | `number?` | `2` | 1 = mono, 2 = stereo. |

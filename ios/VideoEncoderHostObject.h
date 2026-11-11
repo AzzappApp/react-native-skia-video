@@ -13,8 +13,9 @@ using namespace facebook;
 class JSI_EXPORT VideoEncoderHostObject : public jsi::HostObject {
 public:
   VideoEncoderHostObject(std::string outPath, int width, int height,
-                         int frameRate, int bitRate, int audioBitRate,
-                         int audioSampleRate, int audioChannelCount,
+                         int frameRate, int bitRate, bool hevc,
+                         int audioBitRate, int audioSampleRate,
+                         int audioChannelCount,
                          std::shared_ptr<VideoComposition> composition);
   ~VideoEncoderHostObject();
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
@@ -26,6 +27,8 @@ private:
   int height;
   int bitRate;
   int frameRate;
+  // The video track is HEVC rather than H.264.
+  bool hevc;
   int audioBitRate;
   int audioSampleRate;
   int audioChannelCount;
