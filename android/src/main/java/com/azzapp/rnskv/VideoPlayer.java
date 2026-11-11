@@ -3,6 +3,7 @@ package com.azzapp.rnskv;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Size;
 
 import androidx.annotation.NonNull;
 import androidx.media3.common.Format;
@@ -88,7 +89,8 @@ public class VideoPlayer {
       player = new ExoPlayer.Builder(ReactNativeSkiaVideoModule.currentReactApplicationContext()).build();
       // Its listener runs on the looper of this thread, the main one: decodeNextFrame is called
       // on it too.
-      frameExtractor = new ImageReaderFrameExtractor(DEFAULT_BUFFER_WIDTH, DEFAULT_BUFFER_HEIGHT);
+      frameExtractor =
+        new ImageReaderFrameExtractor(DEFAULT_BUFFER_WIDTH, DEFAULT_BUFFER_HEIGHT, false);
       player.setVideoSurface(frameExtractor.getSurface());
 
       MediaItem mediaItem = new MediaItem.Builder().setUri(Uri.parse(uriStr)).build();
@@ -324,16 +326,12 @@ public class VideoPlayer {
     boolean downscale = outputWidth > 0 && outputHeight > 0;
     int width = downscale ? outputWidth : videoWidth;
     int height = downscale ? outputHeight : videoHeight;
-    if (!downscale && maxLongSide > 0) {
+    if (!downscale) {
       // The long side does not depend on the orientation: the size the player
       // reports (already rotated) is scaled as is.
-      int longSide = Math.max(width, height);
-      if (longSide > maxLongSide) {
-        // Even sizes, as the frames of a composition (4:2:0 video).
-        double scale = maxLongSide / longSide;
-        width = Math.max(2, 2 * (int) Math.round(width * scale / 2));
-        height = Math.max(2, 2 * (int) Math.round(height * scale / 2));
-      }
+      Size capped = FrameSizes.capLongSide(width, height, maxLongSide);
+      width = capped.getWidth();
+      height = capped.getHeight();
     }
     if (width <= 0 || height <= 0 || !frameExtractor.decodeNextFrame()) {
       return null;

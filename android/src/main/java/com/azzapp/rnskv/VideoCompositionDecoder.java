@@ -1,6 +1,7 @@
 package com.azzapp.rnskv;
 
 import android.os.Handler;
+import android.util.Size;
 
 import androidx.annotation.Nullable;
 
@@ -40,6 +41,8 @@ public class VideoCompositionDecoder {
 
   private volatile boolean started = false;
 
+  private final boolean forExport;
+
   /**
    * The handler the decoders' callbacks run on, or null for the looper of the thread opening them.
    */
@@ -55,6 +58,7 @@ public class VideoCompositionDecoder {
    */
   public VideoCompositionDecoder(VideoComposition composition, boolean forExport) {
     this.composition = composition;
+    this.forExport = forExport;
     decoders = new HashMap<>();
     composition.getItems().forEach(item -> {
       if (!item.isVideo()) {
@@ -92,8 +96,10 @@ public class VideoCompositionDecoder {
         decoder.prepare();
 
         VideoComposition.Item item = decoder.getItem();
+        // Only an export waits for the frames being written: the frames of a player are
+        // handed out on the UI thread.
         ImageReaderFrameExtractor frameExtractor = new ImageReaderFrameExtractor(
-          decoder.getVideoWidth(), decoder.getVideoHeight());
+          decoder.getVideoWidth(), decoder.getVideoHeight(), forExport);
         frameExtractor.setOnFrameAvailableListener(() -> {
           if (onItemImageAvailableListener != null) {
             onItemImageAvailableListener.onItemImageAvailable(item);
@@ -278,21 +284,12 @@ public class VideoCompositionDecoder {
       boolean shouldDownScale = itemWidth > 0 && itemHeight > 0;
       int frameWidth = shouldDownScale ? itemWidth : decoder.getVideoWidth();
       int frameHeight = shouldDownScale ? itemHeight : decoder.getVideoHeight();
-      double maxLongSide = item.getMaxLongSide();
-      if (!shouldDownScale && maxLongSide > 0) {
-        // Resolved HERE, before the rotation swap below: these are the
-        // decoder's own dimensions, in the file's encoded orientation. A
-        // caller capping the size itself would have to pass encoded
-        // dimensions, the ones it cannot know, since every API hands it
-        // display dimensions. Asking it for the long side leaves nothing to
-        // get wrong.
-        int longSide = Math.max(frameWidth, frameHeight);
-        if (longSide > maxLongSide) {
-          // Even sizes: the frames are 4:2:0, their chroma planes half the size.
-          double scale = maxLongSide / longSide;
-          frameWidth = Math.max(2, 2 * (int) Math.round(frameWidth * scale / 2));
-          frameHeight = Math.max(2, 2 * (int) Math.round(frameHeight * scale / 2));
-        }
+      if (!shouldDownScale) {
+        // The cap on the long side, if any, resolved here against the decoder's own dimensions
+        // (see FrameSizes#capLongSide).
+        Size capped = FrameSizes.capLongSide(frameWidth, frameHeight, item.getMaxLongSide());
+        frameWidth = capped.getWidth();
+        frameHeight = capped.getHeight();
       }
       if (decoder.getRotation() == 90 || decoder.getRotation() == 270) {
         int temp = frameWidth;

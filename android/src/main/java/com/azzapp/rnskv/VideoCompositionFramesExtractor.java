@@ -448,6 +448,11 @@ public class VideoCompositionFramesExtractor {
   }
 
   private void releaseInternal() {
+    // Already done by release(), not when this follows an error of the playback thread: nothing
+    // renders at the display's refreshes (frameCallback) or follows the display from then on.
+    releasing = true;
+    isPlaying = false;
+    mainHandler.post(this::unwatchDisplay);
     if (audioPlayer != null) {
       try {
         audioPlayer.release();

@@ -70,7 +70,8 @@ public class VideoEncoder {
   private static final long AUDIO_TIMEOUT_MS = 30_000;
 
   // The frames presented to the input surface (endFrame), and those the encoder wrote: a canvas
-  // context can drop a frame it found no buffer of the surface for, without an error.
+  // context can drop a frame it found no buffer of the surface for, without an error. A
+  // difference is logged (see finishWriting).
   private long presentedFrames;
 
   private long encodedFrames;
@@ -236,8 +237,14 @@ public class VideoEncoder {
 
   public void finishWriting() {
     drainEncoder(true);
+    if (encodedFrames == 0 && presentedFrames > 0) {
+      throw new RuntimeException("The encoder wrote none of the "
+        + presentedFrames + " frames presented to its input surface");
+    }
     if (encodedFrames != presentedFrames) {
-      throw new RuntimeException("The encoder wrote " + encodedFrames + " of the "
+      // Not a failure: the file is valid, and an encoder may skip a frame by itself to hold its
+      // bitrate, or the surface drop one queued when its producer disconnects.
+      Log.w(TAG, "The encoder wrote " + encodedFrames + " of the "
         + presentedFrames + " frames presented to its input surface");
     }
     if (audioThread != null) {

@@ -31,12 +31,24 @@ public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableLi
   private static final int RETAINED_IMAGES = 2;
 
   /**
-   * The current image, the retained ones, and the two more acquireLatestImage needs to skip to
-   * the latest image.
+   * The current image, the retained ones, the one waited for (see {@link #pendingImage}) and the
+   * two more acquireLatestImage needs to skip to the latest image.
    */
-  private static final int MAX_IMAGES = RETAINED_IMAGES + 3;
+  private static final int MAX_IMAGES = RETAINED_IMAGES + 4;
+
+  /**
+   * How long a frame is waited for, once its decoder handed it over, before it is taken as
+   * written.
+   */
+  private static final long WRITE_TIMEOUT_NS = 1_000_000_000L;
 
   private final ImageReader reader;
+
+  /**
+   * Whether {@link #decodeNextFrame} waits for the decoder to be done writing a frame, rather
+   * than handing it out with a later call.
+   */
+  private final boolean waitsForFrames;
 
   private final AtomicBoolean imageAvailable = new AtomicBoolean(false);
 
@@ -44,13 +56,30 @@ public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableLi
 
   private AcquiredImage currentImage;
 
+  /**
+   * A frame acquired while its decoder was still writing it, handed out by a later
+   * {@link #decodeNextFrame} (see {@link #waitsForFrames}).
+   */
+  private Image pendingImage;
+
+  /**
+   * When the oldest frame not handed out since was found being written (System.nanoTime).
+   */
+  private long pendingSinceNs;
+
   private OnFrameAvailableListener onFrameAvailableListener;
 
   /**
-   * @param width  the width of the decoded frames (the decoder sets the size of its buffers)
-   * @param height the height of the decoded frames
+   * @param width          the width of the decoded frames (the decoder sets the size of its
+   *                       buffers)
+   * @param height         the height of the decoded frames
+   * @param waitsForFrames whether {@link #decodeNextFrame} blocks, up to a second, while the
+   *                       decoder is writing the frame: for an export, which needs each frame
+   *                       when it asks for it. A player calls it on the UI thread, every display
+   *                       frame: it gets the frame with a later call instead.
    */
-  public ImageReaderFrameExtractor(int width, int height) {
+  public ImageReaderFrameExtractor(int width, int height, boolean waitsForFrames) {
+    this.waitsForFrames = waitsForFrames;
     // The buffers must be sampleable by the GPU: React Native Skia's device imports them as
     // textures. Android 10 lets the reader ask for it. On Android 9 the reader asks for nothing,
     // and the buffers carry the usage of the decoder alone, which renders to a surface for the
@@ -81,15 +110,39 @@ public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableLi
    * @return true if a new frame was acquired, false otherwise
    */
   public boolean decodeNextFrame() {
-    if (!imageAvailable.getAndSet(false)) {
-      return false;
+    // The frame waited for, if it is written by now.
+    Image image = null;
+    if (pendingImage != null && isWritten(pendingImage)) {
+      image = pendingImage;
+      pendingImage = null;
     }
-    Image image;
-    try {
-      image = reader.acquireLatestImage();
-    } catch (IllegalStateException e) {
-      Log.w(TAG, "Could not acquire a decoded frame", e);
-      return false;
+    if (imageAvailable.getAndSet(false)) {
+      Image latest = null;
+      try {
+        latest = reader.acquireLatestImage();
+      } catch (IllegalStateException e) {
+        Log.w(TAG, "Could not acquire a decoded frame", e);
+      }
+      if (latest != null) {
+        boolean waited = pendingImage != null;
+        if (waited) {
+          pendingImage.close();
+          pendingImage = null;
+        }
+        if (!waited) {
+          // Otherwise waited for since the frame it replaces: frames each replaced before they
+          // are written would never be handed out.
+          pendingSinceNs = System.nanoTime();
+        }
+        if (isWritten(latest)) {
+          if (image != null) {
+            image.close();
+          }
+          image = latest;
+        } else {
+          pendingImage = latest;
+        }
+      }
     }
     if (image == null) {
       return false;
@@ -99,7 +152,6 @@ public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableLi
       image.close();
       return false;
     }
-    waitUntilWritten(image);
     if (currentImage != null) {
       retainedImages.addLast(currentImage);
       while (retainedImages.size() > RETAINED_IMAGES) {
@@ -110,19 +162,33 @@ public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableLi
     return true;
   }
 
-  // A decoder may hand a frame over before it is done writing it, with a fence: it is only
-  // reported from Android 13 on.
-  private static void waitUntilWritten(Image image) {
+  /**
+   * A decoder may hand a frame over before it is done writing it, with a fence: it is only
+   * reported from Android 13 on. Waits for it, or (see {@link #waitsForFrames}) only tells
+   * whether the frame is written. A frame still not written a second after it was handed over is
+   * taken as written.
+   */
+  private boolean isWritten(Image image) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-      return;
+      return true;
     }
     try (SyncFence fence = image.getFence()) {
-      if (fence.isValid() && !fence.await(Duration.ofSeconds(1))) {
-        Log.w(TAG, "A decoded frame was not written after 1 second");
+      if (!fence.isValid()) {
+        return true;
       }
+      long elapsedNs = System.nanoTime() - pendingSinceNs;
+      long remainingNs = waitsForFrames ? Math.max(0, WRITE_TIMEOUT_NS - elapsedNs) : 0;
+      if (fence.await(Duration.ofNanos(remainingNs))) {
+        return true;
+      }
+      if (!waitsForFrames && elapsedNs < WRITE_TIMEOUT_NS) {
+        return false;
+      }
+      Log.w(TAG, "A decoded frame was not written after 1 second");
     } catch (IOException e) {
       Log.w(TAG, "Could not wait for a decoded frame to be written", e);
     }
+    return true;
   }
 
   /**
@@ -167,8 +233,12 @@ public class ImageReaderFrameExtractor implements ImageReader.OnImageAvailableLi
    * its item is not live. The frames rendered meanwhile stay queued.
    */
   public void releaseFrames() {
-    if (currentImage == null && retainedImages.isEmpty()) {
+    if (currentImage == null && retainedImages.isEmpty() && pendingImage == null) {
       return;
+    }
+    if (pendingImage != null) {
+      pendingImage.close();
+      pendingImage = null;
     }
     if (currentImage != null) {
       currentImage.close();
