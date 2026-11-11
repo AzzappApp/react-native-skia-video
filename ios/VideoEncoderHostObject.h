@@ -2,8 +2,10 @@
 
 #import "VideoComposition.h"
 #import <AVFoundation/AVFoundation.h>
+#import <IOSurface/IOSurfaceRef.h>
+#import <VideoToolbox/VideoToolbox.h>
 #import <jsi/jsi.h>
-#import <map>
+#import <vector>
 
 namespace RNSkiaVideo {
 using namespace facebook;
@@ -11,9 +13,11 @@ using namespace facebook;
 class JSI_EXPORT VideoEncoderHostObject : public jsi::HostObject {
 public:
   VideoEncoderHostObject(std::string outPath, int width, int height,
-                         int frameRate, int bitRate, int audioBitRate,
-                         int audioSampleRate, int audioChannelCount,
+                         int frameRate, int bitRate, bool hevc,
+                         int audioBitRate, int audioSampleRate,
+                         int audioChannelCount,
                          std::shared_ptr<VideoComposition> composition);
+  ~VideoEncoderHostObject();
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
   std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime& rt) override;
 
@@ -23,16 +27,24 @@ private:
   int height;
   int bitRate;
   int frameRate;
+  // The video track is HEVC rather than H.264.
+  bool hevc;
   int audioBitRate;
   int audioSampleRate;
   int audioChannelCount;
   std::shared_ptr<VideoComposition> composition;
-  id<MTLDevice> device;
-  id<MTLCommandQueue> commandQueue;
-  id<MTLTexture> cpuAccessibleTexture;
   AVAssetWriter* assetWriter;
   AVAssetWriterInput* assetWriterInput;
+  // The BGRA buffer beginFrame() hands out.
   CVPixelBufferPoolRef pixelBufferPool = NULL;
+  // The buffer beginFrame() hands out, the same every frame; endFrame()
+  // appends an NV12 conversion of it (see endFrame()).
+  CVPixelBufferRef frameBuffer = NULL;
+  // The NV12 buffers endFrame() appends, and the conversion into them.
+  CVPixelBufferPoolRef encoderBufferPool = NULL;
+  VTPixelTransferSessionRef pixelTransferSession = NULL;
+  // Between beginFrame() and endFrame().
+  bool framePending = false;
 
   AVAssetWriterInput* audioWriterInput;
   AVAssetReader* audioReader;
@@ -42,7 +54,14 @@ private:
   NSMutableArray<NSError*>* audioErrorHolder;
 
   void prepare();
-  void encodeFrame(id<MTLTexture> mlTexture, CMTime time);
+  CVPixelBufferRef createPoolBuffer(CVPixelBufferPoolRef pool);
+  CVPixelBufferRef createEncoderBuffer();
+  void convertFrameBuffer(CVPixelBufferRef source,
+                          CVPixelBufferRef destination);
+  void appendFrameBuffer(CVPixelBufferRef pixelBuffer, CMTime time);
+  IOSurfaceRef beginFrame();
+  void endFrame(CMTime time);
+  void releaseFrameBuffer();
   void setupAudio();
   void startWritingAudio();
   void finish();

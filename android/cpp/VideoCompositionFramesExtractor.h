@@ -38,6 +38,10 @@ public:
 
   void setIsLooping(jboolean isLooping) const;
 
+  jfloat getVolume() const;
+
+  void setVolume(jfloat volume) const;
+
   local_ref<JMap<JString, VideoFrame>> decodeCompositionFrames();
 
   void release() const;

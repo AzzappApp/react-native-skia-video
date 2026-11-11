@@ -1,11 +1,9 @@
 package com.azzapp.rnskv;
 
-import android.graphics.Bitmap;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
-import android.opengl.GLES20;
 import android.util.Log;
 import android.view.Surface;
 
@@ -14,19 +12,18 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.microedition.khronos.egl.EGL10;
-import javax.microedition.khronos.egl.EGLContext;
-
-
 /**
  * Helper class for encoding video (and the audio of the composition items,
- * if any).
+ * if any). React Native Skia renders the frames straight into the encoder's
+ * input surface, through a WebGPU canvas context (see {@link #getInputSurface}).
  */
 public class VideoEncoder {
 
   private static final String TAG = "VideoEncoder";
 
   public static final String MIME_TYPE = "video/avc";    // H.264 Advanced Video Coding
+
+  public static final String HEVC_MIME_TYPE = "video/hevc"; // H.265 High Efficiency Video Coding
 
   public static final int DEFAULT_I_FRAME_INTERVAL_SECONDS = 1;
 
@@ -42,6 +39,8 @@ public class VideoEncoder {
 
   private final String encoderName;
 
+  private final String mimeType;
+
   private final VideoComposition composition;
 
   private final int audioSampleRate;
@@ -55,10 +54,6 @@ public class VideoEncoder {
   private MediaCodec encoder;
 
   private Surface inputSurface;
-
-  private EGLResourcesHolder eglResourcesHolder;
-
-  private TextureRenderer textureRenderer;
 
   private MediaMuxer muxer;
 
@@ -75,6 +70,14 @@ public class VideoEncoder {
   private volatile boolean audioCanceled = false;
 
   private volatile Exception audioException;
+
+  private static final long AUDIO_TIMEOUT_MS = 30_000;
+
+  // The frames presented to the input surface (endFrame), and those the encoder wrote: a canvas
+  // context can drop a frame it found no buffer of the surface for, without an error.
+  private long presentedFrames;
+
+  private long encodedFrames;
 
   private final List<PendingSample> pendingVideoSamples = new ArrayList<>();
 
@@ -94,6 +97,8 @@ public class VideoEncoder {
    * @param audioSampleRate the sample rate of the exported audio track
    * @param audioChannelCount the number of channels of the exported audio track
    * @param audioBitRate the bit rate of the exported audio track
+   * @param mimeType   the MIME type of the video track ({@link #MIME_TYPE} or
+   *                   {@link #HEVC_MIME_TYPE}), the one of the encoder when it is named
    */
   public VideoEncoder(
     String outputPath,
@@ -105,7 +110,8 @@ public class VideoEncoder {
     VideoComposition composition,
     int audioSampleRate,
     int audioChannelCount,
-    int audioBitRate
+    int audioBitRate,
+    String mimeType
   ) {
     this.outputPath = outputPath;
     this.width = width;
@@ -113,6 +119,7 @@ public class VideoEncoder {
     this.frameRate = frameRate;
     this.bitRate = bitRate;
     this.encoderName = encoderName;
+    this.mimeType = mimeType != null ? mimeType : MIME_TYPE;
     this.composition = composition;
     this.audioSampleRate = audioSampleRate;
     this.audioChannelCount = audioChannelCount;
@@ -121,28 +128,49 @@ public class VideoEncoder {
     bufferInfo = new MediaCodec.BufferInfo();
   }
 
-  /**
-   * Configures encoder and muxer state, and prepares the input Surface.
-   */
-  public void prepare() throws IOException {
-    EGLContext sharedContext = EGLUtils.getCurrentContextOrThrows();
-    encoder = encoderName != null
+  private MediaCodec createEncoder() throws IOException {
+    return encoderName != null
       ? MediaCodec.createByCodecName(encoderName)
-      : MediaCodec.createEncoderByType(MIME_TYPE);
+      : MediaCodec.createEncoderByType(mimeType);
+  }
 
-    MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, width, height);
+  /**
+   * @param asFastAsPossible whether the encoder encodes as fast as it can, as Media3's Transformer
+   *                         configures its own, rather than in real time (KEY_PRIORITY) at the
+   *                         frame rate of the video (KEY_OPERATING_RATE): an export asks for
+   *                         frames faster than real time.
+   */
+  private MediaFormat createFormat(boolean asFastAsPossible) {
+    MediaFormat format = MediaFormat.createVideoFormat(mimeType, width, height);
     format.setInteger(MediaFormat.KEY_COLOR_FORMAT,
       MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
     format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
     format.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate);
     format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, DEFAULT_I_FRAME_INTERVAL_SECONDS);
+    if (asFastAsPossible) {
+      format.setInteger(MediaFormat.KEY_PRIORITY, 1);
+      // Above what any encoder reaches, without overflowing the computations of some
+      // (Integer.MAX_VALUE does).
+      format.setInteger(MediaFormat.KEY_OPERATING_RATE, 1000);
+    }
+    return format;
+  }
 
-    encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+  /**
+   * Configures encoder and muxer state, and prepares the input Surface.
+   */
+  public void prepare() throws IOException {
+    encoder = createEncoder();
+    try {
+      encoder.configure(createFormat(true), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+    } catch (RuntimeException e) {
+      Log.w(TAG, "The encoder rejected the export settings, configured without them", e);
+      encoder.release();
+      encoder = createEncoder();
+      encoder.configure(createFormat(false), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+    }
 
     inputSurface = encoder.createInputSurface();
-    eglResourcesHolder = EGLResourcesHolder.createWithWindowedSurface(sharedContext, inputSurface);
-    eglResourcesHolder.makeCurrent();
-    textureRenderer = new TextureRenderer();
     encoder.start();
 
     try {
@@ -165,6 +193,9 @@ public class VideoEncoder {
           @Override
           public void onAudioFormat(MediaFormat format) {
             synchronized (VideoEncoder.this) {
+              if (muxer == null) {
+                return;
+              }
               audioTrackIndex = muxer.addTrack(format);
               maybeStartMuxer();
             }
@@ -188,37 +219,45 @@ public class VideoEncoder {
     }
   }
 
-  public void makeGLContextCurrent() {
-    eglResourcesHolder.makeCurrent();
+  /**
+   * @return the surface the frames are rendered into: React Native WebGPU presents them to it,
+   * each one stamped with its presentation time (see VideoEncoderHostObject's beginFrame)
+   */
+  public Surface getInputSurface() {
+    return inputSurface;
   }
 
-  public void encodeFrame(int texture, double time) {
+  /**
+   * Writes the frames the encoder encoded so far, after a frame was presented to the input
+   * surface.
+   */
+  public void endFrame() {
     // Fail fast if the audio pipeline died: the muxer cannot start without
     // the audio track and every video sample would pile up in
     // pendingVideoSamples until the end of the export.
     if (audioException != null) {
       throw new RuntimeException("Could not encode composition audio", audioException);
     }
-    long timeUS = TimeHelpers.secToUs(time);
-    GLES20.glClearColor(0, 0, 0, 0);
-    GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
-    GLES20.glViewport(0, 0, width, height);
-    textureRenderer.draw(texture, EGLUtils.IDENTITY_MATRIX);
-    eglResourcesHolder.setPresentationTime(timeUS * 1000);
-    if (!eglResourcesHolder.swapBuffers()) {
-      throw new RuntimeException("eglSwapBuffer failed");
-    }
+    presentedFrames++;
     drainEncoder(false);
   }
 
   public void finishWriting() {
     drainEncoder(true);
+    if (encodedFrames != presentedFrames) {
+      throw new RuntimeException("The encoder wrote " + encodedFrames + " of the "
+        + presentedFrames + " frames presented to its input surface");
+    }
     if (audioThread != null) {
       try {
-        audioThread.join();
+        audioThread.join(AUDIO_TIMEOUT_MS);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new RuntimeException("Interrupted while writing audio", e);
+      }
+      if (audioThread.isAlive()) {
+        // release() cancels it.
+        throw new RuntimeException("Could not encode composition audio in 30 seconds");
       }
       audioThread = null;
       if (audioException != null) {
@@ -257,6 +296,10 @@ public class VideoEncoder {
     ByteBuffer buffer,
     MediaCodec.BufferInfo info
   ) {
+    if (muxer == null) {
+      // Released: an audio thread that outlived release().
+      return;
+    }
     if (muxerStarted) {
       muxer.writeSampleData(isVideo ? trackIndex : audioTrackIndex, buffer, info);
       return;
@@ -293,7 +336,11 @@ public class VideoEncoder {
     }
 
     while (true) {
-      int encoderStatus = encoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_USEC);
+      // Only wait for outputs at the end of the stream: after each frame, the
+      // last call would block for the whole timeout once the available
+      // outputs are drained (the next frames drain the later ones).
+      int encoderStatus = encoder.dequeueOutputBuffer(
+        bufferInfo, endOfStream ? TIMEOUT_USEC : 0);
       if (encoderStatus == MediaCodec.INFO_TRY_AGAIN_LATER) {
         // no output available yet
         if (!endOfStream) {
@@ -330,6 +377,7 @@ public class VideoEncoder {
           encodedData.limit(bufferInfo.offset + bufferInfo.size);
 
           writeOrQueueSample(true, encodedData, bufferInfo);
+          encodedFrames++;
         }
 
         encoder.releaseOutputBuffer(encoderStatus, false);
@@ -358,9 +406,6 @@ public class VideoEncoder {
       }
       audioThread = null;
     }
-    if (eglResourcesHolder != null) {
-      eglResourcesHolder.release();
-    }
     if (encoder != null) {
       try {
         encoder.stop();
@@ -376,46 +421,23 @@ public class VideoEncoder {
       inputSurface.release();
       inputSurface = null;
     }
-    if (muxer != null) {
-      try {
-        muxer.stop();
-      } catch (IllegalStateException e) {
-        // the muxer never started or has no sample (failed exports).
-        Log.w(TAG, "Could not stop the muxer", e);
-      }
-      muxer.release();
-      muxer = null;
-    }
-    // Direct ByteBuffers only reclaim their native memory once the Java
-    // object is collected; drop them eagerly.
+    // Under the monitor: the audio thread can outlive the join above, its
+    // samples must not reach a released muxer.
     synchronized (this) {
+      if (muxer != null) {
+        try {
+          muxer.stop();
+        } catch (IllegalStateException e) {
+          // the muxer never started or has no sample (failed exports).
+          Log.w(TAG, "Could not stop the muxer", e);
+        }
+        muxer.release();
+        muxer = null;
+      }
+      // Direct ByteBuffers only reclaim their native memory once the Java
+      // object is collected; drop them eagerly.
       pendingVideoSamples.clear();
       pendingAudioSamples.clear();
     }
-  }
-
-  public Bitmap saveTexture(int texture, int width, int height) {
-    int[] frame = new int[1];
-    GLES20.glGenFramebuffers(1, frame, 0);
-    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frame[0]);
-    GLES20.glFramebufferTexture2D(
-      GLES20.GL_FRAMEBUFFER,
-      GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, texture,
-      0
-    );
-
-    ByteBuffer buffer = ByteBuffer.allocate(width * height * 4);
-    GLES20.glReadPixels(
-      0, 0, width, height, GLES20.GL_RGBA,
-      GLES20.GL_UNSIGNED_BYTE, buffer
-    );
-
-    Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-    bitmap.copyPixelsFromBuffer(buffer);
-
-    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
-    GLES20.glDeleteFramebuffers(1, frame, 0);
-
-    return bitmap;
   }
 }

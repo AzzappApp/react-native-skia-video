@@ -77,12 +77,44 @@ buildAudioComposition(const std::shared_ptr<VideoComposition>& composition,
     }
     hasTracks = true;
 
-    if (item->audioVolume != 1.0) {
+    // The fades are volume ramps of the item's track, in composition time
+    // (the same audio mix drives playback and export). They are clamped to
+    // the item, the fade out to what the fade in leaves of it.
+    double volume = MAX(0.0, MIN(1.0, item->audioVolume));
+    double fadeIn = MAX(0.0, MIN(item->audioFadeIn, item->duration));
+    double fadeOut =
+        MAX(0.0, MIN(item->audioFadeOut, item->duration - fadeIn));
+    if (volume != 1.0 || fadeIn > 0 || fadeOut > 0) {
       AVMutableAudioMixInputParameters* parameters =
           [AVMutableAudioMixInputParameters
               audioMixInputParametersWithTrack:compositionTrack];
-      [parameters setVolume:MAX(0.0, MIN(1.0, item->audioVolume))
-                     atTime:kCMTimeZero];
+      // A fade in starts from 0 on its own: a volume set at the time a ramp
+      // starts would overlap it. Before the item, the track is empty.
+      if (fadeIn <= 0) {
+        [parameters setVolume:volume atTime:kCMTimeZero];
+      } else {
+        [parameters
+            setVolumeRampFromStartVolume:0.0
+                             toEndVolume:volume
+                               timeRange:CMTimeRangeMake(
+                                             CMTimeMakeWithSeconds(
+                                                 item->compositionStartTime,
+                                                 NSEC_PER_SEC),
+                                             CMTimeMakeWithSeconds(
+                                                 fadeIn, NSEC_PER_SEC))];
+      }
+      if (fadeOut > 0) {
+        [parameters
+            setVolumeRampFromStartVolume:volume
+                             toEndVolume:0.0
+                               timeRange:CMTimeRangeMake(
+                                             CMTimeMakeWithSeconds(
+                                                 item->compositionStartTime +
+                                                     item->duration - fadeOut,
+                                                 NSEC_PER_SEC),
+                                             CMTimeMakeWithSeconds(
+                                                 fadeOut, NSEC_PER_SEC))];
+      }
       [inputParameters addObject:parameters];
     }
   }

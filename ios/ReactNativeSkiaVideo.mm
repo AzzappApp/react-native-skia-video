@@ -6,6 +6,7 @@
 #import <React/RCTUtils.h>
 #import <ReactCommon/RCTTurboModule.h>
 #import <jsi/jsi.h>
+#import <mach/mach.h>
 
 #import "RNSVJSIUtils.h"
 #import "VideoComposition.h"
@@ -13,6 +14,41 @@
 #import "VideoCompositionFramesExtractorSyncHostObject.h"
 #import "VideoEncoderHostObject.h"
 #import "VideoPlayerHostObject.h"
+#import <VideoToolbox/VideoToolbox.h>
+
+// Whether an export codec ('h264' | 'hevc') is HEVC; throws on any other.
+static bool isHEVCCodec(facebook::jsi::Runtime& runtime,
+                        const std::string& codec) {
+  if (codec == "hevc") {
+    return true;
+  }
+  if (codec == "h264") {
+    return false;
+  }
+  throw facebook::jsi::JSError(runtime,
+                               "ReactNativeSkiaVideo: unknown video codec '" +
+                                   codec + "', expected 'h264' or 'hevc'");
+}
+
+// Whether this device has an encoder for the codec type.
+static bool hasVideoEncoder(CMVideoCodecType codecType) {
+  CFArrayRef encoders = NULL;
+  if (VTCopyVideoEncoderList(NULL, &encoders) != noErr || encoders == NULL) {
+    return false;
+  }
+  bool found = false;
+  for (CFIndex i = 0; i < CFArrayGetCount(encoders) && !found; i++) {
+    auto encoder = (CFDictionaryRef)CFArrayGetValueAtIndex(encoders, i);
+    auto type = (CFNumberRef)CFDictionaryGetValue(
+        encoder, kVTVideoEncoderList_CodecType);
+    SInt32 value = 0;
+    found = type != NULL &&
+            CFNumberGetValue(type, kCFNumberSInt32Type, &value) &&
+            (CMVideoCodecType)value == codecType;
+  }
+  CFRelease(encoders);
+  return found;
+}
 
 // In bridgeless mode `self.bridge` is an RCTBridgeProxy; its `runtime`
 // accessor is not declared in public headers.
@@ -68,17 +104,36 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
           resolution.width = res.getProperty(runtime, "width").asNumber();
           resolution.height = res.getProperty(runtime, "height").asNumber();
         }
+        double maxLongSide = 0;
+        if (count >= 3 && arguments[2].isNumber()) {
+          maxLongSide = arguments[2].asNumber();
+        }
 
         NSURL* url = [NSURL URLWithString:urlStr];
 
         auto instance = std::make_shared<VideoPlayerHostObject>(
-            runtime, jsCallInvoker, url, resolution);
+            runtime, jsCallInvoker, url, resolution, maxLongSide);
         return jsi::Object::createFromHostObject(runtime, instance);
       });
   RNSVModule.setProperty(runtime, "createVideoPlayer",
                          std::move(createVideoPlayer));
 
-  runtime.global().setProperty(runtime, "RNSkiaVideo", RNSVModule);
+  // The memory footprint of the process (what Xcode's memory gauge shows),
+  // which includes the IOSurfaces backing the video buffers.
+  auto getMemoryFootprint = jsi::Function::createFromHostFunction(
+      runtime, jsi::PropNameID::forAscii(runtime, "getMemoryFootprint"), 0,
+      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+         const jsi::Value* arguments, size_t count) -> jsi::Value {
+        task_vm_info_data_t info;
+        mach_msg_type_number_t infoCount = TASK_VM_INFO_COUNT;
+        if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&info,
+                      &infoCount) != KERN_SUCCESS) {
+          return jsi::Value::null();
+        }
+        return jsi::Value(static_cast<double>(info.phys_footprint));
+      });
+  RNSVModule.setProperty(runtime, "getMemoryFootprint",
+                         std::move(getMemoryFootprint));
 
   auto createVideoCompositionFramesExtractor =
       jsi::Function::createFromHostFunction(
@@ -151,6 +206,13 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
         int height = options.getProperty(runtime, "height").asNumber();
         int frameRate = options.getProperty(runtime, "frameRate").asNumber();
         int bitRate = options.getProperty(runtime, "bitRate").asNumber();
+        bool hevc = false;
+        if (options.hasProperty(runtime, "codec")) {
+          auto value = options.getProperty(runtime, "codec");
+          if (value.isString()) {
+            hevc = isHEVCCodec(runtime, value.asString(runtime).utf8(runtime));
+          }
+        }
         int audioBitRate = 128000;
         int audioSampleRate = 44100;
         int audioChannelCount = 2;
@@ -180,12 +242,29 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
         }
 
         auto instance = std::make_shared<VideoEncoderHostObject>(
-            outPath, width, height, frameRate, bitRate, audioBitRate,
+            outPath, width, height, frameRate, bitRate, hevc, audioBitRate,
             audioSampleRate, audioChannelCount, composition);
         return jsi::Object::createFromHostObject(runtime, instance);
       });
   RNSVModule.setProperty(runtime, "createVideoEncoder",
                          std::move(createVideoEncoder));
+
+  auto isExportCodecSupported = jsi::Function::createFromHostFunction(
+      runtime, jsi::PropNameID::forAscii(runtime, "isExportCodecSupported"), 1,
+      [](jsi::Runtime& runtime, const jsi::Value& thisValue,
+         const jsi::Value* arguments, size_t count) -> jsi::Value {
+        if (count < 1 || !arguments[0].isString()) {
+          throw jsi::JSError(runtime,
+                             "ReactNativeSkiaVideo.isExportCodecSupported(..) "
+                             "expects a codec ('h264' or 'hevc')!");
+        }
+        bool hevc =
+            isHEVCCodec(runtime, arguments[0].asString(runtime).utf8(runtime));
+        return jsi::Value(hasVideoEncoder(hevc ? kCMVideoCodecType_HEVC
+                                               : kCMVideoCodecType_H264));
+      });
+  RNSVModule.setProperty(runtime, "isExportCodecSupported",
+                         std::move(isExportCodecSupported));
 
   // Worklet runtime threads never drain their autorelease pool, so any
   // per-frame ObjC garbage created by JS code running there (e.g. the Metal

@@ -1,7 +1,9 @@
 import RNSkiaVideoModule from './RNSkiaVideoModule';
+import * as __RNSkiaVideoBenchmark from './benchmarkStats';
 import { Platform } from 'react-native';
+import type { VideoCodec } from './types';
 
-export { RNSkiaVideoModule as __RNSkiaVideoPrivateAPI };
+export { RNSkiaVideoModule as __RNSkiaVideoPrivateAPI, __RNSkiaVideoBenchmark };
 
 export * from './types';
 export * from './videoPlayer';
@@ -18,6 +20,17 @@ export const getValidEncoderConfigurations: typeof RNSkiaVideoModule.getValidEnc
       );
     }
   };
+
+/**
+ * Whether this device can export a video in the given codec (see
+ * `ExportOptions.codec`). H.264 always is; HEVC depends on the device.
+ */
+export const isExportCodecSupported = (codec: VideoCodec): boolean =>
+  // A JS bundle updated over the air can run on a binary from before the
+  // codec option: that one only encodes H.264, and ignores `codec`.
+  typeof RNSkiaVideoModule.isExportCodecSupported === 'function'
+    ? RNSkiaVideoModule.isExportCodecSupported(codec)
+    : codec === 'h264';
 
 export const getDecodingCapabilitiesFor: typeof RNSkiaVideoModule.getDecodingCapabilitiesFor =
   (...args) => {

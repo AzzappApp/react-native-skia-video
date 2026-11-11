@@ -37,6 +37,16 @@ public class VideoComposition {
   }
 
   public static class Item {
+    /**
+     * How long before it starts and after it ends an item is live (see {@link #isLiveAt}).
+     */
+    public static final long LIVE_MARGIN_US = 1_000_000;
+
+    /**
+     * How long before the item is live its decoder is opened (see {@link #isDecodedAt}).
+     */
+    public static final long DECODER_LEAD_US = 1_000_000;
+
     private String id;
     private String path;
     private double compositionStartTime;
@@ -44,9 +54,16 @@ public class VideoComposition {
     private double duration;
     private int width = -1;
     private int height = -1;
+    // Cap on the decoded long side, resolved against the decoder's own frame
+    // size (see types.ts): unlike width/height it says nothing about
+    // orientation, so a caller holding display dimensions cannot get it wrong.
+    private double maxLongSide = 0;
     private boolean isVideo = true;
     private boolean audioEnabled = false;
     private double audioVolume = 1.0;
+    // Fades of an audio item, in seconds (see types.ts).
+    private double audioFadeIn = 0;
+    private double audioFadeOut = 0;
 
     public Item() {
     }
@@ -93,16 +110,61 @@ public class VideoComposition {
       return height;
     }
 
+    public double getMaxLongSide() {
+      return maxLongSide;
+    }
+
     public boolean isVideo() {
       return isVideo;
+    }
+
+    /**
+     * Whether the item is live at a time of the composition: from {@link #LIVE_MARGIN_US} before
+     * it starts to {@link #LIVE_MARGIN_US} after it ends. Its frames are only handed out then,
+     * the resources of the frames of an item that is not live can be released.
+     */
+    public boolean isLiveAt(long compositionTimeUs) {
+      long startUs = TimeHelpers.secToUs(compositionStartTime);
+      long endUs = TimeHelpers.secToUs(compositionStartTime + duration);
+      return compositionTimeUs >= startUs - LIVE_MARGIN_US
+        && compositionTimeUs <= endUs + LIVE_MARGIN_US;
+    }
+
+    /**
+     * Whether the decoder of the item is open at a time of the composition: from
+     * {@link #DECODER_LEAD_US} before the item is live (the decoder has started, and decoded the
+     * first frame, by the time an export waits for it) to the end of the item. Its last frame is
+     * still handed out after its end, while it is live: a sequence of short clips keeps two decoders
+     * open, not three.
+     */
+    public boolean isDecodedAt(long compositionTimeUs) {
+      long startUs = TimeHelpers.secToUs(compositionStartTime);
+      long endUs = TimeHelpers.secToUs(compositionStartTime + duration);
+      return compositionTimeUs >= startUs - LIVE_MARGIN_US - DECODER_LEAD_US
+        && compositionTimeUs <= endUs;
     }
 
     public boolean isAudioEnabled() {
       return audioEnabled;
     }
 
-    public double getAudioVolume() {
-      return audioVolume;
+    /**
+     * The volume of the item at a time of the item (seconds from its start):
+     * its volume, ramped by its fades. The fades are clamped to the item, the
+     * fade out to what the fade in leaves of it.
+     */
+    public double getAudioVolumeAt(double localTime) {
+      double volume = Math.max(0, Math.min(1, audioVolume));
+      double fadeIn = Math.max(0, Math.min(audioFadeIn, duration));
+      double fadeOut = Math.max(0, Math.min(audioFadeOut, duration - fadeIn));
+      double gain = 1;
+      if (fadeIn > 0) {
+        gain = Math.min(gain, localTime / fadeIn);
+      }
+      if (fadeOut > 0) {
+        gain = Math.min(gain, (duration - localTime) / fadeOut);
+      }
+      return volume * Math.max(0, Math.min(1, gain));
     }
   }
 }

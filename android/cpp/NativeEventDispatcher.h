@@ -22,6 +22,9 @@ struct NativeEventDispatcher : public JavaClass<NativeEventDispatcher> {
 
   static void registerNatives();
 
+  // Stops the dispatch of events to the receiver, before it is destroyed.
+  void invalidate();
+
   static void dispatchEvent(alias_ref<JClass>, jlong receiver,
                             std::string eventName, alias_ref<jobject> data);
 };

@@ -14,6 +14,12 @@ void NativeEventDispatcher::registerNatives() {
       "nativeDispatchEvent", NativeEventDispatcher::dispatchEvent)});
 }
 
+void NativeEventDispatcher::invalidate() {
+  static const auto invalidateMethod =
+      getClass()->getMethod<void()>("invalidate");
+  invalidateMethod(self());
+}
+
 void NativeEventDispatcher::dispatchEvent(alias_ref<JClass>, jlong receiverPtr,
                                           std::string eventName,
                                           alias_ref<jobject> data) {
