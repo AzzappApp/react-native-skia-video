@@ -66,56 +66,26 @@ static void* rateContext = &rateContext;
 }
 
 - (AVPlayerItemVideoOutput*)makeVideoOutput {
-  // NV12 is the decoder's native output: requesting BGRA would make
-  // VideoToolbox convert every frame. The YUV to RGB conversion happens on the
-  // GPU when the frame is drawn into a texture (React Native WebGPU's
-  // importExternalTexture), which needs IOSurface-backed buffers. The frames
-  // are SDR BT.709, HDR video (an iPhone's HLG) tone mapped by VideoToolbox:
-  // the GPU conversion applies the BT.709 matrix only (see
-  // src/frameImages/gpuConversion.ts).
-  NSDictionary* pixBuffAttributes = @{
-    (id)kCVPixelBufferPixelFormatTypeKey :
-        @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
-    (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
-    (id)kCVPixelBufferMetalCompatibilityKey : @YES,
-    AVVideoColorPropertiesKey : @{
-      AVVideoColorPrimariesKey : AVVideoColorPrimaries_ITU_R_709_2,
-      AVVideoTransferFunctionKey : AVVideoTransferFunction_ITU_R_709_2,
-      AVVideoYCbCrMatrixKey : AVVideoYCbCrMatrix_ITU_R_709_2,
-    },
-  };
-  CGSize resolution = self.resolution;
-  if (!CGSizeEqualToSize(CGSizeZero, resolution)) {
-    pixBuffAttributes =
-        [NSMutableDictionary dictionaryWithDictionary:pixBuffAttributes];
-    [pixBuffAttributes setValue:@(resolution.width)
-                         forKey:(id)kCVPixelBufferWidthKey];
-    [pixBuffAttributes setValue:@(resolution.height)
-                         forKey:(id)kCVPixelBufferHeightKey];
-  }
   // Output settings rather than pixel buffer attributes: they also take the
   // color properties.
   return [[AVPlayerItemVideoOutput alloc]
-      initWithOutputSettings:pixBuffAttributes];
+      initWithOutputSettings:RNSkiaVideo::AVAssetTrackUtils::
+                                 DecodedFrameOutputSettings(self.resolution)];
 }
 
 // Caps the long side of the frames of `item` to maxLongSide. Resolved against
 // the video track's naturalSize, the file's encoded frame, in the orientation
-// the output's size is read in (see VideoCompositionItemDecoder).
+// the output's size is read in (see SizeCappedToLongSide).
 - (void)applyMaxLongSideToItem:(AVPlayerItem*)item {
   for (AVPlayerItemTrack* itemTrack in item.tracks) {
     AVAssetTrack* track = itemTrack.assetTrack;
     if (![track.mediaType isEqualToString:AVMediaTypeVideo]) {
       continue;
     }
-    CGSize natural = track.naturalSize;
-    double longSide = MAX(natural.width, natural.height);
-    if (longSide > _maxLongSide) {
-      // Even sizes: the frames are 4:2:0, their chroma planes half the size.
-      double scale = _maxLongSide / longSide;
-      self.resolution =
-          CGSizeMake(MAX(2, 2 * round(natural.width * scale / 2)),
-                     MAX(2, 2 * round(natural.height * scale / 2)));
+    CGSize capped = RNSkiaVideo::AVAssetTrackUtils::SizeCappedToLongSide(
+        track.naturalSize, _maxLongSide);
+    if (!CGSizeEqualToSize(CGSizeZero, capped)) {
+      self.resolution = capped;
     }
     return;
   }

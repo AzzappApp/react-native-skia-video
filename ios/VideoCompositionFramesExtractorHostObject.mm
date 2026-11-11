@@ -198,35 +198,40 @@ void VideoCompositionFramesExtractorHostObject::set(
 }
 
 void VideoCompositionFramesExtractorHostObject::prepare() {
-  // Once: a second display link would decode along with the first.
-  if (prepared.test_and_set()) {
-    return;
-  }
-  dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(
-      DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0);
-  decoderQueue =
-      dispatch_queue_create("ReactNativeVideoCompositionItemDecoder", attr);
-  dispatch_async(decoderQueue, ^{
-    this->init();
-  });
+  // Under the lock release takes: called on the UI thread while release is
+  // called on the JS one, a display link made once release found none would
+  // never be invalidated, and tick on an object since destroyed.
+  @synchronized(lock) {
+    // Once: a second display link would decode along with the first.
+    if (released.test() || prepared.test_and_set()) {
+      return;
+    }
+    dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(
+        DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0);
+    decoderQueue =
+        dispatch_queue_create("ReactNativeVideoCompositionItemDecoder", attr);
+    dispatch_async(decoderQueue, ^{
+      this->init();
+    });
 
-  // Each refresh of the display queues a decoding pass, unless one is
-  // already queued: a pass longer than a refresh doesn't pile up others.
-  // `this` outlives the passes: no tick queues one once the display link is
-  // invalidated (see RNSVDisplayLinkWrapper), and the destructor waits for
-  // the queued ones.
-  dispatch_queue_t queue = decoderQueue;
-  displayLink = [[RNSVDisplayLinkWrapper alloc]
-      initWithUpdateBlock:^(CADisplayLink* displayLink) {
-        if (passQueued.test_and_set()) {
-          return;
-        }
-        dispatch_async(queue, ^{
-          passQueued.clear();
-          decodeFrames();
-        });
-      }];
-  [displayLink start];
+    // Each refresh of the display queues a decoding pass, unless one is
+    // already queued: a pass longer than a refresh doesn't pile up others.
+    // `this` outlives the passes: no tick queues one once the display link is
+    // invalidated (see RNSVDisplayLinkWrapper), and the destructor waits for
+    // the queued ones.
+    dispatch_queue_t queue = decoderQueue;
+    displayLink = [[RNSVDisplayLinkWrapper alloc]
+        initWithUpdateBlock:^(CADisplayLink* displayLink) {
+          if (passQueued.test_and_set()) {
+            return;
+          }
+          dispatch_async(queue, ^{
+            passQueued.clear();
+            decodeFrames();
+          });
+        }];
+    [displayLink start];
+  }
 }
 
 void VideoCompositionFramesExtractorHostObject::decodeFrames() {
@@ -465,10 +470,14 @@ CMTime VideoCompositionFramesExtractorHostObject::getCurrentTime() {
 }
 
 void VideoCompositionFramesExtractorHostObject::release() {
+  RNSVDisplayLinkWrapper* link = nil;
   @synchronized(lock) {
     if (released.test_and_set()) {
       return;
     }
+    // Taken under the lock: prepare makes none from now on.
+    link = displayLink;
+    displayLink = nullptr;
     try {
       for (const auto& entry : itemDecoders) {
         auto decoder = entry.second;
@@ -487,10 +496,7 @@ void VideoCompositionFramesExtractorHostObject::release() {
     }
   }
   removeAllListeners();
-  if (displayLink != nullptr) {
-    [displayLink invalidate];
-    displayLink = nullptr;
-  }
+  [link invalidate];
 }
 
 } // namespace RNSkiaVideo

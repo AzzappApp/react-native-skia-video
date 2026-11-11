@@ -52,52 +52,18 @@ void VideoCompositionItemDecoder::setupReader(CMTime initialTime) {
       CMTimeSubtract(CMTimeMakeWithSeconds(item->duration, NSEC_PER_SEC),
                      position));
 
-  // NV12 is the decoder's native output: requesting BGRA would make
-  // VideoToolbox convert every frame. The YUV to RGB conversion happens on the
-  // GPU when the frame is drawn into a texture (React Native WebGPU's
-  // importExternalTexture), which needs IOSurface-backed buffers. The frames
-  // are SDR BT.709, HDR video (an iPhone's HLG) tone mapped by VideoToolbox:
-  // the GPU conversion applies the BT.709 matrix only (see
-  // src/frameImages/gpuConversion.ts).
-  NSDictionary* pixBuffAttributes = @{
-    (id)kCVPixelBufferPixelFormatTypeKey :
-        @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
-    (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
-    (id)kCVPixelBufferMetalCompatibilityKey : @YES,
-    AVVideoColorPropertiesKey : @{
-      AVVideoColorPrimariesKey : AVVideoColorPrimaries_ITU_R_709_2,
-      AVVideoTransferFunctionKey : AVVideoTransferFunction_ITU_R_709_2,
-      AVVideoYCbCrMatrixKey : AVVideoYCbCrMatrix_ITU_R_709_2,
-    },
-  };
   CGSize resolution = item->resolution;
-  if ((resolution.width <= 0 || resolution.height <= 0) &&
-      item->maxLongSide > 0) {
-    // Resolved HERE and nowhere else: `naturalSize` is the file's encoded
-    // frame, and the output settings below are read in that same orientation.
-    // A caller capping the size itself would have to pass encoded dimensions,
-    // the ones it cannot know, since every API hands it display dimensions
-    // (a portrait phone clip is a 1920x1080 file with a 90° transform). Ask
-    // it for the long side and there is nothing left to get wrong.
-    CGSize natural = videoTrack.naturalSize;
-    double longSide = MAX(natural.width, natural.height);
-    if (longSide > item->maxLongSide) {
-      // Even sizes: the frames are 4:2:0, their chroma planes half the size.
-      double scale = item->maxLongSide / longSide;
-      resolution = CGSizeMake(MAX(2, 2 * round(natural.width * scale / 2)),
-                              MAX(2, 2 * round(natural.height * scale / 2)));
-    }
+  if (resolution.width <= 0 || resolution.height <= 0) {
+    // The cap on the long side, if any (see SizeCappedToLongSide).
+    resolution = AVAssetTrackUtils::SizeCappedToLongSide(videoTrack.naturalSize,
+                                                         item->maxLongSide);
   }
   if (resolution.width > 0 && resolution.height > 0) {
-    pixBuffAttributes =
-        [NSMutableDictionary dictionaryWithDictionary:pixBuffAttributes];
-    [pixBuffAttributes setValue:@(resolution.width)
-                         forKey:(id)kCVPixelBufferWidthKey];
-    [pixBuffAttributes setValue:@(resolution.height)
-                         forKey:(id)kCVPixelBufferHeightKey];
     width = resolution.width;
     height = resolution.height;
   }
+  NSDictionary* pixBuffAttributes =
+      AVAssetTrackUtils::DecodedFrameOutputSettings(resolution);
 
   AVAssetReaderOutput* assetReaderOutput =
       [[AVAssetReaderTrackOutput alloc] initWithTrack:videoTrack
@@ -172,6 +138,19 @@ void VideoCompositionItemDecoder::advanceDecoder(
     CMTime duration = CMTimeMakeWithSeconds(item->duration, NSEC_PER_SEC);
     CMTime endTime = CMTimeAdd(startTime, duration);
 
+    // The time went back since the last pass, without a seek (which releases
+    // the reader): the composition was replayed from its start once over, it
+    // looped, or the item is now decoded ahead of the next loop. A real time
+    // clock is allowed its jitter.
+    CMTime backwardTolerance =
+        realTime
+            ? CMTimeMakeWithSeconds(DECODER_INPUT_TIME_ADVANCE, NSEC_PER_SEC)
+            : kCMTimeZero;
+    bool wentBack = CMTIME_IS_VALID(lastAdvanceTime) &&
+                    CMTimeCompare(CMTimeAdd(currentTime, backwardTolerance),
+                                  lastAdvanceTime) < 0;
+    lastAdvanceTime = currentTime;
+
     // Opened where the composition is: on its first call, after a seek or
     // once the item is live again (see release).
     if (assetReader == nil) {
@@ -185,6 +164,21 @@ void VideoCompositionItemDecoder::advanceDecoder(
         openFailed = true;
         throw;
       }
+    } else if (wentBack) {
+      if (readerAhead) {
+        // The loop the reader was set up for, below: it is already there.
+        readerAhead = false;
+      } else {
+        // The reader is still where the time was: at the item's end, where it
+        // has nothing left to decode, the item would keep its last frame.
+        try {
+          restartReader(currentTime);
+        } catch (...) {
+          // As a reader that could not be opened, above.
+          openFailed = true;
+          throw;
+        }
+      }
     }
 
     bool looped;
@@ -195,6 +189,7 @@ void VideoCompositionItemDecoder::advanceDecoder(
     if (decodeNextLoop && CMTimeCompare(endTime, inputPosition) < 0 &&
         !looped) {
       setupReader(kCMTimeZero);
+      readerAhead = true;
       {
         std::lock_guard<std::mutex> frames(framesMutex);
         hasLooped = true;
@@ -274,6 +269,29 @@ void VideoCompositionItemDecoder::advanceDecoder(
   }
 }
 
+void VideoCompositionItemDecoder::restartReader(CMTime currentTime) {
+  // A time before the composition's start is the lead-in of its next loop
+  // (see the frames extractor's getDecodingTime): the composition itself is
+  // still before the loop, where the item may be live. Its frames wait in the
+  // next loop's list, as those of a reader set up ahead by decodeNextLoop,
+  // and the frames of the current loop stay.
+  bool aheadOfLoop = CMTimeGetSeconds(currentTime) < 0;
+  {
+    std::lock_guard<std::mutex> frames(framesMutex);
+    if (aheadOfLoop) {
+      for (const auto& frame : nextLoopFrames) {
+        CFRelease(frame.second);
+      }
+      nextLoopFrames.clear();
+    } else {
+      releaseFrames();
+    }
+    hasLooped = aheadOfLoop;
+  }
+  [assetReader cancelReading];
+  setupReader(currentTime);
+}
+
 std::shared_ptr<VideoFrame>
 VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
                                                  bool force) {
@@ -343,6 +361,8 @@ void VideoCompositionItemDecoder::release() {
       hasLooped = false;
       lastRequestedTime = kCMTimeInvalid;
     }
+    readerAhead = false;
+    lastAdvanceTime = kCMTimeInvalid;
     currentFrame = nullptr;
   }
 }

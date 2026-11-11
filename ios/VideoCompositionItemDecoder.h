@@ -20,7 +20,9 @@ public:
   // Decodes the frames up to `currentTime`, setting the reader up first if it
   // is not (see release). With `decodeNextLoop`, once the item's end is
   // reached, the reader is set up again at its start and decodes the first
-  // frames of the next loop of the composition ahead. With the generation read
+  // frames of the next loop of the composition ahead. A time earlier than the
+  // one of the last call, without a seek in between, restarts the reader
+  // there: the composition replayed or looped. With the generation read
   // when it was started (see getGeneration), does nothing if the decoder was
   // released since: a decoding started on another thread before a seek would
   // set the reader up at the position from before the seek, and one started
@@ -74,9 +76,17 @@ private:
   std::list<std::pair<double, CMSampleBufferRef>> decodedFrames;
   std::list<std::pair<double, CMSampleBufferRef>> nextLoopFrames;
   CMTime lastRequestedTime = kCMTimeInvalid;
+  // The time of the last advanceDecoder, invalid once released. Guarded by
+  // `lock`, as `readerAhead`.
+  CMTime lastAdvanceTime = kCMTimeInvalid;
+  // The reader was set up at the item's start for the next loop of the
+  // composition (decodeNextLoop) and the time has not looped yet.
+  bool readerAhead = false;
   std::shared_ptr<VideoFrame> currentFrame;
 
   void setupReader(CMTime initialTime);
+  // Sets the reader up again at a time it is past (see advanceDecoder).
+  void restartReader(CMTime currentTime);
   // Releases both frame lists. Callers hold `framesMutex`.
   void releaseFrames();
   double mapSourceTimeToTarget(CMTime sourceTime);

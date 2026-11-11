@@ -32,9 +32,7 @@ private:
   std::shared_ptr<VideoComposition> composition;
   AVAssetWriter* assetWriter;
   AVAssetWriterInput* assetWriterInput;
-  // The BGRA buffer beginFrame() hands out.
-  CVPixelBufferPoolRef pixelBufferPool = NULL;
-  // The buffer beginFrame() hands out, the same every frame; endFrame()
+  // The BGRA buffer beginFrame() hands out, the same every frame; endFrame()
   // appends an NV12 conversion of it (see endFrame()).
   CVPixelBufferRef frameBuffer = NULL;
   // The NV12 buffers endFrame() appends, and the conversion into them.
@@ -51,7 +49,7 @@ private:
   NSMutableArray<NSError*>* audioErrorHolder;
 
   void prepare();
-  CVPixelBufferRef createPoolBuffer(CVPixelBufferPoolRef pool);
+  CVPixelBufferRef createFrameBuffer();
   CVPixelBufferRef createEncoderBuffer();
   void convertFrameBuffer(CVPixelBufferRef source,
                           CVPixelBufferRef destination);

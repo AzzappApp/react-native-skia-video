@@ -161,33 +161,18 @@ void VideoEncoderHostObject::prepare() {
     startWritingAudio();
   }
 
-  NSDictionary* attributes = @{
-    (NSString*)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
-    (NSString*)kCVPixelBufferWidthKey : @(width),
-    (NSString*)kCVPixelBufferHeightKey : @(height),
-    (NSString*)kCVPixelBufferIOSurfacePropertiesKey : @{},
-    (NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
-  };
   // Each appended frame is a fresh buffer of a pool, never a reused
   // CVPixelBuffer. AVAssetWriter encodes appended buffers asynchronously, so a
   // reused buffer could be overwritten by the next frame while the encoder is
   // still reading it, producing torn frames on fast motion. A pool only
   // recycles a buffer once every reference to it (the encoder's included) is
   // gone, which also keeps the memory used bounded.
-  if (pixelBufferPool) {
-    CVPixelBufferPoolRelease(pixelBufferPool);
-    pixelBufferPool = NULL;
-  }
-  CVReturn status = CVPixelBufferPoolCreate(
-      kCFAllocatorDefault, NULL, (__bridge CFDictionaryRef)attributes,
-      &pixelBufferPool);
-  if (status != kCVReturnSuccess) {
-    throw createErrorWithMessage(@"Could not create pixel buffer pool");
-  }
-
+  //
   // NV12, the encoder's own input format: a 1080x1920 frame is 3.1 MB
   // instead of 8.3 MB in BGRA, and the encoder holds several of them (see
-  // createEncoderBuffer()).
+  // createEncoderBuffer()). The frames are drawn into a BGRA buffer of their
+  // own, the same for every frame, and converted (see beginFrame() and
+  // endFrame()).
   NSDictionary* encoderAttributes = @{
     (NSString*)kCVPixelBufferPixelFormatTypeKey :
         @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
@@ -199,9 +184,9 @@ void VideoEncoderHostObject::prepare() {
     CVPixelBufferPoolRelease(encoderBufferPool);
     encoderBufferPool = NULL;
   }
-  status = CVPixelBufferPoolCreate(kCFAllocatorDefault, NULL,
-                                   (__bridge CFDictionaryRef)encoderAttributes,
-                                   &encoderBufferPool);
+  CVReturn status = CVPixelBufferPoolCreate(
+      kCFAllocatorDefault, NULL, (__bridge CFDictionaryRef)encoderAttributes,
+      &encoderBufferPool);
   if (status != kCVReturnSuccess) {
     throw createErrorWithMessage(@"Could not create pixel buffer pool");
   }
@@ -217,13 +202,18 @@ void VideoEncoderHostObject::prepare() {
   }
 }
 
-CVPixelBufferRef
-VideoEncoderHostObject::createPoolBuffer(CVPixelBufferPoolRef pool) {
+CVPixelBufferRef VideoEncoderHostObject::createFrameBuffer() {
+  // BGRA, backed by an IOSurface: what Skia's device imports and draws into.
+  NSDictionary* attributes = @{
+    (NSString*)kCVPixelBufferIOSurfacePropertiesKey : @{},
+    (NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
+  };
   CVPixelBufferRef pixelBuffer = NULL;
-  CVReturn status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault,
-                                                       pool, &pixelBuffer);
+  CVReturn status = CVPixelBufferCreate(
+      kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
+      (__bridge CFDictionaryRef)attributes, &pixelBuffer);
   if (status != kCVReturnSuccess || pixelBuffer == NULL) {
-    throw createErrorWithMessage(@"Could not allocate pixel buffer from pool");
+    throw createErrorWithMessage(@"Could not allocate the frame buffer");
   }
   return pixelBuffer;
 }
@@ -344,7 +334,7 @@ IOSurfaceRef VideoEncoderHostObject::beginFrame() {
   // collected). It is never appended (see endFrame()), so it can be drawn
   // into again as soon as a frame has ended.
   if (frameBuffer == NULL) {
-    frameBuffer = createPoolBuffer(pixelBufferPool);
+    frameBuffer = createFrameBuffer();
   }
   IOSurfaceRef surface = CVPixelBufferGetIOSurface(frameBuffer);
   if (surface == NULL) {
@@ -567,10 +557,6 @@ void VideoEncoderHostObject::release() {
   assetWriter = nil;
   assetWriterInput = nil;
   releaseFrameBuffer();
-  if (pixelBufferPool) {
-    CVPixelBufferPoolRelease(pixelBufferPool);
-    pixelBufferPool = NULL;
-  }
   if (encoderBufferPool) {
     CVPixelBufferPoolRelease(encoderBufferPool);
     encoderBufferPool = NULL;
