@@ -15,7 +15,7 @@ VideoEncoder::create(std::string& outPath, int width, int height, int frameRate,
                      int audioSampleRate, int audioChannelCount,
                      int audioBitRate) {
   return newInstance(outPath, width, height, frameRate, bitRate,
-                     encoderName.has_value() ? encoderName.value() : nullptr,
+                     encoderName.has_value() ? encoderName->c_str() : nullptr,
                      composition, audioSampleRate, audioChannelCount,
                      audioBitRate);
 }
