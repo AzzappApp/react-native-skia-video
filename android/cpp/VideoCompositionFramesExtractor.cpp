@@ -48,6 +48,18 @@ void VideoCompositionFramesExtractor::setIsLooping(jboolean isLooping) const {
   setIsLoopingMethod(self(), isLooping);
 }
 
+jfloat VideoCompositionFramesExtractor::getVolume() const {
+  static const auto getVolumeMethod =
+      getClass()->getMethod<jfloat()>("getVolume");
+  return getVolumeMethod(self());
+}
+
+void VideoCompositionFramesExtractor::setVolume(jfloat volume) const {
+  static const auto setVolumeMethod =
+      getClass()->getMethod<void(jfloat)>("setVolume");
+  setVolumeMethod(self(), volume);
+}
+
 jlong VideoCompositionFramesExtractor::getCurrentPosition() const {
   static const auto getCurrentPositionMethod =
       getClass()->getMethod<jlong()>("getCurrentPosition");

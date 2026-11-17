@@ -1,14 +1,19 @@
 #pragma once
 
-#include "SkiaContextHolder.h"
+#include "ExportHintSession.h"
 #include "VideoComposition.h"
-#include <EGL/egl.h>
+#include <android/native_window.h>
 #include <fbjni/fbjni.h>
 #include <jsi/jsi.h>
+#include <memory>
 
 namespace RNSkiaVideo {
 using namespace facebook;
 using namespace jni;
+
+struct JSurface : public jni::JavaClass<JSurface> {
+  static constexpr auto kJavaDescriptor = "Landroid/view/Surface;";
+};
 
 struct VideoEncoder : public jni::JavaClass<VideoEncoder> {
 
@@ -20,20 +25,27 @@ public:
                                         std::optional<std::string> encoderName,
                                         alias_ref<VideoComposition> composition,
                                         int audioSampleRate,
-                                        int audioChannelCount,
-                                        int audioBitRate);
+                                        int audioChannelCount, int audioBitRate,
+                                        std::string& mimeType);
 
   void prepare() const;
 
-  void makeGLContextCurrent() const;
+  local_ref<JSurface> getInputSurface() const;
 
-  void encodeFrame(jint texture, jdouble time) const;
+  void endFrame() const;
 
   void finishWriting() const;
 
   void release() const;
 };
 
+/**
+ * The encoder of an export. React Native Skia renders each frame straight
+ * into the encoder's input surface (`nativeWindow`), through a WebGPU canvas
+ * context (React Native WebGPU's MakeWebGPUCanvasContextFromNativeWindow):
+ * `beginFrame(time)` stamps the next frame presented to it with its
+ * presentation time, `endFrame()` writes what the encoder encoded.
+ */
 class JSI_EXPORT VideoEncoderHostObject : public jsi::HostObject {
 public:
   VideoEncoderHostObject(std::string& outPath, int width, int height,
@@ -41,15 +53,19 @@ public:
                          std::optional<std::string> encoderName,
                          alias_ref<VideoComposition> composition,
                          int audioSampleRate, int audioChannelCount,
-                         int audioBitRate);
+                         int audioBitRate, std::string& mimeType);
   ~VideoEncoderHostObject() override;
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
   std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime& rt) override;
 
 private:
-  global_ref<VideoEncoder> framesExtractor;
+  global_ref<VideoEncoder> encoder;
+  // The encoder's input surface, from prepare() until the encoder is
+  // released.
+  ANativeWindow* window = nullptr;
+  // Tells Android how long each frame takes (see ExportHintSession).
+  std::unique_ptr<ExportHintSession> hintSession;
   std::atomic_flag released = ATOMIC_FLAG_INIT;
-  std::shared_ptr<SkiaContextHolder> skiaContextHolder;
   void release();
 };
 

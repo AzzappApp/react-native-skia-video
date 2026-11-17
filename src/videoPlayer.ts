@@ -1,10 +1,12 @@
 import {
+  runOnUI,
   useSharedValue,
   useFrameCallback,
   type SharedValue,
 } from 'react-native-reanimated';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import useEventListener from './utils/useEventListener';
+import reportFrameError from './utils/reportFrameError';
 import type {
   BufferingRange,
   VideoDimensions,
@@ -12,6 +14,13 @@ import type {
   VideoPlayer,
 } from './types';
 import RNSkiaVideoModule from './RNSkiaVideoModule';
+import {
+  createFrameImagesKey,
+  getFrameImageContext,
+  makeVideoFrame,
+  releaseFrameImages,
+  type FrameImageContext,
+} from './frameImages';
 
 type UseVideoPlayerOptions = {
   /**
@@ -24,8 +33,19 @@ type UseVideoPlayerOptions = {
    * If not provided, the original resolution of the video will be used.
    * Downscaling the video can improve performance.
    * Changing the resolution after the video player will lead to re-creating the video player.
+   *
+   * CAREFUL: on iOS, it is read in the file's ENCODED orientation: a clip
+   * filmed in portrait on a phone is a 1920x1080 file with a 90° rotation. To
+   * simply bound the decoded size, use {@link maxLongSide}.
    */
   resolution?: { width: number; height: number } | null;
+  /**
+   * If provided, caps the LONG SIDE of the decoded frames: the video is
+   * scaled down, keeping its aspect ratio, so that neither side exceeds this
+   * many pixels. A smaller video is decoded as is. Ignored when
+   * {@link resolution} is set. Changing it re-creates the video player.
+   */
+  maxLongSide?: number | null;
   /**
    * Whether the video should start playing automatically.
    */
@@ -107,6 +127,7 @@ type UseVideoPlayerReturnType = {
 export const useVideoPlayer = ({
   uri,
   resolution,
+  maxLongSide,
   autoPlay = false,
   isLooping = false,
   volume = 1,
@@ -121,23 +142,6 @@ export const useVideoPlayer = ({
   onSeekComplete,
 }: UseVideoPlayerOptions): UseVideoPlayerReturnType => {
   const [isErrored, setIsErrored] = useState(false);
-  const player = useMemo(() => {
-    if (uri && !isErrored) {
-      return RNSkiaVideoModule.createVideoPlayer(uri, resolution);
-    }
-    return null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isErrored, resolution?.width, resolution?.height, uri]);
-
-  const currentFrame = useSharedValue<null | VideoFrame>(null);
-  useEffect(
-    () => () => {
-      currentFrame.value = null;
-      player?.dispose();
-    },
-    [player, currentFrame]
-  );
-
   const retry = useCallback(() => {
     setIsErrored(false);
   }, []);
@@ -148,6 +152,45 @@ export const useVideoPlayer = ({
       setIsErrored(true);
     },
     [onError, retry]
+  );
+
+  // The context the frames are turned into images with comes first: on a
+  // device whose GPU can't draw them, there is no player, and the error goes
+  // to onError (below) rather than failing the render.
+  const { player, frameImageContext, contextError } = useMemo(() => {
+    if (!uri || isErrored) {
+      return { player: null, frameImageContext: null, contextError: null };
+    }
+    let context: FrameImageContext;
+    try {
+      context = getFrameImageContext();
+    } catch (error) {
+      return { player: null, frameImageContext: null, contextError: { error } };
+    }
+    return {
+      player: RNSkiaVideoModule.createVideoPlayer(uri, resolution, maxLongSide),
+      frameImageContext: context,
+      contextError: null,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isErrored, resolution?.width, resolution?.height, maxLongSide, uri]);
+
+  useEffect(() => {
+    if (contextError) {
+      errorHandler(contextError.error);
+    }
+  }, [contextError, errorHandler]);
+
+  const framesKey = useMemo(() => createFrameImagesKey(), []);
+
+  const currentFrame = useSharedValue<null | VideoFrame>(null);
+  useEffect(
+    () => () => {
+      currentFrame.value = null;
+      player?.dispose();
+      runOnUI(releaseFrameImages)(framesKey);
+    },
+    [player, currentFrame, framesKey]
   );
 
   useEffect(() => {
@@ -184,12 +227,27 @@ export const useVideoPlayer = ({
   }, [player, autoPlay]);
 
   useFrameCallback(() => {
-    if (!player || (!player.isPlaying && currentFrame.value)) {
+    if (
+      !player ||
+      !frameImageContext ||
+      (!player.isPlaying && currentFrame.value)
+    ) {
       return;
     }
-    const nextFrame = player.decodeNextFrame();
-    if (nextFrame) {
-      currentFrame.value = nextFrame;
+    // An exception thrown by a frame callback is fatal: in release builds,
+    // Worklets does not catch it and the app aborts. A frame that cannot be
+    // shown is skipped.
+    try {
+      const decodedFrame = player.decodeNextFrame();
+      if (decodedFrame) {
+        currentFrame.value = makeVideoFrame(
+          frameImageContext,
+          framesKey,
+          decodedFrame
+        );
+      }
+    } catch (error) {
+      reportFrameError('failed to show the video frame', error);
     }
   }, true);
 
