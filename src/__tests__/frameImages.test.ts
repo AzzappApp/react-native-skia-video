@@ -31,7 +31,7 @@ const makeContext = () => {
       createView: jest.fn(() => ({})),
     })
   );
-  const createVideoFrameFromNativeBuffer = jest.fn(() => ({
+  const createNativeBufferFromPointer = jest.fn(() => ({
     width: WIDTH,
     height: HEIGHT,
     release: jest.fn(),
@@ -60,7 +60,7 @@ const makeContext = () => {
   };
   const context = {
     device,
-    webgpu: { createVideoFrameFromNativeBuffer },
+    webgpu: { createNativeBufferFromPointer },
   } as unknown as FrameImageContext;
   return {
     context,
@@ -68,7 +68,7 @@ const makeContext = () => {
     pass,
     importExternalTexture,
     createTexture,
-    createVideoFrameFromNativeBuffer,
+    createNativeBufferFromPointer,
   };
 };
 
@@ -92,7 +92,7 @@ describe('makeVideoFrame', () => {
       pass,
       importExternalTexture,
       createTexture,
-      createVideoFrameFromNativeBuffer,
+      createNativeBufferFromPointer,
     } = makeContext();
     const frame = makeFrame(1n, 1);
 
@@ -100,10 +100,10 @@ describe('makeVideoFrame', () => {
 
     expect(createTexture).toHaveBeenCalledTimes(1);
     const texture = createTexture.mock.results[0]!.value;
-    const nativeFrame = createVideoFrameFromNativeBuffer.mock.results[0]!.value;
+    const nativeBuffer = createNativeBufferFromPointer.mock.results[0]!.value;
     // Only the frame's YCbCr matrix is applied, not its transfer function.
     expect(importExternalTexture).toHaveBeenCalledWith({
-      source: nativeFrame,
+      source: nativeBuffer,
       sourceColorSpace: { primaries: 'srgb', transfer: 'srgb' },
     });
     // The whole frame drawn into the texture.
@@ -118,7 +118,7 @@ describe('makeVideoFrame', () => {
     expect(externalTexture.destroy.mock.invocationCallOrder[0]).toBeGreaterThan(
       device.queue.submit.mock.invocationCallOrder[0]!
     );
-    expect(nativeFrame.release).toHaveBeenCalledTimes(1);
+    expect(nativeBuffer.release).toHaveBeenCalledTimes(1);
     expect(frame.release).toHaveBeenCalledTimes(1);
     // The texture the image is made from, handed out with it.
     expect(videoFrame).toEqual({
@@ -189,13 +189,13 @@ describe('makeVideoFrame', () => {
   });
 
   it('disposes the images of a texture recreated for a new size', () => {
-    const { context, createTexture, createVideoFrameFromNativeBuffer } =
+    const { context, createTexture, createNativeBufferFromPointer } =
       makeContext();
     const key = makeKey();
 
     const first = makeVideoFrame(context, key, makeFrame(1n, 1));
     const second = makeVideoFrame(context, key, makeFrame(1n, 2));
-    createVideoFrameFromNativeBuffer.mockReturnValueOnce({
+    createNativeBufferFromPointer.mockReturnValueOnce({
       width: WIDTH * 2,
       height: HEIGHT * 2,
       release: jest.fn(),

@@ -38,18 +38,18 @@ export const convertFrameIOS = (
   buffer: bigint
 ): GPUTexture => {
   'worklet';
-  const nativeFrame = webgpu.createVideoFrameFromNativeBuffer(buffer);
+  const nativeBuffer = webgpu.createNativeBufferFromPointer(buffer);
   let externalTexture: GPUExternalTexture | null = null;
   let texture: GPUTexture;
   try {
     texture = getSlotTexture(
       device,
       slot,
-      nativeFrame.width,
-      nativeFrame.height
+      nativeBuffer.width,
+      nativeBuffer.height
     );
     externalTexture = device.importExternalTexture({
-      source: nativeFrame,
+      source: nativeBuffer,
       sourceColorSpace: VIDEO_COLOR_SPACE,
     });
     const uniformBuffer = getUniformBuffer(device, slot);
@@ -63,7 +63,7 @@ export const convertFrameIOS = (
   } finally {
     // Once the commands sampling the frame are submitted, never before.
     externalTexture?.destroy();
-    nativeFrame.release();
+    nativeBuffer.release();
   }
   frame.release?.();
   return texture;
@@ -144,7 +144,7 @@ export const convertFrameAndroid = (
       uniformBuffer
     );
     try {
-      importedBuffer.wrapper.beginAccess();
+      importedBuffer.memory.beginAccess(importedBuffer.texture, true);
     } catch (error) {
       // Imported again with the next frame.
       forgetImportedBuffer(imported, importedBuffer);
@@ -172,7 +172,12 @@ export const convertFrameAndroid = (
       return texture;
     } finally {
       // Once the commands sampling the buffer are submitted, never before.
-      importedBuffer.wrapper.endAccess()?.fence.destroy();
+      const { fences } = importedBuffer.memory.endAccess(
+        importedBuffer.texture
+      );
+      for (const { fence } of fences) {
+        fence.destroy();
+      }
     }
   } finally {
     frame.release?.();

@@ -56,8 +56,8 @@ __metadata:
     react-native-reanimated: "npm:^4.7.1"
     react-native-safe-area-context: "npm:^5.10.1"
     react-native-screens: "npm:^4.28.0"
-    react-native-skia: "npm:^3.10.2"
-    react-native-webgpu: "npm:^0.22.0"
+    react-native-skia: "npm:^3.11.0"
+    react-native-webgpu: "npm:^0.23.0"
     react-native-worklets: "npm:^0.13.0"
   languageName: unknown
   linkType: soft
@@ -93,8 +93,8 @@ __metadata:
     react-native: "npm:0.87.1"
     react-native-builder-bob: "npm:^0.43.1"
     react-native-reanimated: "npm:^4.7.1"
-    react-native-skia: "npm:^3.10.2"
-    react-native-webgpu: "npm:^0.22.0"
+    react-native-skia: "npm:^3.11.0"
+    react-native-webgpu: "npm:^0.23.0"
     react-native-worklets: "npm:^0.13.0"
     react-test-renderer: "npm:19.3.0"
     release-it: "npm:^21.1.0"
@@ -105,8 +105,8 @@ __metadata:
     react: "*"
     react-native: ">= 0.81.0"
     react-native-reanimated: ">= 4.2.1"
-    react-native-skia: ">= 3.9.0"
-    react-native-webgpu: ">= 0.20.0"
+    react-native-skia: ">= 3.10.0"
+    react-native-webgpu: ">= 0.23.0"
     react-native-worklets: ">= 0.10.0"
   languageName: unknown
   linkType: soft
@@ -11789,13 +11789,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-skia-graphite-android@npm:158.0.0":
-  version: 158.0.0
-  resolution: "react-native-skia-graphite-android@npm:158.0.0"
-  checksum: 10/b8a252e8ec7d7fc15f9b72868ccd1326739630618c459c66701c61e09db2270ad75c212ee62529c9bda28f4ed46c3144a13098b46dda1461a7f4081681949b08
-  languageName: node
-  linkType: hard
-
 "react-native-skia-graphite-apple-ios@npm:158.0.0":
   version: 158.0.0
   resolution: "react-native-skia-graphite-apple-ios@npm:158.0.0"
@@ -11817,12 +11810,11 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-skia@npm:^3.10.2":
-  version: 3.10.2
-  resolution: "react-native-skia@npm:3.10.2"
+"react-native-skia@npm:^3.11.0":
+  version: 3.11.0
+  resolution: "react-native-skia@npm:3.11.0"
   dependencies:
     canvaskit-wasm: "npm:0.41.1"
-    react-native-skia-graphite-android: "npm:158.0.0"
     react-native-skia-graphite-apple-ios: "npm:158.0.0"
     react-native-skia-graphite-apple-macos: "npm:158.0.0"
     react-native-skia-graphite-apple-tvos: "npm:158.0.0"
@@ -11842,7 +11834,7 @@ __metadata:
       optional: true
   bin:
     setup-skia-web: scripts/setup-canvaskit.js
-  checksum: 10/8a7dd60a4ea9dcaa913e8a44c6fb7fd537849d864ee1f61a78423c3a2ca612337cbd101f4e48bc26fb1a354429b2341fcba00017b119d9504b7f47a84f90f281
+  checksum: 10/5479b42080cd597ccaefd94d884195027d2d533c34211ad25d1f961a800a2f64d36f1b7538bddcc35acd668168425729793e66b1d1de615674f3c459bd5f5281
   languageName: node
   linkType: hard
 
@@ -11853,9 +11845,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-webgpu@npm:^0.22.0":
-  version: 0.22.0
-  resolution: "react-native-webgpu@npm:0.22.0"
+"react-native-webgpu@npm:^0.23.0":
+  version: 0.23.0
+  resolution: "react-native-webgpu@npm:0.23.0"
   dependencies:
     react-native-webgpu-dawn: "npm:158.0.0"
   peerDependencies:
@@ -11868,7 +11860,7 @@ __metadata:
       optional: true
     react-native-worklets:
       optional: true
-  checksum: 10/713b2d9ee8c0a0e8e5b66daeaebb60cdeb0ef1746a1a6ca0b6bc4c1677439d09e265ea4d2df93e350a141ef2c6ef153a61b6c7c001bf5780f35a0c6f52b7ed6f
+  checksum: 10/5f4246baf7dd295207c4fd07bb789de6ec3b5999e4a215781e61342bbcacd862639e93a0050db31a138358ada1bce526614ca47ca05f42e748d0493a7b7116e6
   languageName: node
   linkType: hard
 

@@ -26,8 +26,7 @@ export type FrameImageContext = {
   webgpu: Pick<
     typeof RNWebGPU,
     // The second for Android exports (see exportVideoComposition).
-    | 'createVideoFrameFromNativeBuffer'
-    | 'MakeWebGPUCanvasContextFromNativeWindow'
+    'createNativeBufferFromPointer' | 'MakeWebGPUCanvasContextFromNativeWindow'
   >;
 };
 

@@ -1,8 +1,5 @@
 /// <reference types="@webgpu/types" />
-import type {
-  GPUNativeBufferExternalTexture,
-  NativeVideoFrame,
-} from 'react-native-webgpu';
+import type { GPUSharedTextureMemory, NativeBuffer } from 'react-native-webgpu';
 import type { FrameImageContext } from './context';
 import { VIDEO_COLOR_SPACE, makeConversionBindGroup } from './gpuConversion';
 
@@ -11,20 +8,24 @@ import { VIDEO_COLOR_SPACE, makeConversionBindGroup } from './gpuConversion';
  * device.
  *
  * A decoder renders its frames into the same few buffers in turn. Importing a
- * buffer (as an external texture, with React Native WebGPU's
- * createNativeBufferExternalTexture) cost about 8 ms per 1080p frame on a
- * Qualcomm device, so each one is imported once and kept: a frame only begins
- * and ends an access to it (see convertFrameAndroid).
+ * buffer (as an external texture) cost about 8 ms per 1080p frame on a
+ * Qualcomm device, so each one is imported once and kept, with the external
+ * texture over it: a frame only begins and ends an access to it (see
+ * convertFrameAndroid).
  */
 
 /** A decoder buffer imported into Skia's device. */
 export type ImportedBuffer = {
   /** The buffer (`AHardwareBuffer*`). */
   handle: bigint;
-  /** The import, and its external texture. */
-  wrapper: GPUNativeBufferExternalTexture;
-  /** The frame the wrapper was made from: it holds the buffer. */
-  nativeFrame: NativeVideoFrame;
+  /** The import, whose accesses each frame begins and ends. */
+  memory: GPUSharedTextureMemory;
+  /** The texture of the import, which the external texture samples. */
+  texture: GPUTexture;
+  /** The external texture, kept for every frame of the buffer. */
+  externalTexture: GPUExternalTexture;
+  /** The buffer the import was made from: it holds the decoder's buffer. */
+  nativeBuffer: NativeBuffer;
   /** The size of the buffer, its padding included. */
   width: number;
   height: number;
@@ -59,11 +60,12 @@ const MAX_UNUSED_FRAMES = 2 * MAX_BUFFERS;
 /** Releases an imported buffer. */
 export const releaseImportedBuffer = (buffer: ImportedBuffer) => {
   'worklet';
-  buffer.wrapper.externalTexture.destroy();
-  buffer.wrapper.destroy();
-  // The wrapper only drops its reference to the frame: the frame's own keeps
-  // the buffer (and its decoder's memory) until it is garbage collected.
-  buffer.nativeFrame.release();
+  buffer.externalTexture.destroy();
+  buffer.texture.destroy();
+  buffer.memory.destroy();
+  // The memory only drops its reference to the buffer: the buffer's own keeps
+  // it (and its decoder's memory) until it is garbage collected.
+  buffer.nativeBuffer.release();
 };
 
 /** Releases `buffer` and removes it from `imported`. */
@@ -122,31 +124,38 @@ export const getImportedBuffer = (
     forgetImportedBuffer(imported, oldest);
   }
 
-  // The wrapper holds the frame, and so the buffer, until it is destroyed:
-  // the handle can't be reused by another buffer while it is kept here.
-  const nativeFrame = webgpu.createVideoFrameFromNativeBuffer(handle);
-  let wrapper: GPUNativeBufferExternalTexture;
+  // The memory holds the buffer until it is destroyed: the handle can't be
+  // reused by another buffer while it is kept here.
+  const nativeBuffer = webgpu.createNativeBufferFromPointer(handle);
+  let memory: GPUSharedTextureMemory | undefined;
+  let texture: GPUTexture | undefined;
+  let externalTexture: GPUExternalTexture;
   try {
-    wrapper = device.createNativeBufferExternalTexture(nativeFrame, {
+    memory = device.importSharedTextureMemory({ source: nativeBuffer });
+    texture = memory.createTexture();
+    // Opens no access of its own: sampled between the memory's beginAccess()
+    // and endAccess().
+    externalTexture = device.importExternalTexture({
+      source: texture,
       rotation: rotation as 0 | 90 | 180 | 270,
       sourceColorSpace: VIDEO_COLOR_SPACE,
     });
   } catch (error) {
-    nativeFrame.release();
+    texture?.destroy();
+    memory?.destroy();
+    nativeBuffer.release();
     throw error;
   }
   const buffer: ImportedBuffer = {
     handle,
-    wrapper,
-    nativeFrame,
-    width: nativeFrame.width,
-    height: nativeFrame.height,
+    memory,
+    texture,
+    externalTexture,
+    nativeBuffer,
+    width: nativeBuffer.width,
+    height: nativeBuffer.height,
     rotation,
-    bindGroup: makeConversionBindGroup(
-      device,
-      wrapper.externalTexture,
-      uniformBuffer
-    ),
+    bindGroup: makeConversionBindGroup(device, externalTexture, uniformBuffer),
     lastUse: frameIndex,
   };
   buffers.push(buffer);
