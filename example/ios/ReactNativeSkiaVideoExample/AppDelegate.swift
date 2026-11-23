@@ -46,7 +46,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     factory.startReactNative(
       withModuleName: "ReactNativeSkiaVideoExample",
       in: window,
-      launchOptions: nil
+      connectionOptions: connectionOptions
     )
   }
 }
