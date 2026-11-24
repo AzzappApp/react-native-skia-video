@@ -153,7 +153,10 @@ export const exportVideoComposition = async <T = undefined>({
    */
   afterDrawFrame?: (context: T) => void;
   /**
-   * A signal used to cancel the export operation. If the signal is aborted, the promise will be rejected with an AbortError.
+   * A signal used to cancel the export operation. If the signal is aborted,
+   * the export stops at its next frame and the promise rejects with an
+   * AbortError once the export has released its decoders and encoder: the
+   * output path can be reused (or the partial file removed) right away.
    */
   abortSignal?: AbortSignal;
   /**
@@ -171,21 +174,27 @@ export const exportVideoComposition = async <T = undefined>({
       return;
     }
     const cancelledSynchronizable = createSynchronizable(false);
+    // Only stops the export: the promise settles once the export has released
+    // its decoders and encoder (see the end of its worklet).
     const abortListener = () => {
       abortSignal?.removeEventListener('abort', abortListener);
       cancelledSynchronizable.setBlocking(true);
-      reject(createAbortError(abortSignal));
     };
     abortSignal?.addEventListener('abort', abortListener);
     // The listener must not outlive the export: it keeps the synchronizable
-    // and this promise's scope alive through the caller's AbortSignal.
+    // and this promise's scope alive through the caller's AbortSignal. An
+    // abort wins over how the export ended, even after its last frame.
     const settleResolve = () => {
       abortSignal?.removeEventListener('abort', abortListener);
-      resolve(undefined);
+      if (abortSignal?.aborted) {
+        reject(createAbortError(abortSignal));
+      } else {
+        resolve(undefined);
+      }
     };
     const settleReject = (error: unknown) => {
       abortSignal?.removeEventListener('abort', abortListener);
-      reject(error);
+      reject(abortSignal?.aborted ? createAbortError(abortSignal) : error);
     };
 
     let frameImageContext: ReturnType<typeof getFrameImageContext>;
@@ -208,6 +217,9 @@ export const exportVideoComposition = async <T = undefined>({
       // Android: presents to the encoder's input window, made with the first
       // frame (typed so: it is set in a callback).
       let windowContext = null as RNCanvasContext | null;
+      let cancelled = false;
+      let failed = false;
+      let failure: unknown;
       try {
         try {
           encoder = RNSkiaVideoModule.createVideoEncoder(
@@ -245,7 +257,8 @@ export const exportVideoComposition = async <T = undefined>({
           const currentExtractor = frameExtractor;
           for (let i = 0; i < nbFrames; i++) {
             if (cancelledSynchronizable.getDirty()) {
-              return;
+              cancelled = true;
+              break;
             }
             const currentTime = i / options.frameRate;
             runPooled(() => {
@@ -388,13 +401,21 @@ export const exportVideoComposition = async <T = undefined>({
           releaseFrameImages(framesKey);
         }
 
-        encoder!.finishWriting();
+        if (!cancelled) {
+          encoder!.finishWriting();
+        }
       } catch (e) {
-        scheduleOnRN(settleReject, e);
-        return;
+        failed = true;
+        failure = e;
       } finally {
         encoder?.dispose();
       }
-      scheduleOnRN(settleResolve);
+      // Settled once the decoders and the encoder are released: a caller can
+      // reuse the output path as soon as the promise settles.
+      if (failed) {
+        scheduleOnRN(settleReject, failure);
+      } else {
+        scheduleOnRN(settleResolve);
+      }
     })();
   });

@@ -136,4 +136,7 @@ replace `encodeFrame`).
 
 `exportVideoComposition` additionally accepts `drawFrame`,
 `beforeDrawFrame` / `afterDrawFrame`, `onProgress({ framesCompleted, nbFrames })`
-and `abortSignal`.
+and `abortSignal`. Once aborted, the export stops at its next frame and its
+promise rejects with the signal's reason (an `AbortError` by default) after the
+decoders and the encoder are released: the output path can be reused, or the
+partial file removed, right away.
