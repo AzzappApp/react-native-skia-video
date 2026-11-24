@@ -8,10 +8,12 @@ sidebar_position: 4
 
 `exportVideoComposition` renders a composition to an H.264 file. It runs on a
 dedicated worklet thread: a synchronous extractor decodes the exact frame for
-each timestamp, your `drawFrame` renders it into an offscreen Skia surface,
-and the surface's texture is handed straight to the hardware encoder
-(MediaCodec on Android, AVAssetWriter on iOS) — no pixel readback. Audio
-items are mixed and encoded alongside.
+each timestamp, and your `drawFrame` renders it with Skia straight into the
+encoder's input, never read back from the GPU: on Android into the input
+surface of the hardware encoder (MediaCodec), through a React Native WebGPU
+canvas context; on iOS into a buffer converted once, in hardware, to the
+encoder's own NV12 format. The export runs at the encoder's pace. Audio items
+are mixed and encoded alongside.
 
 ```ts
 import { exportVideoComposition } from '@azzapp/react-native-skia-video';
@@ -39,11 +41,39 @@ await exportVideoComposition({
 | `width` / `height` | `number` | Output resolution in pixels. |
 | `frameRate` | `number` | Frames per second. |
 | `bitRate` | `number` | Video bit rate in bits per second. |
-| `encoderName` | `string` | Android only: a specific encoder from [`getValidEncoderConfigurations`](/docs/android-capabilities). |
+| `codec` | `'h264' \| 'hevc'` | Codec of the video track, H.264 by default. See [HEVC](#hevc). |
+| `encoderName` | `string` | Android only: a specific encoder from [`getValidEncoderConfigurations`](/docs/android-capabilities), asked for the same `codec`. |
 | `audioBitRate` / `audioSampleRate` / `audioChannelCount` | `number` | AAC settings when the composition [has audio](/docs/video-composition/audio). |
 | `onProgress` | `({ framesCompleted, nbFrames }) => void` | Called after each encoded frame. |
 | `abortSignal` | `AbortSignal` | Cancels the export; the promise rejects with an `AbortError`. |
 | `beforeDrawFrame` / `afterDrawFrame` | functions | Per-frame context hooks, as in playback. |
+
+## HEVC
+
+The video track is H.264 unless you ask for HEVC (H.265): about half the
+size at the same quality, which matters most above 1080p.
+
+```ts
+import {
+  exportVideoComposition,
+  isExportCodecSupported,
+} from '@azzapp/react-native-skia-video';
+
+await exportVideoComposition({
+  // …
+  codec: isExportCodecSupported('hevc') ? 'hevc' : 'h264',
+});
+```
+
+`isExportCodecSupported` tells whether the device has an encoder for the
+codec, not whether that encoder takes your size and rates: on Android, ask
+[`getValidEncoderConfigurations`](/docs/android-capabilities) with the codec
+as its last argument. An export whose codec the device cannot encode fails
+when it starts.
+
+HEVC is read by iOS 11+ and Android 5+ devices and by the main video
+platforms, but not by every browser nor every desktop player: keep H.264
+for a file whose player you do not know.
 
 ## Cancellation
 
@@ -72,6 +102,6 @@ controller.abort();
   devices; feed your target settings through
   [`getValidEncoderConfigurations`](/docs/android-capabilities) and use the
   first result.
-- **Cap decode resolutions.** Item `resolution` also applies during export;
-  decoding 4K sources to render 1080p output wastes decoder sessions (some
-  devices only have a few).
+- **Cap decode resolutions.** Item `maxLongSide` / `resolution` also apply
+  during export; decoding 4K sources to render 1080p output wastes decoder
+  sessions (some devices only have a few).

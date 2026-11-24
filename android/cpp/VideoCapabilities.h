@@ -36,7 +36,8 @@ public:
   getDecodingCapabilitiesFor(std::string mimeType);
   static jni::local_ref<JList<EncoderInfo>>
   getValidEncoderConfigurations(int width, int height, int framerate,
-                                int bitrate);
+                                int bitrate, std::string mimeType);
+  static bool hasEncoderFor(std::string mimeType);
 };
 
 } // namespace RNSkiaVideo

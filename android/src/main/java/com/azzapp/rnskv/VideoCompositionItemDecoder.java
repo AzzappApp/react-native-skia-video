@@ -1,11 +1,17 @@
 package com.azzapp.rnskv;
 
 import android.media.MediaCodec;
+import android.media.MediaCodecInfo;
+import android.media.MediaCodecList;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
+import android.os.Build;
+import android.os.Handler;
+import android.util.Log;
 import android.view.Surface;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -15,6 +21,9 @@ import java.util.Stack;
 
 /**
  * A class that decodes a video item from a video composition asynchronously.
+ *
+ * The decoder is only created while the item is live (see {@link #open} and {@link #close}): a
+ * composition keeps the decoders, and their buffers, of the items around its current time.
  */
 public class VideoCompositionItemDecoder extends MediaCodec.Callback {
 
@@ -25,6 +34,8 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
   private MediaCodec codec;
 
   private MediaFormat format;
+
+  private String mime;
 
   private boolean inputEOS = false;
 
@@ -40,9 +51,10 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
 
   private boolean prepared = false;
 
-  private boolean configured = false;
-
   private boolean started = false;
+
+  // Whether open() is creating the decoder, outside of the lock.
+  private boolean opening = false;
 
   private boolean released = false;
 
@@ -58,19 +70,35 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
 
   private OnFrameAvailableListener onFrameAvailableListener;
 
+  private static final String TAG = "VideoCompositionItemDecoder";
+
+  /**
+   * The operating rate of an export's decoders (see {@link #getExportFormat}): above what any
+   * decoder reaches, without overflowing the computations of some (Integer.MAX_VALUE does).
+   */
+  private static final int EXPORT_OPERATING_RATE = 1000;
+
+  // Whether the decoder decodes for an export rather than a preview.
+  private final boolean forExport;
+
+  // Whether the codec rejected the export settings (see getExportFormat): not tried again.
+  private boolean exportSettingsRejected = false;
+
   /**
    * Create a new VideoCompositionItemDecoder.
    *
-   * @param item the video composition item to decode
+   * @param item      the video composition item to decode
+   * @param forExport whether it decodes for an export, as fast as it can, rather than in real time
    */
-  public VideoCompositionItemDecoder(VideoComposition.Item item) {
+  public VideoCompositionItemDecoder(VideoComposition.Item item, boolean forExport) {
     this.item = item;
+    this.forExport = forExport;
   }
 
   /**
-   * Prepare the decoder.
+   * Reads the format of the item. The decoder itself is created by {@link #open}.
    *
-   * @throws IOException if the decoder cannot be prepared
+   * @throws IOException if the item cannot be read
    */
   synchronized public void prepare() throws IOException {
     if (prepared) {
@@ -83,42 +111,205 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
       throw new RuntimeException("No video track");
     }
     format = extractor.getTrackFormat(trackIndex);
-    String mime = format.getString(MediaFormat.KEY_MIME);
+    mime = format.getString(MediaFormat.KEY_MIME);
     if (mime == null) {
       throw new IOException("Could not determine file mime type");
     }
-    codec = MediaCodec.createDecoderByType(mime);
-    extractor.selectTrack(trackIndex);
-    if (item.getStartTime() != 0) {
-      extractor.seekTo(
-        TimeHelpers.secToUs(item.getStartTime()), MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
-    }
     videoWidth = format.getInteger(MediaFormat.KEY_WIDTH);
     videoHeight = format.getInteger(MediaFormat.KEY_HEIGHT);
+    extractor.selectTrack(trackIndex);
     rotation = format.containsKey(MediaFormat.KEY_ROTATION) ? format.getInteger(MediaFormat.KEY_ROTATION) : 0;
     prepared = true;
-    configure();
   }
 
   /**
-   * Start the decoder
+   * Creates the decoder, to decode from the given position of the composition once started (see
+   * {@link #start}), unless it is open.
+   *
+   * Creating, starting and releasing a decoder take tens of milliseconds: they are done outside of
+   * the lock that {@link #render} and the decoder's callbacks take.
+   *
+   * @param compositionTimeUs the position in the composition timeline, in microseconds
+   * @param callbackHandler   the handler the decoder's callbacks run on, or null for the looper of
+   *                          the calling thread
+   * @return whether the decoder was created
+   * @throws IOException if the decoder cannot be created
    */
-  synchronized public void start() {
-    if (!prepared || !configured || started) {
-      return;
+  public boolean open(long compositionTimeUs, @Nullable Handler callbackHandler)
+    throws IOException {
+    Surface surface;
+    synchronized (this) {
+      if (!prepared || released || codec != null || opening || this.surface == null) {
+        return false;
+      }
+      opening = true;
+      surface = this.surface;
     }
-    codec.start();
-    started = true;
+    MediaCodec codec;
+    try {
+      codec = createCodec();
+      MediaFormat exportFormat = getExportFormat();
+      if (exportFormat == null) {
+        configure(codec, format, surface, callbackHandler);
+      } else {
+        try {
+          configure(codec, exportFormat, surface, callbackHandler);
+        } catch (RuntimeException e) {
+          Log.w(TAG, "The decoder rejected the export settings, configured without them", e);
+          exportSettingsRejected = true;
+          codec = createCodec();
+          configure(codec, format, surface, callbackHandler);
+        }
+      }
+    } catch (IOException | RuntimeException e) {
+      synchronized (this) {
+        opening = false;
+      }
+      throw e;
+    }
+    synchronized (this) {
+      opening = false;
+      if (!released) {
+        this.codec = codec;
+        seekExtractor(compositionTimeUs);
+        return true;
+      }
+    }
+    // Released meanwhile.
+    codec.release();
+    return false;
   }
 
   /**
-   * Set the surface to render the video to.
+   * Starts decoding, once the decoder is open.
+   */
+  public void start() {
+    MediaCodec codec;
+    synchronized (this) {
+      if (this.codec == null || started) {
+        return;
+      }
+      codec = this.codec;
+      started = true;
+    }
+    try {
+      codec.start();
+    } catch (RuntimeException e) {
+      throw describeError("start", e);
+    }
+  }
+
+  /**
+   * An error of the decoder, with its item and, for a CodecException (which has no message), the
+   * codec's own diagnostic.
+   */
+  private RuntimeException describeError(String action, RuntimeException e) {
+    String details = e.getMessage();
+    if (e instanceof MediaCodec.CodecException) {
+      MediaCodec.CodecException codecException = (MediaCodec.CodecException) e;
+      details = codecException.getDiagnosticInfo()
+        + ", error code " + codecException.getErrorCode()
+        + (codecException.isTransient() ? ", transient" : "");
+    }
+    return new RuntimeException(
+      "Could not " + action + " the decoder of the item " + item.getId() + ": " + details, e);
+  }
+
+  /**
+   * Releases the decoder, the item's format is kept: {@link #open} creates another one.
+   */
+  public void close() {
+    MediaCodec codec;
+    synchronized (this) {
+      if (this.codec == null) {
+        return;
+      }
+      // Before the release: the callbacks it leaves queued see a decoder that is no longer this
+      // one.
+      codec = this.codec;
+      this.codec = null;
+      started = false;
+      freeFrames.addAll(pendingFrames);
+      pendingFrames.clear();
+    }
+    codec.release();
+  }
+
+  /**
+   * @return whether the decoder is open (see {@link #open})
+   */
+  synchronized public boolean isOpen() {
+    return codec != null;
+  }
+
+  /**
+   * The format an export's decoder is configured with: decoding as fast as it can, rather than in
+   * real time (KEY_PRIORITY) at the frame rate of the video (KEY_OPERATING_RATE). Configured for
+   * real time, a decoder was clocked for 30 fps while the export asked for 40. Null for a preview,
+   * before Android 10, or once the decoder rejected it.
+   */
+  @Nullable
+  private MediaFormat getExportFormat() {
+    // Android 10: MediaFormat's copy constructor.
+    if (!forExport || exportSettingsRejected || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+      return null;
+    }
+    // A copy: createCodec looks a decoder up with the item's own format.
+    MediaFormat exportFormat = new MediaFormat(format);
+    exportFormat.setInteger(MediaFormat.KEY_PRIORITY, 1);
+    exportFormat.setInteger(MediaFormat.KEY_OPERATING_RATE, EXPORT_OPERATING_RATE);
+    return exportFormat;
+  }
+
+  /**
+   * Configures the codec, released if it cannot be.
+   */
+  private void configure(
+    MediaCodec codec, MediaFormat format, Surface surface, @Nullable Handler callbackHandler) {
+    try {
+      codec.setCallback(this, callbackHandler);
+      codec.configure(format, surface, null, 0);
+    } catch (RuntimeException e) {
+      codec.release();
+      throw describeError("configure", e);
+    }
+  }
+
+  private MediaCodec createCodec() throws IOException {
+    // createDecoderByType always returns the first decoder for the mime type
+    // (usually the hardware one) even when it can't handle the stream, e.g. a
+    // 1080x2048 portrait video on a decoder capped at 1920x1088. Only then,
+    // pick one that supports the actual format: hardware decoders often
+    // under-report the frame rates and levels they decode, for which
+    // findDecoderForFormat would pick a (much slower) software decoder.
+    MediaCodec codec = MediaCodec.createDecoderByType(mime);
+    boolean sizeSupported = true;
+    try {
+      MediaCodecInfo.VideoCapabilities capabilities =
+        codec.getCodecInfo().getCapabilitiesForType(mime).getVideoCapabilities();
+      sizeSupported = capabilities == null
+        || capabilities.isSizeSupported(videoWidth, videoHeight);
+    } catch (IllegalArgumentException e) {
+      // Unknown capabilities: keep the default decoder.
+    }
+    if (!sizeSupported) {
+      String decoderName = new MediaCodecList(MediaCodecList.REGULAR_CODECS)
+        .findDecoderForFormat(format);
+      if (decoderName != null) {
+        codec.release();
+        codec = MediaCodec.createByCodecName(decoderName);
+      }
+    }
+    return codec;
+  }
+
+  /**
+   * Set the surface to render the video to, before the decoder is opened.
    *
    * @param surface the surface to render the video to
    */
-  public void setSurface(Surface surface) {
+  synchronized public void setSurface(Surface surface) {
     this.surface = surface;
-    configure();
   }
 
 
@@ -164,7 +355,8 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
 
   @Override
   synchronized public void onInputBufferAvailable(@NonNull MediaCodec codec, int index) {
-    if (!prepared || !configured || released) {
+    // A callback left queued by a closed decoder.
+    if (released || codec != this.codec) {
       return;
     }
 
@@ -210,7 +402,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
   @Override
   synchronized public void onOutputBufferAvailable(
     @NonNull MediaCodec codec, int index, @NonNull MediaCodec.BufferInfo info) {
-    if (released) {
+    if (released || codec != this.codec) {
       return;
     }
     boolean outputEOS = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
@@ -257,6 +449,11 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
 
   @Override
   public void onError(@NonNull MediaCodec codec, @NonNull MediaCodec.CodecException e) {
+    synchronized (this) {
+      if (released || codec != this.codec) {
+        return;
+      }
+    }
     if (onErrorListener != null) {
       onErrorListener.onError(e);
     }
@@ -268,7 +465,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
   }
 
   synchronized public Long render(long compositionTimeUs) {
-    if (pendingFrames.isEmpty()) {
+    if (codec == null || pendingFrames.isEmpty()) {
       return null;
     }
     long compositionStartTimeUs = TimeHelpers.secToUs(item.getCompositionStartTime());
@@ -284,9 +481,13 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     if (framesToRenders.isEmpty()) {
       return null;
     }
+    // Only the latest frame is rendered to the surface, the earlier ones are
+    // dropped: they are already outdated, and the frame extractor would still
+    // draw each of them into a frame buffer.
+    Frame latestFrame = framesToRenders.get(framesToRenders.size() - 1);
     framesToRenders.forEach(frame -> {
       try {
-        codec.releaseOutputBuffer(frame.outputBufferIndex, true);
+        codec.releaseOutputBuffer(frame.outputBufferIndex, frame == latestFrame);
       } catch (Throwable e) {
         return;
       }
@@ -294,7 +495,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     freeFrames.addAll(framesToRenders);
     pendingFrames.removeAll(framesToRenders);
 
-    return framesToRenders.get(framesToRenders.size() - 1).presentationTimeUs;
+    return latestFrame.presentationTimeUs;
   }
 
   /**
@@ -303,41 +504,49 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
    * @param time the position in the composition timeline, in microseconds
    */
   synchronized public void seekTo(long time) {
+    // A closed decoder is positioned when it is opened.
+    if (codec == null) {
+      return;
+    }
+    if (!started) {
+      seekExtractor(time);
+      return;
+    }
     freeFrames.addAll(pendingFrames);
     pendingFrames.clear();
     codec.flush();
+    seekExtractor(time);
+    codec.start();
+  }
+
+  /**
+   * Positions the extractor at the given position of the composition, and resets the decoding.
+   */
+  private void seekExtractor(long time) {
     long itemTime = time - TimeHelpers.secToUs(item.getCompositionStartTime());
     long seekTime = TimeHelpers.secToUs(item.getStartTime()) + Math.max(itemTime, 0);
     extractor.seekTo(seekTime, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
     itemEndReached = false;
     hasRenderedFrame = false;
     inputEOS = false;
-    if (started) {
-      codec.start();
-    }
   }
 
   /**
    * Release the decoder.
    */
-  synchronized public void release() {
-    if (!released) {
+  public void release() {
+    synchronized (this) {
+      if (released) {
+        return;
+      }
+      // The callbacks of the decoder no longer read the extractor.
       released = true;
+    }
+    close();
+    synchronized (this) {
       if (extractor != null) {
         extractor.release();
       }
-      if (codec != null) {
-        codec.release();
-        codec = null;
-      }
-    }
-  }
-
-  private synchronized void configure() {
-    if (prepared && surface != null && !configured) {
-      codec.setCallback(this);
-      codec.configure(format, surface, null, 0);
-      configured = true;
     }
   }
 

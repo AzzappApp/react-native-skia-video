@@ -95,7 +95,7 @@ const config: Config = {
           items: [
             {
               label: 'React Native Skia',
-              href: 'https://shopify.github.io/react-native-skia/',
+              href: 'https://wcandillon.github.io/react-native-skia/',
             },
             {
               label: 'Island Studio (tutorial app)',
