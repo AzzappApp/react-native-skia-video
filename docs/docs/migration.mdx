@@ -26,8 +26,12 @@ Native Skia 3.10.0 and React Native WebGPU 0.23.0 or above.
 
 ```sh
 yarn remove @shopify/react-native-skia
-yarn add react-native-skia react-native-webgpu @azzapp/react-native-skia-video@^1.0.0
+yarn add react-native-skia react-native-webgpu @azzapp/react-native-skia-video@next
 ```
+
+1.0 is in release candidate, published under the `next` tag. To stay on React
+Native Skia v2 (`@shopify/react-native-skia`), keep
+[0.10.1](https://www.npmjs.com/package/@azzapp/react-native-skia-video/v/0.10.1).
 
 React Native Skia and React Native WebGPU must be built against the same Dawn
 release: the native build fails with a `Dawn version mismatch` error otherwise.
@@ -112,8 +116,10 @@ install or configure.
   side of the decoded frames, keeping the aspect ratio. Safe for rotated videos,
   unlike `resolution`.
 - `volume` on the composition player: a master volume on top of the items'.
-- `audioFadeIn` / `audioFadeOut` on composition items: linear volume ramps,
+- `audioFadeIn` / `audioFadeOut` on audio items: linear volume ramps,
   during playback and in the export.
+- `codec: 'hevc'` on `exportVideoComposition`: HEVC (H.265) exports, after
+  checking `isExportCodecSupported('hevc')`.
 
 ## What doesn't change
 

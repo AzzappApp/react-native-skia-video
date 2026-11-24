@@ -113,7 +113,7 @@ A few rules of thumb:
 | Entry point | [`useVideoCompositionPlayer`](/docs/video-composition/playback) | [`exportVideoComposition`](/docs/video-composition/exporting) |
 | Thread | UI thread (every vsync) | Dedicated worklet thread |
 | Decoding | Real-time, dropped frames possible | Synchronous, every frame exact |
-| Output | `SkImage` for a `<Canvas>` | H.264 file via hardware encoder |
+| Output | `SkImage` for a `<Canvas>` | H.264 or HEVC file via hardware encoder |
 | Audio | Played through the speakers | Mixed and encoded as AAC |
 
 Because both sides run the exact same `drawFrame`, the preview *is* the

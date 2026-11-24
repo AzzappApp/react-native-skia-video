@@ -6,7 +6,8 @@ sidebar_position: 4
 
 # Exporting
 
-`exportVideoComposition` renders a composition to an H.264 file. It runs on a
+`exportVideoComposition` renders a composition to an H.264 (or
+[HEVC](#hevc)) file. It runs on a
 dedicated worklet thread: a synchronous extractor decodes the exact frame for
 each timestamp, and your `drawFrame` renders it with Skia straight into the
 encoder's input, never read back from the GPU: on Android into the input
