@@ -1,6 +1,6 @@
 {
   "name": "@azzapp/react-native-skia-video",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "description": "video support for react-native-skia",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
