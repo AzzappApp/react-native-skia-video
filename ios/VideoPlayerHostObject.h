@@ -10,6 +10,7 @@ using namespace facebook;
 
 - (instancetype)initWithHost:(RNSkiaVideo::EventEmitter*)host
                      runtime:(jsi::Runtime*)runtime;
+- (void)seekComplete;
 - (void)dispose;
 
 @end
@@ -20,7 +21,7 @@ class JSI_EXPORT VideoPlayerHostObject : public jsi::HostObject, EventEmitter {
 public:
   VideoPlayerHostObject(jsi::Runtime& runtime,
                         std::shared_ptr<react::CallInvoker> callInvoker,
-                        NSURL* url, CGSize resolution);
+                        NSURL* url, CGSize resolution, double maxLongSide);
   ~VideoPlayerHostObject();
   jsi::Value get(jsi::Runtime&, const jsi::PropNameID& name) override;
   void set(jsi::Runtime&, const jsi::PropNameID& name,
