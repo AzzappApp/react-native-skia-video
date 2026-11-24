@@ -35,8 +35,10 @@ VideoEncoder::create(std::string& outPath, int width, int height, int frameRate,
                      alias_ref<VideoComposition> composition,
                      int audioSampleRate, int audioChannelCount,
                      int audioBitRate, std::string& mimeType) {
+  // A null Java string without a name (the default encoder): a std::string
+  // can't be null, and one made from nullptr crashes in strlen.
   return newInstance(outPath, width, height, frameRate, bitRate,
-                     encoderName.has_value() ? encoderName.value() : nullptr,
+                     encoderName.has_value() ? encoderName->c_str() : nullptr,
                      composition, audioSampleRate, audioChannelCount,
                      audioBitRate, mimeType);
 }
