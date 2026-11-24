@@ -17,20 +17,19 @@ with audio mixed in.
 It powers the cover editor of [Azzapp](https://azzapp.com), where every cover
 video is composited and encoded on-device with this library.
 
-:::warning Beta
-The library is still in beta. The API is stable in practice but may evolve
-between minor versions.
-:::
-
-:::info React Native Skia v3
-Version 1.0 requires React Native Skia v3 (`react-native-skia`, Graphite
+:::info Release candidate
+Version 1.0 is in release candidate, published under the `next` tag: 1.0.0 is
+coming soon. It requires React Native Skia v3 (`react-native-skia`, Graphite
 backend). Coming from 0.x? Read [Migrating to 1.0](/docs/migration).
+
+To use React Native Skia v2 (`@shopify/react-native-skia`), stay on
+[0.10.1](https://www.npmjs.com/package/@azzapp/react-native-skia-video/v/0.10.1).
 :::
 
 ## Installation
 
 ```sh
-npm install @azzapp/react-native-skia-video
+npm install @azzapp/react-native-skia-video@next react-native-skia react-native-webgpu react-native-reanimated react-native-worklets
 ```
 
 The library relies on the following peer dependencies:

@@ -12,6 +12,12 @@ documented codebase exercising a different part of the API. They share the
 same stack (Expo, NativeWind, React Native Skia) and the same core idea: one
 worklet renders both the live preview and the export.
 
+:::caution Built on 0.10.1
+These apps still use version 0.10.1 of the library, on React Native Skia v2
+(`@shopify/react-native-skia`). The composition model and `drawFrame` are the
+same in 1.0; see [Migrating to 1.0](/docs/migration) for what changes.
+:::
+
 ```sh
 git clone <repo> && cd <repo>
 npm install && npx expo prebuild && npx expo run:ios   # or run:android

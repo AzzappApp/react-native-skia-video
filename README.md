@@ -4,12 +4,16 @@ Video encoding/decoding support for [React Native Skia](https://github.com/wcand
 
 > 📖 **[Documentation](https://azzappapp.github.io/react-native-skia-video/)** — getting started, guides (video player, compositions, audio, exporting), full API reference and a [complete example app](https://azzappapp.github.io/react-native-skia-video/docs/example).
 
-> ⚠️ This library is still a beta in a very unstable state
+> [!NOTE]
+> Version 1.0, for React Native Skia v3, is in release candidate (published
+> under the `next` tag): 1.0.0 is coming soon. To use React Native Skia v2
+> (`@shopify/react-native-skia`), stay on
+> [0.10.1](https://www.npmjs.com/package/@azzapp/react-native-skia-video/v/0.10.1).
 
 ## Installation
 
 ```sh
-npm install @azzapp/react-native-skia-video react-native-webgpu
+npm install @azzapp/react-native-skia-video@next react-native-skia react-native-webgpu react-native-reanimated react-native-worklets
 ```
 
 This library requires [React Native Skia](https://wcandillon.github.io/react-native-skia/) v3
@@ -35,6 +39,7 @@ The `useVideoPlayer` is a custom React hook used in the context of a video playe
 
 ```js
 import { Canvas, Image } from 'react-native-skia';
+import { useDerivedValue } from 'react-native-reanimated';
 import { useVideoPlayer } from '@azzapp/react-native-skia-video';
 
 const MyVideoPlayer = ({ uri, width, height }) =>{
@@ -225,7 +230,7 @@ WebGPU.
 
 - The images are owned by the player: an image only shows its frame until the
   next one is produced, so draw it instead of keeping it around (use
-  `image.makeRasterImageSync()` to keep a copy).
+  `await image.makeRasterImage()` to keep a copy).
 - iOS 16 and Android 9 (API level 28) or above are required.
 - On Android, frames are now upright: their `rotation` is always 0 (iOS frames
   keep the rotation to apply).
