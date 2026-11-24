@@ -233,7 +233,9 @@ export const useVideoCompositionPlayer = <T = undefined>({
   }, [framesExtractor, autoPlay]);
 
   const pixelRatio = PixelRatio.get();
-  useFrameCallback(() => {
+  // Memoized: Reanimated registers the frame callback again on the UI runtime
+  // whenever its identity changes, which an inline one does at every render.
+  const onFrame = useCallback(() => {
     'worklet';
     if (!framesExtractor || !frameImageContext) {
       return;
@@ -341,7 +343,23 @@ export const useVideoCompositionPlayer = <T = undefined>({
         reportFrameError('afterDrawFrame failed', error);
       }
     }
-  }, true);
+  }, [
+    afterDrawFrame,
+    beforeDrawFrame,
+    canvasSharedValue,
+    composition,
+    currentFrame,
+    drawFrame,
+    frameImageContext,
+    framesExtractor,
+    framesKey,
+    height,
+    pixelRatio,
+    surfaceDevice,
+    surfaceSharedValue,
+    width,
+  ]);
+  useFrameCallback(onFrame, true);
 
   return {
     currentFrame,

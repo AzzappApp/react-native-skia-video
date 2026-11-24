@@ -226,7 +226,10 @@ export const useVideoPlayer = ({
     }
   }, [player, autoPlay]);
 
-  useFrameCallback(() => {
+  // Memoized: Reanimated registers the frame callback again on the UI runtime
+  // whenever its identity changes, which an inline one does at every render.
+  const onFrame = useCallback(() => {
+    'worklet';
     if (
       !player ||
       !frameImageContext ||
@@ -249,7 +252,8 @@ export const useVideoPlayer = ({
     } catch (error) {
       reportFrameError('failed to show the video frame', error);
     }
-  }, true);
+  }, [currentFrame, frameImageContext, framesKey, player]);
+  useFrameCallback(onFrame, true);
 
   return {
     currentFrame,
