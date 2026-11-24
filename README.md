@@ -115,6 +115,9 @@ const MyVideoCompositionPlayer = ({ width, height }) =>{
     drawFrame,
     width,
     height,
+    // draws while playing, and paused only when something changed
+    // (a new frame after a seek, drawFrame, size, or a redraw() call)
+    drawMode: 'onDemand',
   });
 
   return (

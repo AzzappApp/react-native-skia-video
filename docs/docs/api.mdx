@@ -20,7 +20,7 @@ All exports of `@azzapp/react-native-skia-video`. Guides:
 | Export | Description |
 | --- | --- |
 | `useVideoPlayer(options)` | Plays a single video; returns `{ currentFrame, player }`. |
-| `useVideoCompositionPlayer(options)` | Plays a composition through a `drawFrame` worklet; returns `{ currentFrame, player }`. |
+| `useVideoCompositionPlayer(options)` | Plays a composition through a `drawFrame` worklet, every vsync or on demand (`drawMode`); returns `{ currentFrame, player, redraw }`. |
 | `exportVideoComposition(options)` | Renders a composition to an H.264 or HEVC file (AAC audio when present); returns a `Promise<void>`. |
 | `isExportCodecSupported(codec)` | Whether this device has an encoder for `'h264'` or `'hevc'`. |
 | `getDecodingCapabilitiesFor(mimetype)` | Android: decoder limits for a mime type. |

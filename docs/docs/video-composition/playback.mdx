@@ -7,8 +7,10 @@ sidebar_position: 2
 # Playback
 
 `useVideoCompositionPlayer` plays a composition in real time: it drives the
-decoders, calls your `drawFrame` into an offscreen GPU surface every vsync,
-and returns the resulting `SkImage` as a Reanimated derived value.
+decoders, calls your `drawFrame` into an offscreen GPU surface every vsync (or
+only when there is something new to draw, see
+[Drawing on demand](#drawing-on-demand)), and returns the resulting `SkImage`
+as a Reanimated derived value.
 
 ```tsx
 import { Canvas, Image } from 'react-native-skia';
@@ -49,6 +51,7 @@ const CompositionPlayer = ({ composition, width, height }) => {
 | `onReadyToPlay` | `() => void` | The composition is prepared. |
 | `onComplete` | `() => void` | Playback reached the end. |
 | `onError` | `(error, retry) => void` | Decoding failed, or the GPU can't draw the frames (see [Vulkan on Android](/docs/getting-started#vulkan-on-android)); call `retry()` to re-create the player. |
+| `drawMode` | `'continuous' \| 'onDemand'` | `'continuous'` (default) draws every vsync. `'onDemand'` draws while playing, and otherwise only when there is something new to draw ([Drawing on demand](#drawing-on-demand)). |
 
 ## Returns
 
@@ -61,6 +64,46 @@ const CompositionPlayer = ({ composition, width, height }) => {
   `currentTime`, `isPlaying` and `volume` (0–1, the master volume of the
   composition's audio, on top of each item's own: set it to mute the player
   rather than rebuilding the composition).
+- **`redraw`** — with `drawMode: 'onDemand'`, draws the current frame again
+  (see below). A worklet: call it from the JS thread or from the UI thread.
+
+## Drawing on demand
+
+By default the player draws every vsync, at 60–120 Hz, even while paused.
+A preview that is paused most of the time (an editor, a list of
+compositions) can ask for `drawMode: 'onDemand'`. The player then draws:
+
+- every vsync while playing;
+- when the decoders deliver a new frame, such as the frame of a `seekTo()`
+  while paused;
+- when what is drawn changes: a new `composition`, `drawFrame`, `width` or
+  `height`;
+- when you call `redraw()`.
+
+Otherwise it skips the frame: no `drawFrame` call, no GPU work. It still polls
+the decoders every vsync, which is what tells it a new frame arrived.
+
+`drawFrame` may read values the player can't see, like a shared value of
+your UI. Call `redraw()` when they change:
+
+```tsx
+const { currentFrame, redraw } = useVideoCompositionPlayer({
+  composition,
+  drawFrame, // reads `textColor.value`
+  width,
+  height,
+  drawMode: 'onDemand',
+});
+
+useAnimatedReaction(
+  () => textColor.value,
+  (current, previous) => {
+    if (current !== previous) {
+      redraw();
+    }
+  }
+);
+```
 
 ## Performance notes
 

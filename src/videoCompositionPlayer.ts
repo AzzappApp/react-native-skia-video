@@ -77,6 +77,15 @@ type UseVideoCompositionPlayerOptions<T = undefined> = {
    * @param retry a function that can be called to retry the operation.
    */
   onError?: (error: any, retry: () => void) => void;
+  /**
+   * When frames are drawn:
+   * - `'continuous'` (default): at every vsync.
+   * - `'onDemand'`: while playing, and otherwise only when there is something
+   *   new to draw: a frame the decoders delivered (after a seek), a new
+   *   `drawFrame` or size, or a `redraw()` call. A paused player then costs no
+   *   GPU work, which matters for previews that are mostly paused.
+   */
+  drawMode?: 'continuous' | 'onDemand';
 };
 
 type VideoCompositionPlayerController = Pick<
@@ -93,6 +102,28 @@ type UseVideoCompositionPlayerReturnType = {
    * The video player controller.
    */
   player: VideoCompositionPlayerController | null;
+  /**
+   * With `drawMode: 'onDemand'`, draws the current frame again: for a change
+   * `drawFrame` can't see, like a shared value it reads. A worklet: callable
+   * from the JS thread and from the UI thread.
+   */
+  redraw: () => void;
+};
+
+/**
+ * Whether the frames are not those last drawn: the player hands out a new
+ * image object for each new frame of an item (see makeVideoFrame).
+ */
+const framesChanged = (
+  frames: Record<string, VideoFrame>,
+  drawn: Record<string, SkImage>
+) => {
+  'worklet';
+  const ids = Object.keys(frames);
+  return (
+    ids.length !== Object.keys(drawn).length ||
+    ids.some((id) => frames[id]!.image !== drawn[id])
+  );
 };
 
 /**
@@ -110,6 +141,7 @@ export const useVideoCompositionPlayer = <T = undefined>({
   onReadyToPlay,
   onComplete,
   onError,
+  drawMode = 'continuous',
 }: UseVideoCompositionPlayerOptions<T>): UseVideoCompositionPlayerReturnType => {
   const [isErrored, setIsErrored] = useState(false);
   const retry = useCallback(() => {
@@ -188,6 +220,14 @@ export const useVideoCompositionPlayer = <T = undefined>({
   // drawing into the surface then writes into freed GPU buffers. The render
   // that `useGpu` brings comes frames later.
   const surfaceDevice = useSharedValue('');
+  // 'onDemand': whether a draw was asked for, and the images of the frames
+  // last drawn, by item.
+  const pendingRedraw = useSharedValue(true);
+  const drawnImages = useSharedValue<Record<string, SkImage>>({});
+  const redraw = useCallback(() => {
+    'worklet';
+    pendingRedraw.value = true;
+  }, [pendingRedraw]);
   useEffect(
     () => () => {
       framesExtractor?.dispose();
@@ -258,6 +298,7 @@ export const useVideoCompositionPlayer = <T = undefined>({
       surface = null;
       canvas = null;
     }
+    const newSurface = !surface;
     if (!surface) {
       surface = Skia.Surface.MakeOffscreen(
         width * pixelRatio,
@@ -292,6 +333,21 @@ export const useVideoCompositionPlayer = <T = undefined>({
     } catch (error) {
       reportFrameError('failed to turn the decoded frames into images', error);
     }
+    // The frames are made all the same: until a new frame comes, the decoders
+    // hand back the last one, which is released here.
+    if (
+      drawMode === 'onDemand' &&
+      !newSurface &&
+      !framesExtractor.isPlaying &&
+      !pendingRedraw.value &&
+      !framesChanged(frames, drawnImages.value)
+    ) {
+      return;
+    }
+    pendingRedraw.value = false;
+    drawnImages.value = Object.fromEntries(
+      Object.keys(frames).map((id) => [id, frames[id]!.image])
+    );
     let context: T;
     try {
       context = beforeDrawFrame?.() as T;
@@ -350,19 +406,27 @@ export const useVideoCompositionPlayer = <T = undefined>({
     composition,
     currentFrame,
     drawFrame,
+    drawMode,
+    drawnImages,
     frameImageContext,
     framesExtractor,
     framesKey,
     height,
+    pendingRedraw,
     pixelRatio,
     surfaceDevice,
     surfaceSharedValue,
     width,
   ]);
   useFrameCallback(onFrame, true);
+  // What is drawn changed (a new composition, drawFrame, size...): drawn again.
+  useEffect(() => {
+    redraw();
+  }, [onFrame, redraw]);
 
   return {
     currentFrame,
     player: framesExtractor,
+    redraw,
   };
 };
