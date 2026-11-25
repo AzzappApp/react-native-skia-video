@@ -1,0 +1,4 @@
+<resources>
+    <!-- The background of the app's screens (see src/theme.ts). -->
+    <color name="app_background">#0A0E14</color>
+</resources>

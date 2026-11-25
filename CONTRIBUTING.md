@@ -47,6 +47,12 @@ To run the example app on iOS:
 yarn example ios
 ```
 
+The example app has four screens:
+
+- **Clip export** exports a video of your library alone, at the frame rate you choose, and plays it next to the original, slowed down if needed: the quickest way to check an export frame by frame (a camera clip exported at its own rate should repeat or skip no frame).
+- **Video player** and **Video composition** stream videos from [Pexels](https://www.pexels.com/api/): set a (free) API key in `example/src/helpers/pexelsClient.ts` to use them.
+- **Benchmark** measures decoding, preview and export on clips it generates.
+
 To remove all the build folders:
 
 ```sh
