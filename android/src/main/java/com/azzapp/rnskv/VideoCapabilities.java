@@ -319,6 +319,10 @@ public class VideoCapabilities {
           continue;
         }
         currentFrameRate = (int) Math.floor(frameRateRange.clamp((double) currentFrameRate));
+        if (currentFrameRate < 1) {
+          // Not even 1 fps at this size.
+          continue;
+        }
         frameRateOverride = 1;
       }
 
@@ -342,10 +346,12 @@ public class VideoCapabilities {
       ));
     }
 
-    // Sort the list based on resolution, frame rate, and bitrate overrides
+    // Kept aspect ratio first, then hardware encoders, then the fewest resolution, frame rate and
+    // bitrate overrides. (reversed() would reverse the whole chain, aspect ratio included.)
     codecInfoWithOverrides.sort(Comparator
       .comparingInt(MediaCodecInfoWithOverrides::aspectRatioOverride)
-      .thenComparingInt(MediaCodecInfoWithOverrides::hardwareAccelerated).reversed()
+      .thenComparing(
+        Comparator.comparingInt(MediaCodecInfoWithOverrides::hardwareAccelerated).reversed())
       .thenComparingInt(MediaCodecInfoWithOverrides::resolutionOverride)
       .thenComparingInt(MediaCodecInfoWithOverrides::frameRateOverride)
       .thenComparingInt(MediaCodecInfoWithOverrides::bitrateOverride));
@@ -405,7 +411,8 @@ public class VideoCapabilities {
 
   /**
    * Finds the largest size supported by the encoder that keeps the aspect ratio
-   * of the requested size, or null if there is none.
+   * of the requested size, or null if there is none. Each width is tried with the
+   * aligned height nearest to the ratio first, then with the other one around it.
    */
   private static int[] findLargestSupportedSize(
     MediaCodecInfo.VideoCapabilities videoCapabilities,
@@ -419,11 +426,20 @@ public class VideoCapabilities {
     int candidateWidth = Math.min(width, videoCapabilities.getSupportedWidths().getUpper());
     candidateWidth -= candidateWidth % widthAlignment;
     for (; candidateWidth >= minWidth; candidateWidth -= widthAlignment) {
-      int candidateHeight = Math.round(candidateWidth / aspectRatio);
-      candidateHeight -= candidateHeight % heightAlignment;
-      if (candidateHeight > 0
-        && videoCapabilities.isSizeSupported(candidateWidth, candidateHeight)) {
-        return new int[]{candidateWidth, candidateHeight};
+      float idealHeight = candidateWidth / aspectRatio;
+      int lowerHeight = (int) idealHeight;
+      lowerHeight -= lowerHeight % heightAlignment;
+      int upperHeight = lowerHeight + heightAlignment;
+      boolean upperIsNearer = upperHeight - idealHeight < idealHeight - lowerHeight;
+      int nearerHeight = upperIsNearer ? upperHeight : lowerHeight;
+      int fartherHeight = upperIsNearer ? lowerHeight : upperHeight;
+      if (nearerHeight > 0
+        && videoCapabilities.isSizeSupported(candidateWidth, nearerHeight)) {
+        return new int[]{candidateWidth, nearerHeight};
+      }
+      if (fartherHeight > 0
+        && videoCapabilities.isSizeSupported(candidateWidth, fartherHeight)) {
+        return new int[]{candidateWidth, fartherHeight};
       }
     }
     return null;
