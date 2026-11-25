@@ -30,6 +30,10 @@ public:
   advanceDecoder(CMTime currentTime, bool decodeNextLoop = false,
                  std::optional<uint64_t> expectedGeneration = std::nullopt);
   void seekTo(CMTime currentTime);
+  // The latest frame due at `currentTime` that was not handed out yet, or
+  // null: a frame is due once its timestamp is reached, or slightly before
+  // (see isFrameDue in the .mm). With `force`, the first decoded frame if
+  // none is due.
   std::shared_ptr<VideoFrame> acquireFrameForTime(CMTime currentTime,
                                                   bool force);
   // Releases the reader and the decoded frames: while the item is not live.
@@ -74,6 +78,11 @@ private:
   std::list<std::pair<double, CMSampleBufferRef>> decodedFrames;
   std::list<std::pair<double, CMSampleBufferRef>> nextLoopFrames;
   CMTime lastRequestedTime = kCMTimeInvalid;
+  // The timestamp (seconds, presentation timeline) of the last frame
+  // acquireFrameForTime handed out, until the decoder is released or loops:
+  // the interval to the next frame bounds how early that one is due. Guarded
+  // by `framesMutex`.
+  std::optional<double> lastFrameTime;
   std::shared_ptr<VideoFrame> currentFrame;
 
   void setupReader(CMTime initialTime);

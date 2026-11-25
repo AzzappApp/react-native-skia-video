@@ -41,6 +41,12 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
 
   private boolean hasRenderedFrame = false;
 
+  // The presentation time of the last frame render() consumed (rendered or dropped), until the
+  // decoder is positioned again (see seekExtractor): the interval to the next frame bounds how
+  // early that one is due (see isFrameDue).
+  @Nullable
+  private Long lastFrameTimeUs = null;
+
   private boolean itemEndReached = false;
 
   private int videoWidth;
@@ -464,18 +470,52 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     // Do nothing
   }
 
+  /**
+   * How early a frame is due, before its timestamp: by less than a third of its interval to the
+   * previous frame, and less than 1/90 s (a third of a 30 fps frame).
+   *
+   * Camera recordings are variable frame rate: their frames are stamped with their capture times,
+   * which land slightly off the clip's frame rate (an iPhone rounds them to 1/600 s: 20 or 21 ticks
+   * apart at 30 fps). Were a frame only due at its timestamp, one slightly late would miss the time
+   * an export at the clip's rate asks for it: the previous frame would be exported twice and, once
+   * the next frame is on time again, this one never. Movement stutters (#89). With the margin, a
+   * frame that late is still due at its time, and the next one, a whole interval later, is not. A
+   * frame shown 11 ms early at most can't be seen.
+   */
+  private static final long MAX_FRAME_EARLINESS_US = 1_000_000 / 90;
+  private static final long FRAME_EARLINESS_DIVISOR = 3;
+
+  /**
+   * Whether a frame is due at a time, the frame of {@code previousFrameTimeUs}, if any, consumed
+   * before it. All three are presentation times of the video, in microseconds.
+   */
+  private static boolean isFrameDue(long frameTimeUs, @Nullable Long previousFrameTimeUs, long timeUs) {
+    long earlinessUs = frameTimeUs - timeUs;
+    if (earlinessUs <= 0) {
+      return true;
+    }
+    if (previousFrameTimeUs == null) {
+      return false;
+    }
+    long intervalUs = frameTimeUs - previousFrameTimeUs;
+    return earlinessUs < Math.min(intervalUs / FRAME_EARLINESS_DIVISOR, MAX_FRAME_EARLINESS_US);
+  }
+
   synchronized public Long render(long compositionTimeUs) {
     if (codec == null || pendingFrames.isEmpty()) {
       return null;
     }
     long compositionStartTimeUs = TimeHelpers.secToUs(item.getCompositionStartTime());
     long startTimeUs = TimeHelpers.secToUs(item.getStartTime());
+    // The time of the video at compositionTimeUs.
+    long timeUs = startTimeUs + compositionTimeUs - compositionStartTimeUs;
 
     List<Frame> framesToRenders = new ArrayList<>();
     for (Frame frame : pendingFrames) {
-      if (frame.presentationTimeUs - startTimeUs <= compositionTimeUs - compositionStartTimeUs || !hasRenderedFrame) {
+      if (!hasRenderedFrame || isFrameDue(frame.presentationTimeUs, lastFrameTimeUs, timeUs)) {
         framesToRenders.add(frame);
         hasRenderedFrame = true;
+        lastFrameTimeUs = frame.presentationTimeUs;
       }
     }
     if (framesToRenders.isEmpty()) {
@@ -528,6 +568,7 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
     extractor.seekTo(seekTime, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
     itemEndReached = false;
     hasRenderedFrame = false;
+    lastFrameTimeUs = null;
     inputEOS = false;
   }
 

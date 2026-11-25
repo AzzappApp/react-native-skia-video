@@ -274,6 +274,38 @@ void VideoCompositionItemDecoder::advanceDecoder(
   }
 }
 
+// How early a frame is due, before its timestamp: by less than a third of its
+// interval to the previous frame, and less than 1/90 s (a third of a 30 fps
+// frame).
+//
+// Camera recordings are variable frame rate. An iPhone stamps its frames with
+// their capture times rounded to 1/600 s: the frames of a 30 fps clip are 20
+// or 21 ticks apart, not exactly 1/30 s, and land a tick or so off the times
+// an export at the clip's rate asks for. Were a frame only due at its
+// timestamp, one a tick late would miss its time: the previous frame would be
+// exported twice and, once the next frame is on time again, this one never.
+// Movement stutters (#89). With the margin, a frame that late is still due at
+// its time, and the next one, a whole interval later, is not. A frame shown
+// 11 ms early at most can't be seen.
+static constexpr double FRAME_EARLINESS_RATIO = 1.0 / 3;
+static constexpr double MAX_FRAME_EARLINESS = 1.0 / 90;
+
+// Whether a frame (`frameTime`) is due at `time`, the frame of
+// `previousFrameTime`, if any, handed out before it.
+static bool isFrameDue(double frameTime,
+                       std::optional<double> previousFrameTime, CMTime time) {
+  CMTime timestamp = CMTimeMakeWithSeconds(frameTime, NSEC_PER_SEC);
+  if (CMTimeCompare(timestamp, time) <= 0) {
+    return true;
+  }
+  if (!previousFrameTime) {
+    return false;
+  }
+  double earliness = frameTime - CMTimeGetSeconds(time);
+  double interval = frameTime - *previousFrameTime;
+  return earliness < MIN(interval * FRAME_EARLINESS_RATIO, MAX_FRAME_EARLINESS);
+}
+
 std::shared_ptr<VideoFrame>
 VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
                                                  bool force) {
@@ -294,18 +326,20 @@ VideoCompositionItemDecoder::acquireFrameForTime(CMTime currentTime,
       }
       decodedFrames = std::move(nextLoopFrames);
       nextLoopFrames.clear();
+      // The last frame handed out is the previous loop's.
+      lastFrameTime.reset();
     }
     lastRequestedTime = currentTime;
 
     auto it = decodedFrames.begin();
     while (it != decodedFrames.end()) {
-      auto timestamp = CMTimeMakeWithSeconds(it->first, NSEC_PER_SEC);
-      if (CMTimeCompare(timestamp, position) <= 0 ||
+      if (isFrameDue(it->first, lastFrameTime, position) ||
           (force && nextFrame == nullptr)) {
         if (nextFrame != nullptr) {
           CFRelease(nextFrame);
         }
         nextFrame = it->second;
+        lastFrameTime = it->first;
         it = decodedFrames.erase(it);
       } else {
         break;
@@ -342,6 +376,7 @@ void VideoCompositionItemDecoder::release() {
       releaseFrames();
       hasLooped = false;
       lastRequestedTime = kCMTimeInvalid;
+      lastFrameTime.reset();
     }
     currentFrame = nullptr;
   }
