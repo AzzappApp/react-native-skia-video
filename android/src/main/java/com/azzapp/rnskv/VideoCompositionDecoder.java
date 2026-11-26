@@ -6,6 +6,7 @@ import androidx.annotation.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,7 +23,11 @@ public class VideoCompositionDecoder {
 
   private final VideoComposition composition;
 
-  private final HashMap<VideoComposition.Item, VideoCompositionItemDecoder> decoders;
+  /**
+   * Never modified after the constructor, not even by {@link #release}: it is iterated on several
+   * threads (the one preparing the decoders, the codec thread, the one releasing them).
+   */
+  private final Map<VideoComposition.Item, VideoCompositionItemDecoder> decoders;
 
   // The decoders hand their frames over in their own YUV buffers, converted to RGB by JS.
   private final HashMap<VideoComposition.Item, ImageReaderFrameExtractor> frameExtractors =
@@ -41,6 +46,12 @@ public class VideoCompositionDecoder {
   private volatile boolean started = false;
 
   /**
+   * Set by {@link #release}, under the lock, before it releases anything: read without the lock by
+   * {@link #prepare}, to stop at the next item.
+   */
+  private volatile boolean released = false;
+
+  /**
    * The handler the decoders' callbacks run on, or null for the looper of the thread opening them.
    */
   @Nullable
@@ -55,7 +66,7 @@ public class VideoCompositionDecoder {
    */
   public VideoCompositionDecoder(VideoComposition composition, boolean forExport) {
     this.composition = composition;
-    decoders = new HashMap<>();
+    HashMap<VideoComposition.Item, VideoCompositionItemDecoder> decoders = new HashMap<>();
     composition.getItems().forEach(item -> {
       if (!item.isVideo()) {
         return;
@@ -80,31 +91,43 @@ public class VideoCompositionDecoder {
       });
       decoders.put(item, decoder);
     });
+    this.decoders = Collections.unmodifiableMap(decoders);
   }
 
   /**
    * Reads the format of the items and prepares their image readers. The decoders are opened by
    * {@link #updateDecoders}.
+   *
+   * The player can be released meanwhile, on another thread (the player is prepared on the UI
+   * thread, disposed of on the JS one): it stops at the next item, and creates no image reader once
+   * released. The formats are read without the lock, a release does not wait for them.
    */
   public void prepare() {
-    decoders.values().forEach(decoder -> {
+    for (VideoCompositionItemDecoder decoder : decoders.values()) {
+      if (released) {
+        return;
+      }
       try {
         decoder.prepare();
-
         VideoComposition.Item item = decoder.getItem();
-        ImageReaderFrameExtractor frameExtractor = new ImageReaderFrameExtractor(
-          decoder.getVideoWidth(), decoder.getVideoHeight());
-        frameExtractor.setOnFrameAvailableListener(() -> {
-          if (onItemImageAvailableListener != null) {
-            onItemImageAvailableListener.onItemImageAvailable(item);
+        synchronized (this) {
+          if (released) {
+            return;
           }
-        });
-        frameExtractors.put(item, frameExtractor);
-        decoder.setSurface(frameExtractor.getSurface());
+          ImageReaderFrameExtractor frameExtractor = new ImageReaderFrameExtractor(
+            decoder.getVideoWidth(), decoder.getVideoHeight());
+          frameExtractor.setOnFrameAvailableListener(() -> {
+            if (onItemImageAvailableListener != null) {
+              onItemImageAvailableListener.onItemImageAvailable(item);
+            }
+          });
+          frameExtractors.put(item, frameExtractor);
+          decoder.setSurface(frameExtractor.getSurface());
+        }
       } catch (Exception e) {
         throw new RuntimeException(e);
       }
-    });
+    }
   }
 
   /**
@@ -346,8 +369,9 @@ public class VideoCompositionDecoder {
    * Releases the resources.
    */
   synchronized public void release() {
+    released = true;
+    // Not cleared: see decoders. A released decoder renders nothing and is never opened again.
     decoders.values().forEach(VideoCompositionItemDecoder::release);
-    decoders.clear();
     videoFrames.clear();
     frameExtractors.values().forEach(ImageReaderFrameExtractor::release);
     frameExtractors.clear();

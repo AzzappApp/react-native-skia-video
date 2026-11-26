@@ -197,6 +197,10 @@ public class VideoCompositionFramesExtractor {
       return;
     }
     decoder.prepare();
+    // Released meanwhile, on another thread: the playback thread is quitting.
+    if (releasing) {
+      return;
+    }
     handler.sendEmptyMessage(PLAYBACK_PREPARE);
     mainHandler.post(() -> {
       if (releasing) {

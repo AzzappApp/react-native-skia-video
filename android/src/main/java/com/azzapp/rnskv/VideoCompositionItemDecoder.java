@@ -101,7 +101,8 @@ public class VideoCompositionItemDecoder extends MediaCodec.Callback {
    * @throws IOException if the item cannot be read
    */
   synchronized public void prepare() throws IOException {
-    if (prepared) {
+    // Released before it was prepared: its extractor would never be released.
+    if (prepared || released) {
       return;
     }
     extractor = new MediaExtractor();
