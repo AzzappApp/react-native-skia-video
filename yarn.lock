@@ -52,6 +52,7 @@ __metadata:
     react: "npm:19.3.0"
     react-native: "npm:0.88.1"
     react-native-blob-util: "npm:0.25.3"
+    react-native-image-picker: "npm:^8.3.0"
     react-native-monorepo-config: "npm:^0.4.0"
     react-native-reanimated: "npm:^4.8.0"
     react-native-safe-area-context: "npm:^5.11.1"
@@ -11754,6 +11755,16 @@ __metadata:
   bin:
     bob: bin/bob
   checksum: 10/c5682bb6da7a7d96f8201e0afaa4efde148ed9e9009b94297066b45809993ac9c55117221b84925824019c13a13b0d35eb09cb6fa21e71cd712e9e03bff3e801
+  languageName: node
+  linkType: hard
+
+"react-native-image-picker@npm:^8.3.0":
+  version: 8.3.1
+  resolution: "react-native-image-picker@npm:8.3.1"
+  peerDependencies:
+    react: "*"
+    react-native: "*"
+  checksum: 10/3ebc227518a5fc3a682719e88c7a64882d6c3a58a1cdf293a8a13a29ced9a852140247e7ef5c005ce89456ef20696219c70d58a7db95f8006871865a298fd1ae
   languageName: node
   linkType: hard
 

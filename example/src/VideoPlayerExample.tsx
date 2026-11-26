@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Blur, Canvas, Image, Rect } from 'react-native-skia';
+import { Blur, Canvas, Fill, Image } from 'react-native-skia';
 import {
   ActivityIndicator,
-  Button,
   PixelRatio,
   Platform,
-  Text,
+  ScrollView,
   View,
   useWindowDimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   useVideoPlayer,
   type BufferingRange,
@@ -21,39 +21,56 @@ import Animated, {
   useSharedValue,
 } from 'react-native-reanimated';
 import type { Video } from 'pexels';
-import pexelsClient from './helpers/pexelsClient';
+import pexelsClient, { hasPexelsApiKey } from './helpers/pexelsClient';
+import { colors, sliderColors, spacing } from './theme';
+import {
+  AppText,
+  Button,
+  Card,
+  ChipGroup,
+  Screen,
+  ToggleRow,
+  styles,
+} from './ui';
+
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+type Speed = (typeof SPEEDS)[number];
 
 const VideoPlayerExample = () => {
   const [video, setVideo] = useState<Video | null>(null);
   const [loadedRanges, setLoadedRanges] = useState<BufferingRange[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [blur, setBlur] = useState(false);
-  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+  const [playbackSpeed, setPlaybackSpeed] = useState<Speed>(1);
 
   const loadRandomVideo = useCallback(() => {
     setLoading(true);
+    setLoadError(null);
     setVideo(null);
     setLoadedRanges([]);
-    setPlaybackSpeed(1.0);
+    setPlaybackSpeed(1);
     pexelsClient.videos
       .popular({ per_page: 1, page: Math.round(Math.random() * 1000) })
       .then(
         (response) => {
           if ('error' in response) {
-            console.error('Pexels API request failed, try again.');
+            setLoadError('The Pexels API request failed, try again.');
             return;
           }
           setVideo(response.videos[0] ?? null);
         },
         () => {
-          console.error('Pexels API request failed, try again.');
+          setLoadError('The Pexels API request failed, try again.');
         }
       );
   }, []);
 
   useEffect(() => {
-    loadRandomVideo();
+    if (hasPexelsApiKey) {
+      loadRandomVideo();
+    }
   }, [loadRandomVideo]);
 
   const onReadyToPlay = useCallback(() => {
@@ -133,13 +150,7 @@ const VideoPlayerExample = () => {
   const canvas = useMemo(
     () => (
       <Canvas style={canvasDimensions} android={{ backingView: 'SurfaceView' }}>
-        <Rect
-          x={0}
-          y={0}
-          width={canvasDimensions.width}
-          height={canvasDimensions.height}
-          color="black"
-        />
+        <Fill color="#05070A" />
         <Image
           x={canvasDimensions.width / 2 - videoDimensions.width / 2}
           y={0}
@@ -154,36 +165,63 @@ const VideoPlayerExample = () => {
     [videoImage, canvasDimensions, videoDimensions, blur]
   );
 
+  const insets = useSafeAreaInsets();
+
+  if (!hasPexelsApiKey) {
+    return (
+      <Screen>
+        <Card>
+          <AppText variant="heading">A Pexels API key is needed</AppText>
+          <AppText variant="muted">
+            This example streams videos from Pexels. Get a free key at
+            pexels.com/api and set it in example/src/helpers/pexelsClient.ts.
+          </AppText>
+        </Card>
+      </Screen>
+    );
+  }
+
   return (
-    <View style={{ flex: 1 }}>
-      {canvas}
-      {player &&
-        loadedRanges.map((range, index) => (
-          <View
-            key={index}
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <View>
+        {canvas}
+        {loading && (
+          <ActivityIndicator
+            size="large"
+            color={colors.accent}
             style={{
               position: 'absolute',
-              top: canvasDimensions.height,
-              left: (range.start / player.duration) * windowWidth,
-              width: (range.duration / player.duration) * windowWidth,
-              height: 5,
-              backgroundColor: 'rgba(255, 0, 0, 0.5)',
+              top: canvasDimensions.height / 2 - 18,
+              left: canvasDimensions.width / 2 - 18,
             }}
           />
-        ))}
-      {loading && (
-        <ActivityIndicator
-          size="large"
-          color="white"
-          style={{
-            position: 'absolute',
-            top: canvasDimensions.height / 2 - 18,
-            left: canvasDimensions.width / 2 - 18,
-          }}
-        />
-      )}
-      <View style={{ marginTop: 10, flex: 1, gap: 20, alignItems: 'center' }}>
+        )}
+      </View>
+      <View style={{ height: 3, backgroundColor: colors.surface }}>
+        {player &&
+          loadedRanges.map((range, index) => (
+            <View
+              key={index}
+              style={{
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                left: (range.start / player.duration) * windowWidth,
+                width: (range.duration / player.duration) * windowWidth,
+                backgroundColor: colors.accentSoft,
+              }}
+            />
+          ))}
+      </View>
+      <ScrollView
+        contentContainerStyle={{
+          padding: spacing.lg,
+          paddingBottom: spacing.xl + insets.bottom,
+          gap: spacing.lg,
+        }}
+      >
         <AnimatedSlider
+          {...sliderColors}
           animatedProps={sliderProps}
           minimumValue={0}
           onValueChange={(value) => {
@@ -192,56 +230,43 @@ const VideoPlayerExample = () => {
               player?.seekTo(value);
             }
           }}
-          style={{ alignSelf: 'stretch' }}
+          onSlidingComplete={(value) => {
+            if (Platform.OS === 'android') {
+              player?.seekTo(value);
+            }
+          }}
           disabled={loading}
-          maximumTrackTintColor={'#CCC'}
-          minimumTrackTintColor={'#F00'}
         />
-
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        {loadError != null && (
+          <AppText style={{ color: colors.danger }}>{loadError}</AppText>
+        )}
+        <View style={styles.row}>
           <Button
             title={isPlaying ? 'Pause' : 'Play'}
             onPress={() => (isPlaying ? player?.pause() : player?.play())}
             disabled={loading}
+            style={styles.grow}
           />
-          <Text style={{ color: '#000', fontSize: 16, fontWeight: '600' }}>
-            Speed: {playbackSpeed}x
-          </Text>
+          <Button
+            title="Another video"
+            variant="secondary"
+            onPress={loadRandomVideo}
+            disabled={loading && loadError == null}
+            style={styles.grow}
+          />
         </View>
-        <Button
-          title={'Load Random Video'}
-          onPress={loadRandomVideo}
-          disabled={loading}
-        />
-        <Button
-          title={blur ? 'Unblur' : 'Blur'}
-          onPress={() => setBlur((blur) => !blur)}
-        />
-        <View
-          style={{
-            flexDirection: 'row',
-            gap: 10,
-            flexWrap: 'wrap',
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}
-        >
-          {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((speed) => (
-            <Button
-              key={speed}
-              title={`${speed}x`}
-              onPress={() => setPlaybackSpeed(speed)}
-              color={playbackSpeed === speed ? '#007AFF' : undefined}
-              disabled={loading}
-            />
-          ))}
-        </View>
-        <Button
-          title={`Reset Speed`}
-          onPress={() => setPlaybackSpeed(1.0)}
-          disabled={loading}
-        />
-      </View>
+        <Card>
+          <AppText variant="caption">Speed</AppText>
+          <ChipGroup
+            options={SPEEDS}
+            value={playbackSpeed}
+            onChange={setPlaybackSpeed}
+            format={(speed) => `${speed}×`}
+            disabled={loading}
+          />
+          <ToggleRow label="Blur" value={blur} onValueChange={setBlur} />
+        </Card>
+      </ScrollView>
     </View>
   );
 };

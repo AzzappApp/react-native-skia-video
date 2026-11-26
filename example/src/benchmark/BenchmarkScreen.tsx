@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
-  Button,
   Platform,
   ScrollView,
   Share,
@@ -16,6 +15,8 @@ import ReactNativeBlobUtil from 'react-native-blob-util';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Skia } from 'react-native-skia';
 import { importDevice } from 'react-native-webgpu';
+import { colors, fonts, radius, spacing, switchColors } from '../theme';
+import { Button, ChipGroup } from '../ui';
 import { CLIPS, generateClip, getClip, isClipReady } from './clips';
 import { runColorCheck } from './colorCheck';
 import { PlayerRun, PreviewRun } from './LiveRuns';
@@ -321,12 +322,13 @@ const BenchmarkScreen = () => {
 
   return (
     <ScrollView
+      style={styles.screen}
       contentContainerStyle={[
         styles.container,
         {
-          paddingLeft: 16 + insets.left,
-          paddingRight: 16 + insets.right,
-          paddingBottom: 16 + insets.bottom,
+          paddingLeft: spacing.lg + insets.left,
+          paddingRight: spacing.lg + insets.right,
+          paddingBottom: spacing.lg + insets.bottom,
         },
       ]}
     >
@@ -347,7 +349,7 @@ const BenchmarkScreen = () => {
       {running ? (
         <View style={styles.section}>
           <Text style={styles.status}>{status}</Text>
-          <Button title="Stop" onPress={stop} />
+          <Button title="Stop" variant="danger" onPress={stop} />
         </View>
       ) : (
         <>
@@ -365,26 +367,23 @@ const BenchmarkScreen = () => {
               value={label}
               onChangeText={setLabel}
               placeholder="e.g. pr63-iphone15"
+              placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
               autoCorrect={false}
             />
           </View>
           <View style={styles.section}>
             <Text style={styles.title}>Runs per scenario</Text>
-            <View style={styles.row}>
-              {RUN_COUNTS.map((count) => (
-                <Button
-                  key={count}
-                  title={count === runCount ? `[${count}]` : `${count}`}
-                  onPress={() => setRunCount(count)}
-                />
-              ))}
-            </View>
+            <ChipGroup
+              options={RUN_COUNTS}
+              value={runCount}
+              onChange={setRunCount}
+            />
           </View>
           <View style={styles.section}>
             <Text style={styles.title}>Test clips</Text>
             {CLIPS.map((clip) => (
-              <Text key={clip.id}>
+              <Text key={clip.id} style={styles.text}>
                 {clip.id} ({clip.width}×{clip.height}@{clip.frameRate},{' '}
                 {clip.duration}s):{' '}
                 {readyClips.has(clip.id) ? 'ready' : 'generated on first run'}
@@ -392,6 +391,7 @@ const BenchmarkScreen = () => {
             ))}
             <Button
               title="Generate the clips"
+              variant="secondary"
               onPress={() => runBenchmark(true)}
             />
           </View>
@@ -400,6 +400,7 @@ const BenchmarkScreen = () => {
             {SCENARIOS.map((scenario) => (
               <View key={scenario.id} style={styles.row}>
                 <Switch
+                  {...switchColors}
                   value={selected.has(scenario.id)}
                   onValueChange={(value) => toggleScenario(scenario.id, value)}
                 />
@@ -421,6 +422,8 @@ const BenchmarkScreen = () => {
           </Text>
           <Button
             title="Share JSON"
+            variant="secondary"
+            compact
             disabled={results.length === 0 || running}
             onPress={() =>
               shareReport().catch((e) =>
@@ -435,11 +438,17 @@ const BenchmarkScreen = () => {
           />
           <Button
             title="Clear"
+            variant="ghost"
+            compact
             disabled={results.length === 0 || running}
             onPress={() => setResults([])}
           />
         </View>
-        {shareStatus != null && <Text selectable>{shareStatus.trim()}</Text>}
+        {shareStatus != null && (
+          <Text style={styles.text} selectable>
+            {shareStatus.trim()}
+          </Text>
+        )}
         {results.map((result, index) => (
           <ResultView key={index} result={result} />
         ))}
@@ -483,52 +492,74 @@ const ResultView = ({ result }: { result: RunResult }) => (
 export default BenchmarkScreen;
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   container: {
-    padding: 16,
-    gap: 16,
+    padding: spacing.lg,
+    gap: spacing.lg,
   },
   section: {
-    gap: 8,
+    gap: spacing.sm,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: spacing.sm,
   },
   grow: {
     flex: 1,
   },
+  text: {
+    color: colors.text,
+  },
   title: {
+    color: colors.text,
     fontWeight: 'bold',
     fontSize: 16,
   },
   hint: {
+    color: colors.textMuted,
     fontStyle: 'italic',
   },
   status: {
+    color: colors.text,
     fontSize: 16,
   },
   input: {
+    color: colors.text,
+    backgroundColor: colors.surfaceRaised,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 4,
-    padding: 8,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    padding: spacing.sm,
   },
   scenarioLabel: {
+    color: colors.text,
     flex: 1,
   },
   result: {
     gap: 2,
-    paddingVertical: 8,
+    paddingVertical: spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
   resultTitle: {
+    color: colors.text,
     fontWeight: 'bold',
   },
   error: {
-    color: 'red',
+    color: colors.danger,
   },
   metric: {
-    fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }),
+    color: colors.textMuted,
+    fontFamily: fonts.mono,
     fontSize: 12,
   },
 });

@@ -1,20 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import pexelsClient from './helpers/pexelsClient';
+import pexelsClient, { hasPexelsApiKey } from './helpers/pexelsClient';
+import { openVideoFile } from './helpers/files';
+import { colors, radius, screenOptions, sliderColors, spacing } from './theme';
+import {
+  AppText,
+  Button,
+  Card,
+  Loading,
+  ProgressBar,
+  Screen,
+  ToggleRow,
+  styles,
+} from './ui';
 import type { Video } from 'pexels';
 import {
   FlatList,
   Image,
   type ListRenderItem,
-  TouchableOpacity,
-  Button,
+  Pressable,
   useWindowDimensions,
   View,
-  ActivityIndicator,
-  Text,
   Platform,
   Alert,
-  Switch,
+  ScrollView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   createNativeStackNavigator,
   type NativeStackScreenProps,
@@ -33,7 +43,7 @@ import ReactNativeBlobUtil, {
   type FetchBlobResponse,
   type StatefulPromise,
 } from 'react-native-blob-util';
-import { Canvas, Image as ImageSkia, Skia } from 'react-native-skia';
+import { Canvas, Fill, Image as ImageSkia, Skia } from 'react-native-skia';
 import { createId } from '@paralleldrive/cuid2';
 import Slider from '@react-native-community/slider';
 import Animated, {
@@ -54,18 +64,18 @@ const Stack = createNativeStackNavigator<StackParamList>();
 
 const VideoCompositionExample = () => {
   return (
-    <Stack.Navigator>
+    <Stack.Navigator screenOptions={screenOptions}>
       <Stack.Screen
         name="SelectVideos"
         options={{
-          title: 'Select a set of video',
+          title: 'Pick some clips',
         }}
         component={PexelsVideoPicker}
       />
       <Stack.Screen
         name="PreviewComposition"
         options={{
-          title: 'Preview Composition',
+          title: 'Composition',
         }}
         component={VideoCompositionPreview}
       />
@@ -87,7 +97,11 @@ const PexelsVideoPicker = ({
     navigation.setOptions({
       headerRight: () => (
         <Button
-          title="Next"
+          title={
+            selectedVideos.size > 0 ? `Next (${selectedVideos.size})` : 'Next'
+          }
+          compact
+          disabled={selectedVideos.size === 0}
           onPress={() => {
             navigation.navigate('PreviewComposition', {
               videos: videos.filter((video) => selectedVideos.has(video.id)),
@@ -113,7 +127,9 @@ const PexelsVideoPicker = ({
   }, []);
 
   useEffect(() => {
-    loadVideos(page);
+    if (hasPexelsApiKey) {
+      loadVideos(page);
+    }
   }, [loadVideos, page]);
 
   const keyExtractor = useCallback((video: Video) => video.id.toString(), []);
@@ -130,21 +146,49 @@ const PexelsVideoPicker = ({
     });
   }, []);
 
+  const tileSize = (windowWidth - GRID_GAP * 5) / 4;
   const renderItem = useCallback<ListRenderItem<Video>>(
-    ({ item: video }) => (
-      <TouchableOpacity onPress={() => onSelectVideo(video.id)}>
-        <Image
-          source={{ uri: video.image }}
+    ({ item: video }) => {
+      const selected = selectedVideos.has(video.id);
+      return (
+        <Pressable
+          onPress={() => onSelectVideo(video.id)}
           style={{
-            width: windowWidth / 4,
-            height: windowWidth / 4,
+            width: tileSize,
+            height: tileSize,
+            borderRadius: radius.sm,
+            overflow: 'hidden',
             borderWidth: 2,
-            borderColor: selectedVideos.has(video.id) ? 'blue' : 'transparent',
+            borderColor: selected ? colors.accent : 'transparent',
           }}
-        />
-      </TouchableOpacity>
-    ),
-    [onSelectVideo, selectedVideos, windowWidth]
+        >
+          <Image
+            source={{ uri: video.image }}
+            style={{ flex: 1, opacity: selected ? 0.75 : 1 }}
+          />
+          {selected && (
+            <View
+              style={{
+                position: 'absolute',
+                top: spacing.xs,
+                right: spacing.xs,
+                width: 22,
+                height: 22,
+                borderRadius: 11,
+                backgroundColor: colors.accent,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <AppText style={{ color: colors.onAccent, fontWeight: '700' }}>
+                ✓
+              </AppText>
+            </View>
+          )}
+        </Pressable>
+      );
+    },
+    [onSelectVideo, selectedVideos, tileSize]
   );
 
   const onEndReached = useCallback(() => {
@@ -152,17 +196,41 @@ const PexelsVideoPicker = ({
     setPage((page) => page + 1);
   }, []);
 
+  if (!hasPexelsApiKey) {
+    return (
+      <Screen>
+        <Card>
+          <AppText variant="heading">A Pexels API key is needed</AppText>
+          <AppText variant="muted">
+            This example composes videos from Pexels. Get a free key at
+            pexels.com/api and set it in example/src/helpers/pexelsClient.ts.
+          </AppText>
+        </Card>
+      </Screen>
+    );
+  }
+
   return (
     <FlatList
       data={videos}
       keyExtractor={keyExtractor}
       renderItem={renderItem}
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: colors.background }}
+      contentContainerStyle={{ padding: GRID_GAP, gap: GRID_GAP }}
+      columnWrapperStyle={{ gap: GRID_GAP }}
       numColumns={4}
       onEndReached={onEndReached}
+      ListHeaderComponent={
+        <AppText variant="muted" style={{ padding: spacing.sm }}>
+          Pick a few clips: they are cross-faded, over music, into a composition
+          you can preview and export.
+        </AppText>
+      }
     />
   );
 };
+
+const GRID_GAP = 4;
 
 const MUSIC_URL =
   'https://archive.org/download/OpenGoldbergVariations/Kimiko%20Ishizaka%20-%20J.S.%20Bach-%20-Open-%20Goldberg%20Variations%2C%20BWV%20988%20%28Piano%29%20-%2001%20Aria.mp3';
@@ -502,159 +570,148 @@ const VideoCompositionPreview = ({
     [player]
   );
 
+  const insets = useSafeAreaInsets();
+  const clipCount =
+    videoComposition?.items.filter((item) => item.kind !== 'audio').length ?? 0;
+
+  if (exporting) {
+    return (
+      <Screen>
+        {exportedPath ? (
+          <>
+            <ExportedVideo path={exportedPath} />
+            <View style={styles.row}>
+              <Button
+                title={Platform.OS === 'ios' ? 'Share' : 'Open'}
+                onPress={() => openVideoFile(exportedPath)}
+                style={styles.grow}
+              />
+              <Button
+                title="Back to the preview"
+                variant="secondary"
+                onPress={() => {
+                  setExportedPath(null);
+                  setExporting(false);
+                }}
+                style={styles.grow}
+              />
+            </View>
+            <AppText variant="mono" selectable>
+              {exportedPath}
+            </AppText>
+          </>
+        ) : (
+          <Card>
+            <AppText variant="heading">Exporting…</AppText>
+            <ProgressBar progress={exportProgress} />
+            <AppText variant="muted">
+              {Math.round(exportProgress * 100)}%
+            </AppText>
+            <Button
+              title="Cancel"
+              variant="danger"
+              onPress={() => abortControllerRef.current?.abort()}
+            />
+          </Card>
+        )}
+      </Screen>
+    );
+  }
+
   return (
-    <View style={{ flex: 1 }}>
-      {!exporting && (
-        <>
-          <View
-            style={{
-              flex: 1,
-              gap: 20,
-              alignItems: 'center',
-            }}
-          >
-            <Canvas
-              style={{
-                width: windowWidth,
-                height: windowWidth,
-              }}
-              android={{ backingView: 'SurfaceView' }}
-            >
-              <ImageSkia
-                image={currentFrame}
-                x={0}
-                y={0}
-                width={windowWidth}
-                height={windowWidth}
-              />
-            </Canvas>
-            <View
-              style={{
-                opacity: videoComposition ? 1 : 0,
-                alignSelf: 'stretch',
-                gap: 10,
-                alignItems: 'center',
-              }}
-            >
-              <AnimatedSlider
-                animatedProps={sliderProps}
-                minimumValue={0}
-                maximumValue={duration}
-                onValueChange={(value) => {
-                  // Fires continuously on Android, only seek on release there.
-                  if (Platform.OS !== 'android') {
-                    seekTo(value);
-                  }
-                }}
-                onSlidingComplete={(value) => {
-                  if (Platform.OS === 'android') {
-                    seekTo(value);
-                  }
-                }}
-                style={{ alignSelf: 'stretch' }}
-                disabled={!videoComposition}
-                maximumTrackTintColor={'#CCC'}
-                minimumTrackTintColor={'#F00'}
-              />
-              <View
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
-              >
-                <Text style={{ color: 'black' }}>Background music</Text>
-                <Switch
-                  value={musicEnabled && musicPath != null}
-                  disabled={musicPath == null}
-                  onValueChange={setMusicEnabled}
-                />
-              </View>
-              <View
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
-              >
-                <Button
-                  title={isPlaying ? 'Pause' : 'Play'}
-                  onPress={() => {
-                    if (isPlaying) {
-                      player?.pause();
-                    } else {
-                      player?.play();
-                    }
-                    setIsPlaying(!isPlaying);
-                  }}
-                />
-                <Button
-                  title="Export"
-                  onPress={() => {
-                    exportCurrentComposition();
-                  }}
-                />
-              </View>
-            </View>
-          </View>
-          {!videoComposition && (
-            <View
-              style={{
-                position: 'absolute',
-                top: 100,
-                left: 0,
-                width: '100%',
-                gap: 20,
-                alignItems: 'center',
-              }}
-            >
-              {downloadError ? (
-                <Text style={{ color: 'black' }}>{downloadError}</Text>
-              ) : (
-                <>
-                  <ActivityIndicator size="large" />
-                  <Text style={{ color: 'black' }}>
-                    Downloading the video files… ({downloadProgress.done}/
-                    {downloadProgress.total})
-                  </Text>
-                </>
-              )}
-            </View>
-          )}
-        </>
-      )}
-      {exporting && (
-        <View
-          style={{
-            flex: 1,
-            marginTop: exportedPath ? 0 : 100,
-            gap: 20,
-            alignItems: 'center',
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <Canvas
+        style={{
+          width: windowWidth,
+          height: windowWidth,
+        }}
+        android={{ backingView: 'SurfaceView' }}
+      >
+        <Fill color="#05070A" />
+        <ImageSkia
+          image={currentFrame}
+          x={0}
+          y={0}
+          width={windowWidth}
+          height={windowWidth}
+        />
+      </Canvas>
+      {videoComposition ? (
+        <ScrollView
+          contentContainerStyle={{
+            padding: spacing.lg,
+            paddingBottom: spacing.xl + insets.bottom,
+            gap: spacing.lg,
           }}
         >
-          {exportedPath ? (
-            <>
-              <ExportedVideo path={exportedPath} />
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <Button
-                  title="Open in another app"
-                  onPress={() => openVideoFile(exportedPath)}
-                />
-                <Button
-                  title="Back"
-                  onPress={() => {
-                    setExportedPath(null);
-                    setExporting(false);
-                  }}
-                />
-              </View>
-              <Text style={{ color: 'black' }} selectable>
-                {exportedPath}
-              </Text>
-            </>
+          <AnimatedSlider
+            {...sliderColors}
+            animatedProps={sliderProps}
+            minimumValue={0}
+            maximumValue={duration}
+            onValueChange={(value) => {
+              // Fires continuously on Android, only seek on release there.
+              if (Platform.OS !== 'android') {
+                seekTo(value);
+              }
+            }}
+            onSlidingComplete={(value) => {
+              if (Platform.OS === 'android') {
+                seekTo(value);
+              }
+            }}
+          />
+          <View style={styles.row}>
+            <Button
+              title={isPlaying ? 'Pause' : 'Play'}
+              variant="secondary"
+              onPress={() => {
+                if (isPlaying) {
+                  player?.pause();
+                } else {
+                  player?.play();
+                }
+                setIsPlaying(!isPlaying);
+              }}
+              style={styles.grow}
+            />
+            <Button
+              title="Export"
+              onPress={() => {
+                exportCurrentComposition();
+              }}
+              style={styles.grow}
+            />
+          </View>
+          <Card>
+            <ToggleRow
+              label={
+                musicPath == null
+                  ? 'Background music (downloading…)'
+                  : 'Background music'
+              }
+              value={musicEnabled && musicPath != null}
+              disabled={musicPath == null}
+              onValueChange={setMusicEnabled}
+            />
+            <AppText variant="muted">
+              {clipCount} clips · {duration.toFixed(1)} s · exported in
+              1920×1920 at 60 fps
+            </AppText>
+          </Card>
+        </ScrollView>
+      ) : (
+        <View style={{ padding: spacing.lg }}>
+          {downloadError ? (
+            <Card>
+              <AppText style={{ color: colors.danger }}>
+                {downloadError}
+              </AppText>
+            </Card>
           ) : (
-            <>
-              <ActivityIndicator size="large" />
-              <Text style={{ color: 'black' }}>
-                Exporting video {Math.round(exportProgress * 100)}%...
-              </Text>
-              <Button
-                title="Cancel"
-                onPress={() => abortControllerRef.current?.abort()}
-              />
-            </>
+            <Loading
+              label={`Downloading the clips… (${downloadProgress.done}/${downloadProgress.total})`}
+            />
           )}
         </View>
       )}
@@ -667,6 +724,7 @@ const VideoCompositionPreview = ({
  */
 const ExportedVideo = ({ path }: { path: string }) => {
   const { width } = useWindowDimensions();
+  const size = width - 2 * spacing.lg;
   const { currentFrame } = useVideoPlayer({
     uri: `file://${path}`,
     autoPlay: true,
@@ -675,30 +733,18 @@ const ExportedVideo = ({ path }: { path: string }) => {
   const image = useDerivedValue(() => currentFrame.value?.image ?? null);
   return (
     <Canvas
-      style={{ width, height: width }}
+      style={{ width: size, height: size }}
       android={{ backingView: 'SurfaceView' }}
     >
+      <Fill color="#05070A" />
       <ImageSkia
         image={image}
         x={0}
         y={0}
-        width={width}
-        height={width}
+        width={size}
+        height={size}
         fit="contain"
       />
     </Canvas>
   );
-};
-
-/**
- * Opens a video file of the app with the system's apps.
- */
-const openVideoFile = (path: string) => {
-  if (Platform.OS === 'android') {
-    ReactNativeBlobUtil.android
-      .actionViewIntent(path, 'video/mp4')
-      .catch((error) => Alert.alert('Could not open the video', String(error)));
-  } else {
-    ReactNativeBlobUtil.ios.previewDocument(path);
-  }
 };
